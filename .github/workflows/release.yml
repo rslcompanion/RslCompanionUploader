@@ -1,0 +1,115 @@
+# Release pipeline for the RSL Companion Account Data Extractor.
+#
+# Trigger: push a tag like v1.2.0 (or run manually with a version input).
+# Output:  a GitHub Release with the versioned installer + its SHA-256 checksum.
+#
+# The stable download URL (get.rslcompanion.com/RslCompanionAccountDataExtractor-Setup.exe)
+# should redirect to the versioned asset of the latest release.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build (e.g. 1.2.0)"
+        required: true
+
+permissions:
+  contents: write # create the GitHub Release
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      # EXTRACTION_REPO_TOKEN: fine-grained PAT with read access to the private
+      # RslCompanionExtraction repo, so the extraction/ submodule can be fetched. Official
+      # releases must include the engine; without this secret the build would silently
+      # produce an upload-only binary.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.EXTRACTION_REPO_TOKEN }}
+
+      - name: Ensure extraction engine is present
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "extraction\RslCompanion.Extraction.csproj")) {
+            throw "extraction/ submodule missing — check EXTRACTION_REPO_TOKEN."
+          }
+
+      - name: Derive version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.version }}'
+          } else {
+            '${{ github.ref_name }}'.TrimStart('v')
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version '$v' is not in X.Y.Z form." }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish self-contained build
+        shell: pwsh
+        run: >
+          dotnet publish RslCompanionUploader.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:Version=${{ steps.ver.outputs.version }}
+          -o publish\win-x64
+
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          # Inno Setup 6 is preinstalled on GitHub's Windows runner images; install it if missing.
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          & $iscc /DMyAppVersion=${{ steps.ver.outputs.version }} installer\setup.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+      # ── Code signing ────────────────────────────────────────────────────────
+      # TODO once a signing identity exists (e.g. Azure Trusted Signing): sign
+      # installer\dist\*.exe here, BEFORE the checksum step, so the published
+      # hash matches what users download.
+      # - uses: azure/trusted-signing-action@v0
+      #   with: ...
+
+      - name: Version the artifact and generate SHA-256 checksum
+        id: art
+        shell: pwsh
+        run: |
+          $version = '${{ steps.ver.outputs.version }}'
+          $name = "RslCompanionAccountDataExtractor-Setup-$version.exe"
+          Move-Item "installer\dist\RslCompanionAccountDataExtractor-Setup.exe" "installer\dist\$name"
+
+          $hash = (Get-FileHash "installer\dist\$name" -Algorithm SHA256).Hash.ToLower()
+          # sha256sum-compatible format so users can verify with any standard tool.
+          "$hash *$name" | Out-File -Encoding ascii "installer\dist\$name.sha256"
+
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Get-Content "installer\dist\$name.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: v${{ steps.ver.outputs.version }}
+          generate_release_notes: true
+          files: |
+            installer/dist/RslCompanionAccountDataExtractor-Setup-*.exe
+            installer/dist/*.sha256
+          body: |
+            **SHA-256:** `${{ steps.art.outputs.sha256 }}`
+
+            Verify your download (PowerShell):
+            ```
+            Get-FileHash RslCompanionAccountDataExtractor-Setup-${{ steps.ver.outputs.version }}.exe -Algorithm SHA256
+            ```

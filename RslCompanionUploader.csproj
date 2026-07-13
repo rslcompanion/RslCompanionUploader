@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>RslCompanionUploader</RootNamespace>
+    <AssemblyName>RslCompanionUploader</AssemblyName>
+  </PropertyGroup>
+
+  <!-- The game-data extraction engine lives in a PRIVATE repo, consumed as a git submodule at
+       extraction/. Public clones build without it: the EXTRACTION define is absent, the
+       "Sync from game" code paths compile out, and file upload still works. -->
+  <ItemGroup>
+    <!-- The submodule lives inside the project folder; keep its sources out of this
+         project's implicit globs — it is consumed via the ProjectReference below. -->
+    <Compile Remove="extraction\**" />
+    <None Remove="extraction\**" />
+    <Content Remove="extraction\**" />
+    <EmbeddedResource Remove="extraction\**" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <ExtractionAvailable>false</ExtractionAvailable>
+    <ExtractionAvailable Condition="Exists('$(MSBuildProjectDirectory)\extraction\RslCompanion.Extraction.csproj')">true</ExtractionAvailable>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(ExtractionAvailable)' == 'true'">
+    <DefineConstants>$(DefineConstants);EXTRACTION</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(ExtractionAvailable)' == 'true'">
+    <ProjectReference Include="extraction\RslCompanion.Extraction.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+    <PackageReference Include="Svg" Version="3.4.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>
