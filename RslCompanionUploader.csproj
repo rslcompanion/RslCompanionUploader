@@ -10,6 +10,15 @@
     <RootNamespace>RslCompanionUploader</RootNamespace>
     <AssemblyName>RslCompanionUploader</AssemblyName>
     <ApplicationIcon>icon.ico</ApplicationIcon>
+
+    <!-- Version info baked into the exe. Well-described, signed binaries are far less likely to be
+         flagged by SmartScreen/AV heuristics than anonymous ones. Version is supplied by CI
+         (-p:Version=X.Y.Z); it defaults to 1.0.0 for local builds. -->
+    <Company>RSL Companion</Company>
+    <Product>RSL Companion Account Data Extractor</Product>
+    <AssemblyTitle>RSL Companion Account Data Extractor</AssemblyTitle>
+    <Description>Signs in to rslcompanion.com and uploads Raid: Shadow Legends account data.</Description>
+    <Copyright>Copyright © RSL Companion</Copyright>
   </PropertyGroup>
 
   <!-- The game-data extraction engine lives in a PRIVATE repo, consumed as a git submodule at

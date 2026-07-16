@@ -61,12 +61,41 @@ jobs:
 
       - name: Publish self-contained build
         shell: pwsh
+        # Multi-file self-contained (no PublishSingleFile): Inno packs the whole folder anyway, and
+        # avoiding the single-file self-extraction-to-temp pattern reduces AV "dropper" heuristic
+        # flags and speeds startup.
         run: >
           dotnet publish RslCompanionUploader.csproj -c Release -r win-x64 --self-contained true
-          -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:EnableCompressionInSingleFile=true
           -p:Version=${{ steps.ver.outputs.version }}
           -o publish\win-x64
+
+      # Whether code signing runs is gated on the Azure Trusted Signing secrets being configured, so
+      # releases still build (unsigned) until a signing identity exists.
+      - name: Check signing config
+        id: signcfg
+        shell: pwsh
+        run: |
+          $enabled = -not [string]::IsNullOrEmpty('${{ secrets.AZURE_CLIENT_ID }}')
+          "enabled=$enabled" >> $env:GITHUB_OUTPUT
+          Write-Host "Code signing enabled: $enabled"
+
+      # Sign the app exe BEFORE Inno packs it, so antivirus scanning the installed/extracted exe
+      # sees a valid signature.
+      - name: Sign application exe
+        if: steps.signcfg.outputs.enabled == 'True'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\publish\win-x64\RslCompanionUploader.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Compile installer
         shell: pwsh
@@ -77,12 +106,23 @@ jobs:
           & $iscc /DMyAppVersion=${{ steps.ver.outputs.version }} installer\setup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
-      # ── Code signing ────────────────────────────────────────────────────────
-      # TODO once a signing identity exists (e.g. Azure Trusted Signing): sign
-      # installer\dist\*.exe here, BEFORE the checksum step, so the published
-      # hash matches what users download.
-      # - uses: azure/trusted-signing-action@v0
-      #   with: ...
+      # Sign the finished installer — this is the file SmartScreen checks on download. Must run
+      # BEFORE the checksum step so the published SHA-256 matches the signed binary users receive.
+      - name: Sign installer
+        if: steps.signcfg.outputs.enabled == 'True'
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\installer\dist\RslCompanionAccountDataExtractor-Setup.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
 
       - name: Version the artifact and generate SHA-256 checksum
         id: art

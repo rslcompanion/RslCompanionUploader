@@ -2,8 +2,7 @@
 ;
 ; Build:
 ;   1. dotnet publish ..\RslCompanionUploader.csproj -c Release -r win-x64 --self-contained true ^
-;        -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true ^
-;        -p:EnableCompressionInSingleFile=true -o ..\publish\win-x64
+;        -o ..\publish\win-x64
 ;   2. ISCC.exe setup.iss
 ;
 ; Per-user install (no admin prompt): files go to %LocalAppData%\Programs and the
