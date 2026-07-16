@@ -7,14 +7,20 @@ namespace RslCompanionUploader;
 
 internal static class Program
 {
-    // [STAThread] is mandatory: WebView2 (used for social sign-in) requires the UI thread to be a
-    // single-threaded COM apartment. We must NOT await before Application.Run, or the continuation
-    // would resume on an MTA thread-pool thread and WebView2 would fail with RPC_E_CHANGED_MODE.
+    // [STAThread] is mandatory for WinForms (and WebView2, which requires the UI thread to be a
+    // single-threaded COM apartment). We must NOT await before Application.Run, or the continuation
+    // could resume on an MTA thread-pool thread.
     [STAThread]
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
         ProtocolHandler.RegisterCurrentUser();
+
+        // Single-instance: when the app is already running and the browser fires
+        // rslcompanion-extractor://sync?rt=..., that second launch forwards its args to the running
+        // instance (so BrowserSignInForm can complete the handoff) instead of opening a new window.
+        if (!SingleInstance.TryBecomePrimary(args))
+            return;
 
         var config = AppConfig.Load();
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
@@ -24,15 +30,13 @@ internal static class Program
 
         if (session is null)
         {
-            using var login = new LoginForm(config, auth);
-            if (login.ShowDialog() != DialogResult.OK || login.Session is null)
+            // No cached session: open the user's browser and wait for the token to be handed back.
+            using var signIn = new BrowserSignInForm(config, auth);
+            if (signIn.ShowDialog() != DialogResult.OK || signIn.Session is null)
                 return;
 
-            session = login.Session;
-            if (login.RememberMe)
-                Persist(session);
-            else
-                CredentialStore.ClearSession();
+            session = signIn.Session;
+            Persist(session);
         }
 
         var api = new RslCompanionApiClient(http, config, auth, session);

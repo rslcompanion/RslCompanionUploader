@@ -68,5 +68,14 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[UninstallDelete]
+; The app stores its per-user data OUTSIDE the install dir, in %LocalAppData%\RslCompanionUploader:
+;   - creds.dat  : DPAPI-encrypted Firebase refresh token ("remember me")
+;   - WebView2\   : embedded-browser profile (site cookies / IndexedDB session)
+; The [Files] uninstall only cleans {app}, so without this an uninstall would leave a live
+; credential behind and a reinstall would silently sign the user back in. Remove the whole folder.
+; UninstallDelete is best-effort: a transiently-locked WebView2 file is skipped, not fatal.
+Type: filesandordirs; Name: "{localappdata}\RslCompanionUploader"
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent

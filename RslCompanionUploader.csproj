@@ -9,6 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>RslCompanionUploader</RootNamespace>
     <AssemblyName>RslCompanionUploader</AssemblyName>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- The game-data extraction engine lives in a PRIVATE repo, consumed as a git submodule at
@@ -35,8 +36,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- WebView2 is retained for hosting web-based content panels inside the app. -->
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
-    <PackageReference Include="Svg" Version="3.4.7" />
   </ItemGroup>
 
   <ItemGroup>

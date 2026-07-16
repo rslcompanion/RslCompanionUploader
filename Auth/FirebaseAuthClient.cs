@@ -76,13 +76,6 @@ public sealed class FirebaseAuthClient
         return await EnrichIdentityAsync(session, ct);
     }
 
-    /// <summary>Builds a session from tokens harvested out of a WebView2 login (social providers).</summary>
-    public async Task<AuthSession> FromHarvestedTokensAsync(string idToken, string refreshToken, DateTime expiresAtUtc, CancellationToken ct = default)
-    {
-        var session = new AuthSession { IdToken = idToken, RefreshToken = refreshToken, ExpiresAtUtc = expiresAtUtc };
-        return await EnrichIdentityAsync(session, ct);
-    }
-
     /// <summary>
     /// Signs in from a bare refresh token (handed over by the website's protocol launch):
     /// exchanges it for an ID token, then looks up who it belongs to.

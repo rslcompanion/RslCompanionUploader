@@ -9,7 +9,14 @@ namespace RslCompanionUploader.Api;
 public sealed class AccountSummary
 {
     [JsonPropertyName("id")] public int Id { get; set; }
+
+    /// <summary>
+    /// The account's numeric in-game user id — the "handle" identity (distinct from the signed-in
+    /// uploader). The server derives it from the extracted accountId, so it's what we match a running
+    /// game account against, and it's the profileId the per-account upload endpoints expect.
+    /// </summary>
     [JsonPropertyName("userId")] public int UserId { get; set; }
+
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("clanName")] public string? ClanName { get; set; }
     [JsonPropertyName("heroCount")] public int HeroCount { get; set; }

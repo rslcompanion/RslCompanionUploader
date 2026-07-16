@@ -26,6 +26,16 @@ public sealed class AppConfig
     /// </summary>
     public string SyncConsolidatedEndpoint { get; init; } = "/api/sync/consolidated/raw";
 
+    /// <summary>
+    /// Server-relative page the app opens in the user's browser to sign in. When a session is already
+    /// active there, that page should launch <c>rslcompanion-extractor://sync?rt=...</c> to hand the
+    /// refresh token back to the app.
+    /// </summary>
+    public string ConnectExtractorPath { get; init; } = "/connect-extractor";
+
+    /// <summary>Absolute URL <see cref="Forms.BrowserSignInForm"/> opens for browser sign-in.</summary>
+    public string ConnectExtractorUrl => FrontendUrl + ConnectExtractorPath;
+
     public static AppConfig Load()
     {
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
@@ -54,6 +64,7 @@ public sealed class AppConfig
                 UploadResourcesEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "UploadResources", def.UploadResourcesEndpoint) : def.UploadResourcesEndpoint,
                 UploadChampionsEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "UploadChampions", def.UploadChampionsEndpoint) : def.UploadChampionsEndpoint,
                 SyncConsolidatedEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncConsolidated", def.SyncConsolidatedEndpoint) : def.SyncConsolidatedEndpoint,
+                ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };
         }
         catch
