@@ -7,9 +7,8 @@ namespace RslCompanionUploader.Auth;
 /// Talks to Google's Firebase Auth REST API using the same project/apiKey the RaidTools web app
 /// uses, so the ID tokens it mints are accepted by <c>api.rslcompanion.com</c> unchanged.
 ///
-/// Endpoints:
-///   • email/password   → identitytoolkit  accounts:signInWithPassword
-///   • custom token      → identitytoolkit  accounts:signInWithCustomToken (Discord broker)
+/// Sign-in is browser-based (the website hands over a refresh token via the protocol launch), so
+/// only the token endpoints are used:
 ///   • refresh           → securetoken      /v1/token (grant_type=refresh_token)
 ///   • lookup (identity)  → identitytoolkit  accounts:lookup
 /// </summary>
@@ -26,55 +25,6 @@ public sealed class FirebaseAuthClient
 
     private const string IdentityBase = "https://identitytoolkit.googleapis.com/v1";
     private const string SecureTokenBase = "https://securetoken.googleapis.com/v1";
-
-    /// <summary>Signs in with email + password. Throws <see cref="FirebaseAuthException"/> on failure.</summary>
-    public async Task<AuthSession> SignInWithPasswordAsync(string email, string password, CancellationToken ct = default)
-    {
-        var url = $"{IdentityBase}/accounts:signInWithPassword?key={_apiKey}";
-        var payload = new { email, password, returnSecureToken = true };
-        using var resp = await _http.PostAsJsonAsync(url, payload, ct);
-        var json = await ReadOrThrowAsync(resp, ct);
-
-        var idToken = json.GetProperty("idToken").GetString()!;
-        var refresh = json.GetProperty("refreshToken").GetString()!;
-        var expiresIn = int.Parse(json.GetProperty("expiresIn").GetString()!);
-        var uid = json.TryGetProperty("localId", out var l) ? l.GetString() : null;
-        var displayName = json.TryGetProperty("displayName", out var d) ? d.GetString() : null;
-
-        return new AuthSession
-        {
-            IdToken = idToken,
-            RefreshToken = refresh,
-            ExpiresAtUtc = DateTime.UtcNow.AddSeconds(expiresIn),
-            Uid = uid,
-            Email = email,
-            DisplayName = displayName,
-        };
-    }
-
-    /// <summary>
-    /// Exchanges a Firebase custom token (minted by the RaidTools Discord broker) for a real
-    /// ID token / refresh token pair.
-    /// </summary>
-    public async Task<AuthSession> SignInWithCustomTokenAsync(string customToken, CancellationToken ct = default)
-    {
-        var url = $"{IdentityBase}/accounts:signInWithCustomToken?key={_apiKey}";
-        var payload = new { token = customToken, returnSecureToken = true };
-        using var resp = await _http.PostAsJsonAsync(url, payload, ct);
-        var json = await ReadOrThrowAsync(resp, ct);
-
-        var idToken = json.GetProperty("idToken").GetString()!;
-        var refresh = json.GetProperty("refreshToken").GetString()!;
-        var expiresIn = int.Parse(json.GetProperty("expiresIn").GetString()!);
-
-        var session = new AuthSession
-        {
-            IdToken = idToken,
-            RefreshToken = refresh,
-            ExpiresAtUtc = DateTime.UtcNow.AddSeconds(expiresIn),
-        };
-        return await EnrichIdentityAsync(session, ct);
-    }
 
     /// <summary>
     /// Signs in from a bare refresh token (handed over by the website's protocol launch):
