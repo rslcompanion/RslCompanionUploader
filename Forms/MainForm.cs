@@ -75,8 +75,16 @@ public sealed class MainForm : Form
 
         Load += async (_, _) =>
         {
-            // Give the left pane ~55% of the width now that real sizes exist; ignore if out of range.
-            try { _split.SplitterDistance = (int)(_split.Width * 0.55); } catch { }
+            // Apply the pane min-sizes and split position now that the form has a real width. Doing
+            // this in BuildLayout throws (SplitterDistance out of range) because the container is
+            // still at its tiny default size there. Guarded so no layout edge case can crash the app.
+            try
+            {
+                _split.Panel1MinSize = 380;
+                _split.Panel2MinSize = 280;
+                _split.SplitterDistance = (int)(_split.Width * 0.55);
+            }
+            catch { /* window too small for these constraints — keep defaults, never crash */ }
             _accountsPanel.Start();
 
             var who = _api.Session.DisplayName ?? _api.Session.Email ?? _api.Session.Uid ?? "signed in";
@@ -138,13 +146,14 @@ public sealed class MainForm : Form
         root.Controls.Add(_log);
 
         // Left = actions (upload/export) + activity log; right = the account tiles picker.
+        // Min-sizes are deliberately NOT set here — a SplitContainer at its default width can't
+        // satisfy 380+280 and set_SplitterDistance throws. They're applied in Load (see ctor) once
+        // the form has a real width.
         _split = new SplitContainer
         {
             Dock = DockStyle.Fill,
             Orientation = Orientation.Vertical,
             SplitterWidth = 6,
-            Panel1MinSize = 380,
-            Panel2MinSize = 280,
         };
         root.Dock = DockStyle.Fill;
         _split.Panel1.Controls.Add(root);
