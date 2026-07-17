@@ -32,9 +32,15 @@ public sealed class MainForm : Form
     private readonly Button _uploadResources = new() { Text = "Upload account resources", Height = 44 };
     private readonly Button _uploadChampions = new() { Text = "Upload champions", Height = 44 };
     private readonly Button _exportAccount = new() { Text = "Export account to RSL Companion", Height = 44 };
+    private readonly Label _raidStatus = new() { AutoSize = true, Visible = false, Margin = new Padding(0, 0, 0, 8) };
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White };
     private readonly AccountsPanel _accountsPanel = new() { Dock = DockStyle.Fill };
     private SplitContainer _split = null!;
+
+#if EXTRACTION
+    // Watches for the Raid process so we can show a live connected/not-connected status.
+    private readonly RaidProcessMonitor _raidMonitor = new();
+#endif
 
     // The accounts currently shown as tiles, and the one the user has selected (upload target).
     private List<AccountSummary> _loadedAccounts = new();
@@ -60,6 +66,9 @@ public sealed class MainForm : Form
         _uploadChampions.Click += async (_, _) => await UploadAsync(isResources: false);
 #if EXTRACTION
         _exportAccount.Click += async (_, _) => await ExportAccountAsync();
+        _raidStatus.Visible = true;
+        _raidMonitor.ConnectionChanged += UpdateRaidStatus;
+        FormClosed += (_, _) => _raidMonitor.Dispose();
 #else
         // Built without the private extraction engine (public clone) — game extraction unavailable.
         _exportAccount.Visible = false;
@@ -86,6 +95,9 @@ public sealed class MainForm : Form
             }
             catch { /* window too small for these constraints — keep defaults, never crash */ }
             _accountsPanel.Start();
+#if EXTRACTION
+            _raidMonitor.Start(); // reports current state immediately, then polls
+#endif
 
             var who = _api.Session.DisplayName ?? _api.Session.Email ?? _api.Session.Uid ?? "signed in";
             _user.Text = $"Signed in as {who}";
@@ -94,12 +106,22 @@ public sealed class MainForm : Form
         };
     }
 
+#if EXTRACTION
+    /// <summary>Reflects the live Raid connection state in the status label.</summary>
+    private void UpdateRaidStatus(bool connected)
+    {
+        _raidStatus.Text = connected ? "🟢  Connected to Raid" : "⚪  Raid not running — start the game to export";
+        _raidStatus.ForeColor = connected ? Color.ForestGreen : Color.Gray;
+    }
+#endif
+
     private void BuildLayout()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 6 };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 7 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // update banner
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // header (user + actions)
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Raid connection status
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // file-upload buttons
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // export-account button
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // log label
@@ -125,6 +147,8 @@ public sealed class MainForm : Form
         header.Controls.Add(_checkUpdates, 2, 0);
         header.Controls.Add(signOut, 3, 0);
         root.Controls.Add(header);
+
+        root.Controls.Add(_raidStatus); // hidden in public builds; driven by RaidProcessMonitor under EXTRACTION
 
         var buttonRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 0, 0, 12) };
         buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
