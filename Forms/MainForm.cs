@@ -169,10 +169,16 @@ public sealed class MainForm : Form
                 }
                 catch (Exception ex)
                 {
+                    // A game update changing the data format won't fix itself on retry — report now.
+                    if (IsUnsupportedGameVersion(ex))
+                    {
+                        Log(DescribeExtractionFailure(ex));
+                        return;
+                    }
                     // The game is often still loading right after the process appears; give it time.
                     if (attempt == attempts)
                     {
-                        Log($"Couldn't read the live account: {ex.Message}");
+                        Log($"Couldn't read the live account: {DescribeExtractionFailure(ex)}");
                         return;
                     }
                     await Task.Delay(5000);
@@ -428,7 +434,7 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log($"Export account failed: {ex.Message}");
+            Log($"Export account failed: {DescribeExtractionFailure(ex)}");
         }
         finally
         {
@@ -440,6 +446,32 @@ public sealed class MainForm : Form
     // in-game accountId parsed as a uint. Lets us match the running game account to a registered tile.
     private static int? GameUserId(string? accountId)
         => uint.TryParse(accountId, out var u) ? unchecked((int)u) : null;
+
+    /// <summary>
+    /// True when the failure is the game having changed its IL2CPP data format (a game update the
+    /// engine hasn't been ported to). Retrying can never help, so callers should give up immediately.
+    /// </summary>
+    private static bool IsUnsupportedGameVersion(Exception ex)
+        => ex.Message.Contains("Unsupported metadata version", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Turns raw engine errors into something a user can act on — the internals ("Unsupported
+    /// metadata version: 39") mean nothing to them and read like a crash.
+    /// </summary>
+    private static string DescribeExtractionFailure(Exception ex)
+    {
+        if (IsUnsupportedGameVersion(ex))
+        {
+            return "This Raid version isn't supported yet — the game changed its data format in a "
+                 + "recent update. Reading accounts will work again after an app update; "
+                 + "file upload is unaffected.";
+        }
+
+        if (ex.Message.Contains("Raid process not found", StringComparison.OrdinalIgnoreCase))
+            return "Raid isn't running — start the game, wait for it to load, then try again.";
+
+        return ex.Message;
+    }
 
     // Artifacts are only partially recoverable in the current game build: equipped artifact ids
     // exist, but their stats moved to Unity ECS storage the engine can't decode yet (see
