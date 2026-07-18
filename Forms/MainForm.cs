@@ -46,6 +46,10 @@ public sealed class MainForm : Form
     private List<AccountSummary> _loadedAccounts = new();
     private AccountSummary? _selected;
 
+    // Guards so live-account detection never runs twice, or while an upload/export owns the process.
+    private bool _busy;
+    private bool _detecting;
+
     public MainForm(AppConfig config, RslCompanionApiClient api)
     {
         _config = config;
@@ -107,11 +111,79 @@ public sealed class MainForm : Form
     }
 
 #if EXTRACTION
-    /// <summary>Reflects the live Raid connection state in the status label.</summary>
+    /// <summary>Reflects the live Raid connection state, and reconciles the live account on connect.</summary>
     private void UpdateRaidStatus(bool connected)
     {
         _raidStatus.Text = connected ? "🟢  Connected to Raid" : "⚪  Raid not running — start the game to export";
         _raidStatus.ForeColor = connected ? Color.ForestGreen : Color.Gray;
+
+        if (connected)
+        {
+            _ = DetectLiveAccountAsync();
+        }
+        else
+        {
+            // Game closed — nothing is live any more.
+            _accountsPanel.SetDetectedAccount(null, null);
+            _accountsPanel.SetIdentified(null);
+        }
+    }
+
+    /// <summary>
+    /// Reads just the account identity from the running game (no resources/champions) and reconciles
+    /// it with the imported tiles: an already-imported account gets the "In game" badge, an unknown
+    /// one is surfaced as a "new account detected" tile. Detection only — importing it is a separate
+    /// action. Retries briefly because the game may still be loading when the process appears.
+    /// </summary>
+    private async Task DetectLiveAccountAsync()
+    {
+        if (_detecting || _busy) return;
+        _detecting = true;
+        try
+        {
+            const int attempts = 3;
+            for (var attempt = 1; attempt <= attempts; attempt++)
+            {
+                try
+                {
+                    var cachePath = Path.Combine(AppContext.BaseDirectory, "offsets_cache.json");
+                    var account = await Task.Run(() =>
+                        ExtractionService.ExtractAccountAsync(cachePath: cachePath).GetAwaiter().GetResult());
+
+                    if (GameUserId(account.AccountId) is not int uid) return;
+                    var name = string.IsNullOrWhiteSpace(account.Name) ? $"Account {uid}" : account.Name;
+
+                    if (_loadedAccounts.Any(a => a.UserId == uid))
+                    {
+                        _accountsPanel.SetDetectedAccount(null, null);
+                        _accountsPanel.SetIdentified(uid);
+                        Log($"Playing as {name} (#{uid}) — already imported.");
+                    }
+                    else
+                    {
+                        _accountsPanel.SetIdentified(null);
+                        _accountsPanel.SetDetectedAccount(uid, name);
+                        Log($"New account detected: {name} (#{uid}) — not imported yet.");
+                    }
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    // The game is often still loading right after the process appears; give it time.
+                    if (attempt == attempts)
+                    {
+                        Log($"Couldn't read the live account: {ex.Message}");
+                        return;
+                    }
+                    await Task.Delay(5000);
+                    if (!_raidMonitor.IsConnected) return; // game closed while we waited
+                }
+            }
+        }
+        finally
+        {
+            _detecting = false;
+        }
     }
 #endif
 
@@ -347,6 +419,7 @@ public sealed class MainForm : Form
                 if (gameUserId is int id2 && _loadedAccounts.Any(a => a.UserId == id2))
                 {
                     _selected = _loadedAccounts.First(a => a.UserId == id2);
+                    _accountsPanel.SetDetectedAccount(null, null); // it's imported now, not "new"
                     _accountsPanel.SetIdentified(id2);
                     _accountsPanel.SetSelected(id2);
                     UpdateButtonState();
@@ -420,6 +493,7 @@ public sealed class MainForm : Form
 
     private void SetBusy(bool busy)
     {
+        _busy = busy;
         UseWaitCursor = busy;
         _refresh.Enabled = !busy;
         _exportAccount.Enabled = !busy;

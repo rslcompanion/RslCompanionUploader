@@ -32,6 +32,10 @@ public sealed class AccountsPanel : Panel
     private int? _selected;
     private int? _identified;
 
+    // A game account detected in the running client that isn't imported yet (shown as its own tile).
+    private int? _detectedUserId;
+    private string? _detectedName;
+
     /// <summary>Raised (on the UI thread) with the account's UserId when a tile is clicked.</summary>
     public event Action<int>? AccountSelected;
 
@@ -90,10 +94,28 @@ public sealed class AccountsPanel : Panel
     /// <summary>Marks the tile that matches the currently identified running game account.</summary>
     public void SetIdentified(int? userId) { _identified = userId; PushState(); }
 
+    /// <summary>
+    /// Shows (or clears, when <paramref name="userId"/> is null) a tile for a game account that is
+    /// running right now but has no imported profile yet.
+    /// </summary>
+    public void SetDetectedAccount(int? userId, string? name)
+    {
+        _detectedUserId = userId;
+        _detectedName = name;
+        PushState();
+    }
+
     private void PushState()
     {
         if (!_ready || _web.CoreWebView2 is null) return;
-        var payload = new { type = "state", accounts = _accounts, selectedUserId = _selected, identifiedUserId = _identified };
+        var payload = new
+        {
+            type = "state",
+            accounts = _accounts,
+            selectedUserId = _selected,
+            identifiedUserId = _identified,
+            detected = _detectedUserId is int id ? new { userId = id, name = _detectedName ?? $"Account {id}" } : null,
+        };
         _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(payload));
     }
 
@@ -150,19 +172,40 @@ public sealed class AccountsPanel : Panel
   .tile .badge { display:inline-flex; align-items:center; gap:5px; margin-top:10px; font-size:11px;
                  font-weight:600; color:var(--ok); }
   .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); }
+  /* A live game account with no imported profile yet — dashed and un-clickable, clearly not imported. */
+  .tile.detected { border:1px dashed var(--accent); background:rgba(59,130,246,.07); cursor:default; }
+  .tile.detected:hover { border-color:var(--accent); }
+  .tile .badge-new { display:inline-block; margin-bottom:8px; padding:2px 7px; border-radius:999px;
+                     background:var(--accent); color:#fff; font-size:10px; font-weight:700;
+                     letter-spacing:.02em; text-transform:uppercase; }
+  .tile .attach-note { margin-top:8px; font-size:11px; color:var(--accent); font-weight:600; }
   .empty { padding:24px 16px; color:var(--sub); font-size:13px; line-height:1.6; }
 </style></head>
 <body>
   <div id='hdr'>Accounts</div>
   <div id='grid'></div>
 <script>
-  var state = { accounts: [], selectedUserId: null, identifiedUserId: null };
+  var state = { accounts: [], selectedUserId: null, identifiedUserId: null, detected: null };
   var grid = document.getElementById('grid');
   function esc(s){ return (s||'').replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
   function render() {
     grid.innerHTML = '';
+
+    // A game account running right now with no imported profile yet — shown first so it's noticed.
+    if (state.detected) {
+      var d = document.createElement('div');
+      d.className = 'tile detected';
+      d.innerHTML = ""<div class='badge-new'>New account detected</div>""
+        + ""<div class='name'>"" + esc(state.detected.name) + ""</div>""
+        + ""<div class='meta'>Playing now · not imported yet</div>""
+        + ""<div class='attach-note'>Can be attached to your signed-in account</div>"";
+      grid.appendChild(d);
+    }
+
     if (!state.accounts.length) {
-      grid.innerHTML = ""<div class='empty'>No accounts yet.<br>Open Raid and click <b>Export account</b> to create one.</div>"";
+      if (!state.detected) {
+        grid.innerHTML = ""<div class='empty'>No accounts yet.<br>Open Raid and click <b>Export account</b> to create one.</div>"";
+      }
       return;
     }
     state.accounts.forEach(function(a) {
