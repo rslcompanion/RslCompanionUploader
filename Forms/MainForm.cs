@@ -57,13 +57,24 @@ public sealed class MainForm : Form
     /// </summary>
     private enum GameState
     {
-        NotRunning,      // no Raid process
-        Loading,         // process is up, account data not readable yet
-        Connected,       // account identified
-        NeedsCalibration // process is up, but the cached memory map no longer fits this game build
+        NotRunning,       // no Raid process
+        Loading,          // process is up, account data not readable yet
+        Connected,        // account identified
+        NeedsCalibration, // process is up, but no memory map fits this game build
+        Calibrating       // deriving a memory map for an unrecognised build (~35s, one-off)
     }
 
     private GameState _gameState = GameState.NotRunning;
+
+    // Set while a calibration is running so the poll doesn't probe underneath it or start a second.
+    private bool _calibrating;
+
+    /// <summary>
+    /// Game builds we have already attempted to self-calibrate this session, so a build that cannot
+    /// be calibrated (or where the game is only half-loaded) costs one ~35s scan rather than one
+    /// every poll. Cleared only by restarting the app or asking for calibration explicitly.
+    /// </summary>
+    private readonly HashSet<string> _calibrationAttempted = new(StringComparer.OrdinalIgnoreCase);
 
     // Stops the status poll when the window closes.
     private readonly CancellationTokenSource _statusCts = new();
@@ -182,9 +193,9 @@ public sealed class MainForm : Form
             return;
         }
 
-        // An export owns the process while it runs; leave the status as-is rather than probing
-        // underneath it. The next tick picks up again.
-        if (_busy) return;
+        // An export or calibration owns the process while it runs; leave the status as-is rather
+        // than probing underneath it. The next tick picks up again.
+        if (_busy || _calibrating) return;
 
         var result = await Task.Run(
             () => ExtractionService.DiscoverAccountAsync(cachePath: cachePath).GetAwaiter().GetResult(), token);
@@ -206,11 +217,101 @@ public sealed class MainForm : Form
 
             case ExtractionService.AccountDiscoveryStatus.NeedsCalibration:
                 ApplyGameState(GameState.NeedsCalibration);
+                // Self-calibrate rather than stranding the user until a release ships their build.
+                // Once per build per session: it is a ~35s scan, so it must never land on a timer.
+                await TrySelfCalibrateAsync(cachePath, token);
                 break;
 
             default:
                 ApplyGameState(GameState.Loading);
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Derives a memory map for a game build no shipped catalog covers, so a user who updated Raid
+    /// before we published a matching release can still export instead of being stranded.
+    ///
+    /// Bounded hard: at most one attempt per game build per app session (<see cref="_calibrationAttempted"/>).
+    /// A build that genuinely cannot be calibrated — or a game still mid-load — must cost one ~35s
+    /// scan, not one every poll. <paramref name="force"/> is how the user retries once the game has
+    /// finished loading.
+    /// </summary>
+    private async Task TrySelfCalibrateAsync(string cachePath, CancellationToken token, bool force = false)
+    {
+        if (_calibrating || _busy) return;
+
+        // Identify the build so one failure doesn't licence an endless retry loop. Cheap: the hash
+        // is memoized in the engine, and this is the same file the probe already stat'd.
+        string buildKey = GameBuildKey();
+        if (!force && !_calibrationAttempted.Add(buildKey)) return;
+        if (force) _calibrationAttempted.Add(buildKey);
+
+        _calibrating = true;
+        ApplyGameState(GameState.Calibrating, force: true);
+        Log("This game version isn't in the shipped memory map yet — working it out from the running "
+          + "game. This takes about a minute, happens once per game update, and only needs doing "
+          + "while Raid is fully loaded.");
+
+        try
+        {
+            // Also drop a shareable copy: sending this in is what gets the build into the next
+            // release so nobody else pays for this scan.
+            string exportPath = Path.Combine(AppContext.BaseDirectory, "calibrated-offsets.json");
+
+            var result = await Task.Run(
+                () => ExtractionService.CalibrateAsync(cachePath: cachePath, exportCatalogPath: exportPath)
+                                       .GetAwaiter().GetResult(), token);
+
+            if (token.IsCancellationRequested) return;
+
+            if (result.Success)
+            {
+                Log($"Calibration succeeded — identified {result.Name ?? "the account"} (#{result.AccountId}).");
+                if (result.ExportedCatalogPath is string p)
+                    Log($"Saved {Path.GetFileName(p)} next to the app — send it to RSL Companion and "
+                      + "this game version will be recognised out of the box in the next release.");
+            }
+            else
+            {
+                Log($"Calibration didn't succeed: {result.Error}. If Raid was still loading, wait for "
+                  + "the roster to appear and use Help → Recalibrate for this game version.");
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Window closing or game gone — nothing to report.
+        }
+        catch (Exception ex)
+        {
+            Log($"Calibration failed: {DescribeExtractionFailure(ex)}");
+        }
+        finally
+        {
+            _calibrating = false;
+            // Let the next poll re-read reality rather than asserting a state from here.
+            _gameState = GameState.NotRunning;
+        }
+    }
+
+    /// <summary>
+    /// Identifies the installed game build for retry bookkeeping. Falls back to a constant when the
+    /// game can't be inspected — that only makes the once-per-session guard coarser, never looser.
+    /// </summary>
+    private static string GameBuildKey()
+    {
+        try
+        {
+            using var p = Process.GetProcessesByName("Raid").FirstOrDefault();
+            var path = p?.MainModule?.FileName;
+            if (path is null) return "unknown";
+            var dll = Path.Combine(Path.GetDirectoryName(path)!, "GameAssembly.dll");
+            var info = new FileInfo(dll);
+            return info.Exists ? $"{info.Length}:{info.LastWriteTimeUtc:O}" : "unknown";
+        }
+        catch
+        {
+            return "unknown";
         }
     }
 
@@ -229,6 +330,8 @@ public sealed class MainForm : Form
                 ($"🟢  Connected to Raid — {_liveName} (#{_liveUserId})", Color.ForestGreen),
             GameState.Loading =>
                 ("🟡  Raid is running — waiting for account data…", Color.DarkGoldenrod),
+            GameState.Calibrating =>
+                ("🔵  New game version — working out the memory map (about a minute)…", Color.RoyalBlue),
             GameState.NeedsCalibration =>
                 ("🟠  Raid is running — account can't be identified", Color.DarkOrange),
             _ =>
@@ -256,11 +359,13 @@ public sealed class MainForm : Form
                 break;
 
             case GameState.NeedsCalibration:
-                // Only the ~50s full scan can help, and that is expensive enough to be the user's
-                // call — running it on a timer would scan game memory while they are trying to play.
-                Log("Can't identify the account from the cached memory map — the game build has "
-                  + "changed. Use “Export account to RSL Companion” to run a full re-scan.");
+                // No log line here: TrySelfCalibrateAsync runs straight after and explains itself.
+                // Saying "can't identify the account" immediately before "working it out" only reads
+                // as a failure the app then contradicts.
                 break;
+
+            case GameState.Calibrating:
+                break; // TrySelfCalibrateAsync logs the explanation
 
             case GameState.Loading:
                 Log(detail is null
@@ -393,6 +498,22 @@ public sealed class MainForm : Form
         var help = new ToolStripMenuItem("&Help");
         help.DropDownItems.Add(new ToolStripMenuItem("Check for &updates…", null,
             async (_, _) => await CheckForUpdateAsync(silent: false)));
+#if EXTRACTION
+        // The manual retry for a build whose automatic attempt ran too early (game still loading).
+        help.DropDownItems.Add(new ToolStripMenuItem("&Recalibrate for this game version", null,
+            async (_, _) =>
+            {
+                if (!RaidProcess.IsRunning())
+                {
+                    Log("Start Raid and let it load to the roster first, then try again.");
+                    return;
+                }
+                await TrySelfCalibrateAsync(
+                    Path.Combine(AppContext.BaseDirectory, "offsets_cache.json"),
+                    _statusCts.Token,
+                    force: true);
+            }));
+#endif
         help.DropDownItems.Add(new ToolStripMenuItem("Open rslcompanion.com", null,
             (_, _) => OpenUrl(_config.FrontendUrl)));
         help.DropDownItems.Add(new ToolStripSeparator());
