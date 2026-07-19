@@ -169,13 +169,10 @@ public sealed class MainForm : Form
                 }
                 catch (Exception ex)
                 {
-                    // A game update changing the data format won't fix itself on retry — report now.
-                    if (IsUnsupportedGameVersion(ex))
-                    {
-                        Log(DescribeExtractionFailure(ex));
-                        return;
-                    }
                     // The game is often still loading right after the process appears; give it time.
+                    // A permanently unsupported build looks the same as "still loading" from here
+                    // (both surface as offset-discovery failure), so we retry either way and let
+                    // DescribeExtractionFailure explain both causes if we run out of attempts.
                     if (attempt == attempts)
                     {
                         Log($"Couldn't read the live account: {DescribeExtractionFailure(ex)}");
@@ -448,27 +445,23 @@ public sealed class MainForm : Form
         => uint.TryParse(accountId, out var u) ? unchecked((int)u) : null;
 
     /// <summary>
-    /// True when the failure is the game having changed its IL2CPP data format (a game update the
-    /// engine hasn't been ported to). Retrying can never help, so callers should give up immediately.
-    /// </summary>
-    private static bool IsUnsupportedGameVersion(Exception ex)
-        => ex.Message.Contains("Unsupported metadata version", StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>
-    /// Turns raw engine errors into something a user can act on — the internals ("Unsupported
-    /// metadata version: 39") mean nothing to them and read like a crash.
+    /// Turns raw engine errors into something a user can act on — internals like "Offset discovery
+    /// failed" mean nothing to them and read like a crash.
     /// </summary>
     private static string DescribeExtractionFailure(Exception ex)
     {
-        if (IsUnsupportedGameVersion(ex))
-        {
-            return "This Raid version isn't supported yet — the game changed its data format in a "
-                 + "recent update. Reading accounts will work again after an app update; "
-                 + "file upload is unaffected.";
-        }
-
         if (ex.Message.Contains("Raid process not found", StringComparison.OrdinalIgnoreCase))
             return "Raid isn't running — start the game, wait for it to load, then try again.";
+
+        // The engine can't tell "game hasn't finished loading" apart from "game update moved the
+        // data around" — both end in discovery failure — so name both rather than guess.
+        if (ex.Message.Contains("Offset discovery failed", StringComparison.OrdinalIgnoreCase) ||
+            ex.Message.Contains("Failed to resolve UserContext", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Couldn't read the account from the game. If Raid is still loading, wait for the "
+                 + "roster to appear and try again. If it keeps failing, a recent game update may "
+                 + "have changed the data format — file upload still works in the meantime.";
+        }
 
         return ex.Message;
     }
