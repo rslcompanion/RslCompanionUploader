@@ -37,25 +37,46 @@ public sealed class MainForm : Form
     private readonly AccountsPanel _accountsPanel = new() { Dock = DockStyle.Fill };
     private SplitContainer _split = null!;
 
-#if EXTRACTION
-    // Watches for the Raid process so we can show a live connected/not-connected status.
-    private readonly RaidProcessMonitor _raidMonitor = new();
-#endif
-
     // The accounts currently shown as tiles, and the one the user has selected (upload target).
     private List<AccountSummary> _loadedAccounts = new();
     private AccountSummary? _selected;
 
     // Guards so live-account detection never runs twice, or while an upload/export owns the process.
     private bool _busy;
-    private bool _detecting;
+
+#if EXTRACTION
+    // The account read out of the running game, kept separately from the imported tiles so the two
+    // can be reconciled whenever either side changes (detection finishing, or the tiles reloading).
+    private int? _liveUserId;
+    private string? _liveName;
+
+    /// <summary>
+    /// What the status poll last observed. Reported to the user as a single line, because "is the
+    /// game open" and "can we actually read the account" are separate failures that look identical
+    /// from the outside — the game can be running for minutes before its account data exists.
+    /// </summary>
+    private enum GameState
+    {
+        NotRunning,      // no Raid process
+        Loading,         // process is up, account data not readable yet
+        Connected,       // account identified
+        NeedsCalibration // process is up, but the cached memory map no longer fits this game build
+    }
+
+    private GameState _gameState = GameState.NotRunning;
+
+    // Stops the status poll when the window closes.
+    private readonly CancellationTokenSource _statusCts = new();
+#endif
 
     public MainForm(AppConfig config, RslCompanionApiClient api)
     {
         _config = config;
         _api = api;
 
-        Text = "RSL Companion — Uploader";
+        // The running version is in the title bar as well as Help → About: "which build am I on?"
+        // is the first question in almost every support thread.
+        Text = $"RSL Companion — Uploader  v{AboutForm.DisplayVersion}";
         Icon = AppIcon.Value;
         Width = 1000;
         Height = 560;
@@ -71,8 +92,7 @@ public sealed class MainForm : Form
 #if EXTRACTION
         _exportAccount.Click += async (_, _) => await ExportAccountAsync();
         _raidStatus.Visible = true;
-        _raidMonitor.ConnectionChanged += UpdateRaidStatus;
-        FormClosed += (_, _) => _raidMonitor.Dispose();
+        FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
 #else
         // Built without the private extraction engine (public clone) — game extraction unavailable.
         _exportAccount.Visible = false;
@@ -100,7 +120,8 @@ public sealed class MainForm : Form
             catch { /* window too small for these constraints — keep defaults, never crash */ }
             _accountsPanel.Start();
 #if EXTRACTION
-            _raidMonitor.Start(); // reports current state immediately, then polls
+            ApplyGameState(GameState.NotRunning, force: true); // render a status before the first poll
+            _ = PollGameStatusAsync(_statusCts.Token);
 #endif
 
             var who = _api.Session.DisplayName ?? _api.Session.Email ?? _api.Session.Uid ?? "signed in";
@@ -112,80 +133,174 @@ public sealed class MainForm : Form
 
 #if EXTRACTION
     /// <summary>Reflects the live Raid connection state, and reconciles the live account on connect.</summary>
-    private void UpdateRaidStatus(bool connected)
+    /// <summary>
+    /// The single status poll: every <see cref="PollInterval"/> it answers both halves of "can we
+    /// work with the game right now" — is the process up, and is its account data actually readable
+    /// — and reports the combined answer as one status line.
+    ///
+    /// Polling (rather than reacting to process start/stop) is what makes the two halves stay in
+    /// sync. The process appears the moment the launcher starts but the account isn't readable until
+    /// the roster has loaded, so a process-change event fires far too early and then never again;
+    /// re-checking on a timer means the status catches up on its own, and a game that dies mid-session
+    /// is noticed within one interval instead of never.
+    ///
+    /// Identity only — id and name. Nothing here reads resources, champions or artifacts, and it
+    /// never runs the expensive calibration scan; both of those are user-triggered actions.
+    /// </summary>
+    private async Task PollGameStatusAsync(CancellationToken token)
     {
-        _raidStatus.Text = connected ? "🟢  Connected to Raid" : "⚪  Raid not running — start the game to export";
-        _raidStatus.ForeColor = connected ? Color.ForestGreen : Color.Gray;
+        var cachePath = Path.Combine(AppContext.BaseDirectory, "offsets_cache.json");
 
-        if (connected)
+        while (!token.IsCancellationRequested)
         {
-            _ = DetectLiveAccountAsync();
+            try
+            {
+                await ProbeGameOnceAsync(cachePath, token).ConfigureAwait(true);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Never let a probe failure kill the loop — that would freeze the status line on a
+                // stale value for the rest of the session.
+                ApplyGameState(RaidProcess.IsRunning() ? GameState.Loading : GameState.NotRunning,
+                               detail: DescribeExtractionFailure(ex));
+            }
+
+            try { await Task.Delay(PollInterval, token).ConfigureAwait(true); }
+            catch (OperationCanceledException) { return; }
         }
-        else
+    }
+
+    private async Task ProbeGameOnceAsync(string cachePath, CancellationToken token)
+    {
+        if (!RaidProcess.IsRunning())
         {
-            // Game closed — nothing is live any more.
-            _accountsPanel.SetDetectedAccount(null, null);
-            _accountsPanel.SetIdentified(null);
+            ApplyGameState(GameState.NotRunning);
+            return;
+        }
+
+        // An export owns the process while it runs; leave the status as-is rather than probing
+        // underneath it. The next tick picks up again.
+        if (_busy) return;
+
+        var result = await Task.Run(
+            () => ExtractionService.DiscoverAccountAsync(cachePath: cachePath).GetAwaiter().GetResult(), token);
+        if (token.IsCancellationRequested) return;
+
+        switch (result.Status)
+        {
+            case ExtractionService.AccountDiscoveryStatus.Found when GameUserId(result.AccountId) is int uid:
+                _liveUserId = uid;
+                _liveName = string.IsNullOrWhiteSpace(result.Name) ? $"Account {uid}" : result.Name;
+                ReconcileLiveAccount();
+                ApplyGameState(GameState.Connected);
+                break;
+
+            case ExtractionService.AccountDiscoveryStatus.Found:
+                ApplyGameState(GameState.Loading,
+                    detail: "the game reported an account id we don't recognise");
+                break;
+
+            case ExtractionService.AccountDiscoveryStatus.NeedsCalibration:
+                ApplyGameState(GameState.NeedsCalibration);
+                break;
+
+            default:
+                ApplyGameState(GameState.Loading);
+                break;
         }
     }
 
     /// <summary>
-    /// Reads just the account identity from the running game (no resources/champions) and reconciles
-    /// it with the imported tiles: an already-imported account gets the "In game" badge, an unknown
-    /// one is surfaced as a "new account detected" tile. Detection only — importing it is a separate
-    /// action. Retries briefly because the game may still be loading when the process appears.
+    /// Renders <paramref name="state"/> into the status line, and logs only on a real transition so
+    /// a 5-second poll doesn't fill the activity log with the same line over and over.
     /// </summary>
-    private async Task DetectLiveAccountAsync()
+    private void ApplyGameState(GameState state, string? detail = null, bool force = false)
     {
-        if (_detecting || _busy) return;
-        _detecting = true;
-        try
+        var previous = _gameState;
+        _gameState = state;
+
+        (string text, Color colour) = state switch
         {
-            const int attempts = 3;
-            for (var attempt = 1; attempt <= attempts; attempt++)
-            {
-                try
-                {
-                    var cachePath = Path.Combine(AppContext.BaseDirectory, "offsets_cache.json");
-                    var account = await Task.Run(() =>
-                        ExtractionService.ExtractAccountAsync(cachePath: cachePath).GetAwaiter().GetResult());
+            GameState.Connected =>
+                ($"🟢  Connected to Raid — {_liveName} (#{_liveUserId})", Color.ForestGreen),
+            GameState.Loading =>
+                ("🟡  Raid is running — waiting for account data…", Color.DarkGoldenrod),
+            GameState.NeedsCalibration =>
+                ("🟠  Raid is running — account can't be identified", Color.DarkOrange),
+            _ =>
+                ("⚪  Raid not running — start the game to export", Color.Gray),
+        };
+        _raidStatus.Text = text;
+        _raidStatus.ForeColor = colour;
 
-                    if (GameUserId(account.AccountId) is not int uid) return;
-                    var name = string.IsNullOrWhiteSpace(account.Name) ? $"Account {uid}" : account.Name;
+        if (state == previous && !force) return;
 
-                    if (_loadedAccounts.Any(a => a.UserId == uid))
-                    {
-                        _accountsPanel.SetDetectedAccount(null, null);
-                        _accountsPanel.SetIdentified(uid);
-                        Log($"Playing as {name} (#{uid}) — already imported.");
-                    }
-                    else
-                    {
-                        _accountsPanel.SetIdentified(null);
-                        _accountsPanel.SetDetectedAccount(uid, name);
-                        Log($"New account detected: {name} (#{uid}) — not imported yet.");
-                    }
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    // The game is often still loading right after the process appears; give it time.
-                    // A permanently unsupported build looks the same as "still loading" from here
-                    // (both surface as offset-discovery failure), so we retry either way and let
-                    // DescribeExtractionFailure explain both causes if we run out of attempts.
-                    if (attempt == attempts)
-                    {
-                        Log($"Couldn't read the live account: {DescribeExtractionFailure(ex)}");
-                        return;
-                    }
-                    await Task.Delay(5000);
-                    if (!_raidMonitor.IsConnected) return; // game closed while we waited
-                }
-            }
+        switch (state)
+        {
+            case GameState.Connected:
+                Log(_loadedAccounts.Any(a => a.UserId == _liveUserId)
+                    ? $"Playing as {_liveName} (#{_liveUserId}) — already imported."
+                    : $"New account detected: {_liveName} (#{_liveUserId}) — not imported yet.");
+                break;
+
+            case GameState.NotRunning when previous is GameState.Connected or GameState.Loading or GameState.NeedsCalibration:
+                // Distinguish "never started it" from "it went away underneath us".
+                Log("Raid has closed — the game is no longer reachable.");
+                _liveUserId = null;
+                _liveName = null;
+                ReconcileLiveAccount();
+                break;
+
+            case GameState.NeedsCalibration:
+                // Only the ~50s full scan can help, and that is expensive enough to be the user's
+                // call — running it on a timer would scan game memory while they are trying to play.
+                Log("Can't identify the account from the cached memory map — the game build has "
+                  + "changed. Use “Export account to RSL Companion” to run a full re-scan.");
+                break;
+
+            case GameState.Loading:
+                Log(detail is null
+                    ? "Raid is running — waiting for the account to load."
+                    : $"Raid is running, but the account isn't readable yet: {detail}");
+                break;
         }
-        finally
+    }
+
+    // Fast enough that closing the game is noticed promptly, and affordable because a settled probe
+    // is a single memory read against a cached address (see ExtractionService.DiscoverAccountAsync).
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>
+    /// Matches the live game account against the imported tiles: an already-imported account gets the
+    /// "In game" badge, an unknown one is surfaced as a "new account detected" tile.
+    ///
+    /// Called from both sides — when detection finishes and when the tiles reload — because the two
+    /// run concurrently at startup. Classifying once inside detection raced the initial account load
+    /// and could label an imported account as "new" (or leave a stale "new" tile behind after the
+    /// real one arrived).
+    /// </summary>
+    private void ReconcileLiveAccount()
+    {
+        if (_liveUserId is not int uid)
         {
-            _detecting = false;
+            _accountsPanel.SetDetectedAccount(null, null);
+            _accountsPanel.SetIdentified(null);
+            return;
+        }
+
+        if (_loadedAccounts.Any(a => a.UserId == uid))
+        {
+            _accountsPanel.SetDetectedAccount(null, null);
+            _accountsPanel.SetIdentified(uid);
+        }
+        else
+        {
+            _accountsPanel.SetIdentified(null);
+            _accountsPanel.SetDetectedAccount(uid, _liveName);
         }
     }
 #endif
@@ -258,6 +373,51 @@ public sealed class MainForm : Form
         _split.Panel1.Controls.Add(root);
         _split.Panel2.Controls.Add(_accountsPanel);
         Controls.Add(_split);
+
+        // Added after the Fill control on purpose: WinForms resolves docking from the highest
+        // child index down, so the menu must be last to claim the top strip before the splitter fills.
+        var menu = BuildMenu();
+        Controls.Add(menu);
+        MainMenuStrip = menu;
+    }
+
+    private MenuStrip BuildMenu()
+    {
+        var file = new ToolStripMenuItem("&File");
+        var signOutItem = new ToolStripMenuItem("Sign &out", null, (_, _) => SignOut());
+        var exitItem = new ToolStripMenuItem("&Close", null, (_, _) => Close()) { ShortcutKeys = Keys.Alt | Keys.F4 };
+        file.DropDownItems.Add(signOutItem);
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add(exitItem);
+
+        var help = new ToolStripMenuItem("&Help");
+        help.DropDownItems.Add(new ToolStripMenuItem("Check for &updates…", null,
+            async (_, _) => await CheckForUpdateAsync(silent: false)));
+        help.DropDownItems.Add(new ToolStripMenuItem("Open rslcompanion.com", null,
+            (_, _) => OpenUrl(_config.FrontendUrl)));
+        help.DropDownItems.Add(new ToolStripSeparator());
+        help.DropDownItems.Add(new ToolStripMenuItem("&About", null, (_, _) =>
+        {
+            using var about = new AboutForm(_config);
+            about.ShowDialog(this);
+        }));
+
+        var menu = new MenuStrip { Dock = DockStyle.Top };
+        menu.Items.Add(file);
+        menu.Items.Add(help);
+        return menu;
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // No default browser or the shell refused — not worth interrupting the user over.
+        }
     }
 
     private async Task LoadAccountsAsync()
@@ -295,6 +455,10 @@ public sealed class MainForm : Form
         {
             SetBusy(false);
             UpdateButtonState();
+#if EXTRACTION
+            // The tiles just changed, so the live account's imported/new status may have too.
+            ReconcileLiveAccount();
+#endif
         }
     }
 
@@ -405,6 +569,13 @@ public sealed class MainForm : Form
             // uint), so that's how we recognise whether this game account is already registered —
             // keyed by the game handle, never by the signed-in uploader.
             int? gameUserId = GameUserId(gameId);
+            // The export just read the game, so this IS the live account — record it even if the
+            // detection loop never got a turn, otherwise the next tile reload clears the badge.
+            if (gameUserId is int liveId)
+            {
+                _liveUserId = liveId;
+                _liveName = gameName;
+            }
             var match = gameUserId is int uid ? _loadedAccounts.FirstOrDefault(a => a.UserId == uid) : null;
             Log(match is not null
                 ? $"This game account is already registered as “{match.Name ?? gameName}” — updating it."
@@ -419,11 +590,12 @@ public sealed class MainForm : Form
             {
                 // Refresh the tiles (a new account now exists), then light up and select this one.
                 await LoadAccountsAsync();
+                // LoadAccountsAsync already reconciled the live account against the refreshed tiles
+                // (it's imported now, so it shows the "In game" badge rather than "new"); all that's
+                // left is to select it as the upload target.
                 if (gameUserId is int id2 && _loadedAccounts.Any(a => a.UserId == id2))
                 {
                     _selected = _loadedAccounts.First(a => a.UserId == id2);
-                    _accountsPanel.SetDetectedAccount(null, null); // it's imported now, not "new"
-                    _accountsPanel.SetIdentified(id2);
                     _accountsPanel.SetSelected(id2);
                     UpdateButtonState();
                 }
