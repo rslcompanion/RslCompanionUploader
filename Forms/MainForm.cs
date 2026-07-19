@@ -3,6 +3,7 @@ using System.Text;
 #if EXTRACTION
 using System.Text.Json;
 using NewParserOpus;
+using NewParserOpus.Il2Cpp;
 using NewParserOpus.Models;
 #endif
 using RslCompanionUploader.Api;
@@ -255,9 +256,10 @@ public sealed class MainForm : Form
 
         try
         {
-            // Also drop a shareable copy: sending this in is what gets the build into the next
-            // release so nobody else pays for this scan.
-            string exportPath = Path.Combine(AppContext.BaseDirectory, "calibrated-offsets.json");
+            // Accumulates under LocalAppData and is read back by KnownOffsets, so this build is
+            // never calibrated again — and the same file is shareable: sending it in is what gets
+            // the build into the next release so nobody else pays for this scan.
+            string exportPath = KnownOffsets.LocalCatalogPath;
 
             var result = await Task.Run(
                 () => ExtractionService.CalibrateAsync(cachePath: cachePath, exportCatalogPath: exportPath)
@@ -267,10 +269,11 @@ public sealed class MainForm : Form
 
             if (result.Success)
             {
-                Log($"Calibration succeeded — identified {result.Name ?? "the account"} (#{result.AccountId}).");
+                Log($"Calibration succeeded — identified {result.Name ?? "the account"} (#{result.AccountId}). "
+                  + "This game version won't need calibrating again on this PC.");
                 if (result.ExportedCatalogPath is string p)
-                    Log($"Saved {Path.GetFileName(p)} next to the app — send it to RSL Companion and "
-                      + "this game version will be recognised out of the box in the next release.");
+                    Log($"Saved to {p} — sending that file to RSL Companion gets this game version "
+                      + "recognised out of the box for everyone in the next release.");
             }
             else
             {
