@@ -50,8 +50,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Package the whole publish output: exe, appsettings.json, and — when built with the private
-; extraction submodule — the engine's runtime data (offsets_cache.json, resource-allowlist.json,
-; exports\champion_index.json).
+; extraction submodule — the engine's runtime data (known-offsets.json, offsets_cache.json,
+; resource-allowlist.json). The champion index is deliberately not among them: it is a product of
+; the engine, not an input, and the server keys heroes off baseTypeId rather than the name it fed.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.xml"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
