@@ -34,6 +34,7 @@ public sealed class MainForm : Form
     private readonly Button _uploadChampions = new() { Text = "Upload champions", Height = 44 };
     private readonly Button _exportAccount = new() { Text = "Export account to RSL Companion", Height = 44 };
     private readonly Label _raidStatus = new() { AutoSize = true, Visible = false, Margin = new Padding(0, 0, 0, 8) };
+    private readonly LinkLabel _reportBuild = new() { AutoSize = true, Visible = false, Margin = new Padding(0, 0, 0, 8) };
     private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White };
     private readonly AccountsPanel _accountsPanel = new() { Dock = DockStyle.Fill };
     private SplitContainer _split = null!;
@@ -70,6 +71,19 @@ public sealed class MainForm : Form
     // Set while a calibration is running so the poll doesn't probe underneath it or start a second.
     private bool _calibrating;
 
+    // The running game's build, and whether the shipped catalog covers it. Refreshed on state
+    // transitions rather than every poll — it only changes when the game itself changes.
+    private ExtractionService.GameBuildInfo? _buildInfo;
+
+    /// <summary>
+    /// Whether this is the newest uploader — null until the check succeeds. Gates the "report this
+    /// game version" prompt, which only makes sense on the latest build: if the user is behind, the
+    /// release they haven't installed may already cover their game, so prompting would generate
+    /// reports for something already fixed. Unknown (offline, GitHub down) is treated as "don't
+    /// prompt" — a wrong report costs more than a missed one.
+    /// </summary>
+    private bool? _isLatestUploader;
+
     /// <summary>
     /// Game builds we have already attempted to self-calibrate this session, so a build that cannot
     /// be calibrated (or where the game is only half-loaded) costs one ~35s scan rather than one
@@ -103,6 +117,7 @@ public sealed class MainForm : Form
         _uploadChampions.Click += async (_, _) => await UploadAsync(isResources: false);
 #if EXTRACTION
         _exportAccount.Click += async (_, _) => await ExportAccountAsync();
+        _reportBuild.LinkClicked += (_, _) => ReportUncoveredBuild();
         _raidStatus.Visible = true;
         FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
 #else
@@ -319,6 +334,75 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
+    /// Offers to report a game build the shipped catalog doesn't cover.
+    ///
+    /// Shown only when this is the newest uploader — on an older build the fix may already be
+    /// published — and only once the game build is actually identified. Deliberately a prompt rather
+    /// than an automatic report: nothing is transmitted until the user reviews and submits it.
+    /// </summary>
+    private void UpdateReportPrompt()
+    {
+        bool uncovered = _buildInfo is { CoveredByShippedCatalog: false };
+        _reportBuild.Visible = uncovered && _isLatestUploader == true;
+
+        if (_reportBuild.Visible)
+        {
+            var label = _buildInfo!.GameVersion is string v && v.Length > 0 ? v : _buildInfo.GameAssemblyHash[..12];
+            _reportBuild.Text = $"Raid {label} isn't covered by this release yet — tell RSL Companion about it";
+        }
+    }
+
+    /// <summary>
+    /// Re-reads which game build is running and whether the release covers it. Called on state
+    /// transitions, not per poll: it only changes when the game itself does.
+    /// </summary>
+    private void RefreshBuildInfo()
+    {
+        try
+        {
+            _buildInfo = RaidProcess.IsRunning() ? ExtractionService.TryGetGameBuild() : null;
+        }
+        catch
+        {
+            _buildInfo = null;
+        }
+        UpdateReportPrompt();
+    }
+
+    /// <summary>
+    /// Opens a pre-filled report for the user to review and submit, and reveals the calibration file
+    /// that makes the build reproducible on our side. Sends nothing by itself.
+    /// </summary>
+    private void ReportUncoveredBuild()
+    {
+        if (_buildInfo is not { } build) return;
+
+        var title = $"Game build not covered: Raid {build.GameVersion ?? build.GameAssemblyHash[..12]}";
+        var body =
+            $"Uploader version: {AboutForm.DisplayVersion}\n" +
+            $"Game version: {build.GameVersion ?? "(unknown)"}\n" +
+            $"GameAssembly SHA-256: {build.GameAssemblyHash}\n\n" +
+            "Attaching calibrated-offsets.json from this PC (opened in Explorer) lets this build " +
+            "ship recognised in the next release.";
+
+        OpenUrl("https://github.com/rslcompanion/RslCompanionUploader/issues/new" +
+                $"?title={Uri.EscapeDataString(title)}&body={Uri.EscapeDataString(body)}");
+
+        // Reveal, don't attach: the user decides what leaves their machine.
+        var catalog = KnownOffsets.LocalCatalogPath;
+        if (File.Exists(catalog))
+        {
+            try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{catalog}\"") { UseShellExecute = true }); }
+            catch { Log($"Calibration file is at {catalog}"); }
+        }
+        else
+        {
+            Log("No local calibration yet — run Help → Recalibrate for this game version first, "
+              + "then report again so the offsets can be included.");
+        }
+    }
+
+    /// <summary>
     /// Renders <paramref name="state"/> into the status line, and logs only on a real transition so
     /// a 5-second poll doesn't fill the activity log with the same line over and over.
     /// </summary>
@@ -344,6 +428,9 @@ public sealed class MainForm : Form
         _raidStatus.ForeColor = colour;
 
         if (state == previous && !force) return;
+
+        // The build (and whether we cover it) can only have changed across a transition.
+        RefreshBuildInfo();
 
         switch (state)
         {
@@ -415,11 +502,12 @@ public sealed class MainForm : Form
 
     private void BuildLayout()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 7 };
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 8 };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // update banner
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // header (user + actions)
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Raid connection status
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // uncovered-build report prompt
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // file-upload buttons
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // export-account button
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // log label
@@ -446,7 +534,8 @@ public sealed class MainForm : Form
         header.Controls.Add(signOut, 3, 0);
         root.Controls.Add(header);
 
-        root.Controls.Add(_raidStatus); // hidden in public builds; driven by RaidProcessMonitor under EXTRACTION
+        root.Controls.Add(_raidStatus);  // hidden in public builds; driven by the status poll under EXTRACTION
+        root.Controls.Add(_reportBuild); // shown only for a game build this release doesn't cover
 
         var buttonRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 0, 0, 12) };
         buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -602,9 +691,11 @@ public sealed class MainForm : Form
                     _updateBanner.Text = $"A new version ({result.Info!.Version}) is available — click to download";
                     _updateBanner.Tag = result.Info.ReleaseUrl;
                     _updateBanner.Visible = true;
+                    _isLatestUploader = false;
                     if (!silent) Log($"Update available: {result.Info.Version}.");
                     break;
                 case UpdateCheckStatus.UpToDate:
+                    _isLatestUploader = true;
                     if (!silent) Log($"You're on the latest version ({UpdateChecker.CurrentVersion}).");
                     break;
                 case UpdateCheckStatus.Failed:
@@ -615,6 +706,11 @@ public sealed class MainForm : Form
         finally
         {
             _checkUpdates.Enabled = true;
+#if EXTRACTION
+            // The prompt is gated on being the latest uploader, which is only known once this
+            // finishes — it runs asynchronously well after the first status poll.
+            UpdateReportPrompt();
+#endif
         }
     }
 
