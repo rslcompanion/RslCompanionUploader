@@ -2,7 +2,7 @@
 
 A small Windows (WinForms, .NET 10) desktop app that signs in against the same **Firebase
 Authentication** backing rslcompanion.com, lists the accounts linked to the signed-in user, and
-provides two upload buttons.
+exports the live Raid: Shadow Legends account to RSL Companion.
 
 ## What it does
 
@@ -17,13 +17,17 @@ provides two upload buttons.
      rslcompanion.com login in an embedded WebView2. All three providers work exactly as on the
      website; the app then reads the resulting Firebase ID token + refresh token out of the page's
      IndexedDB. No extra OAuth client IDs/secrets are needed.
-2. **Pick an account** — dropdown populated from `GET /api/accounts` (Bearer = Firebase ID token).
-3. **Upload from file** — two buttons ("Upload account resources", "Upload champions"). Each lets you
-   choose a JSON file and POSTs it to the configured endpoint with `?accountId=<gameUserId>`.
-4. **Sync from game** *(builds with the private engine only)* — reads the **live Raid: Shadow
+2. **View your accounts** — the UI (a single full-window WebView2 page styled like the site) lists
+   accounts from `GET /api/accounts` (Bearer = Firebase ID token) as read-only status tiles: Raid
+   closed shows a red "open Raid" prompt, an unimported running account shows a "new account
+   detected" tile, and the profile matching the running game turns green.
+3. **Export account** *(builds with the private engine only)* — reads the **live Raid: Shadow
    Legends process** in memory via the private extraction engine (submodule at `extraction/`),
    builds a consolidated profile (resources + champions), and POSTs it to
    `/api/sync/consolidated/raw`. Requires the game to be running.
+
+File-based JSON import (resources/champions) previously lived here; it has moved to the
+rslcompanion.com metadata tooling.
 
 The Firebase ID token is auto-refreshed (via the refresh token) before it expires on every API call.
 
@@ -31,8 +35,8 @@ The Firebase ID token is auto-refreshed (via the refresh token) before it expire
 
 This repository is public; the game-data extraction engine is a **private git submodule** at
 `extraction/` (repo `RslCompanionExtraction`). Anyone can build and run this project without it —
-the "Sync from game" button is compiled out (`EXTRACTION` define absent) and file upload works
-normally. With access to the private repo:
+the "Export account" button is compiled out (`EXTRACTION` define absent), leaving auth and the
+accounts pane. With access to the private repo:
 
 ```
 git submodule update --init
@@ -48,11 +52,7 @@ dotnet build RslCompanionUploader.csproj   # now builds with EXTRACTION enabled
 | `ApiBaseUrl` | RaidTools API origin | `https://api.rslcompanion.com` |
 | `FrontendUrl` | Site loaded for browser sign-in | `https://rslcompanion.com` |
 | `Firebase.ApiKey` / `Firebase.ProjectId` | Firebase web config | `raid-account-manager` |
-| `Endpoints.UploadResources` | Resources upload path | `/api/upload/resources` *(not yet implemented server-side)* |
-| `Endpoints.UploadChampions` | Champions upload path | `/api/upload/champions` *(not yet implemented server-side)* |
-
-> The two upload endpoints do not exist on the API yet. Until they do, the upload buttons return a
-> clear "Endpoint not found (404)" message — everything else (auth + account listing) is live.
+| `Endpoints.SyncConsolidated` | Export-account sync path | `/api/sync/consolidated/raw` |
 
 ## Build & run
 

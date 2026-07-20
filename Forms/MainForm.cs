@@ -12,10 +12,16 @@ using RslCompanionUploader.Auth;
 namespace RslCompanionUploader.Forms;
 
 /// <summary>
-/// Main window: shows who is signed in, the user's uploader-created accounts as clickable tiles
-/// (right pane), and the upload/export actions (left pane). File uploads target the tile the user
-/// selects; "Export account" reads the running game and create-or-updates the matching account,
-/// highlighting its tile.
+/// Main window: a thin native shell (title bar + File/Help menu) hosting the whole UI as one
+/// full-window WebView2 page (<see cref="AppShell"/>). "Export account" reads the running game and
+/// create-or-updates the matching account, highlighting its tile.
+///
+/// This class stays the backend: it runs the status poll, extraction and API calls, and pushes the
+/// resulting view-state into the shell. The menu actions (refresh, sign out, check for updates,
+/// recalibrate, about) call straight into these methods.
+///
+/// File-based imports (resources/champions JSON) deliberately do not live here — they belong to the
+/// rslcompanion.com metadata tooling. This app's job is the live game export.
 /// </summary>
 public sealed class MainForm : Form
 {
@@ -26,22 +32,11 @@ public sealed class MainForm : Form
     private readonly AppConfig _config;
     private readonly RslCompanionApiClient _api;
 
-    private readonly Label _user = new() { AutoSize = true, Font = new Font("Segoe UI", 10f, FontStyle.Bold) };
-    private readonly LinkLabel _updateBanner = new() { AutoSize = true, Visible = false, Margin = new Padding(0, 0, 0, 10) };
-    private readonly Button _refresh = new() { Text = "Refresh", AutoSize = true };
-    private readonly Button _checkUpdates = new() { Text = "Check for updates", AutoSize = true };
-    private readonly Button _uploadResources = new() { Text = "Upload account resources", Height = 44 };
-    private readonly Button _uploadChampions = new() { Text = "Upload champions", Height = 44 };
-    private readonly Button _exportAccount = new() { Text = "Export account to RSL Companion", Height = 44 };
-    private readonly Label _raidStatus = new() { AutoSize = true, Visible = false, Margin = new Padding(0, 0, 0, 8) };
-    private readonly LinkLabel _reportBuild = new() { AutoSize = true, Visible = false, Margin = new Padding(0, 0, 0, 8) };
-    private readonly TextBox _log = new() { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BackColor = Color.White };
-    private readonly AccountsPanel _accountsPanel = new() { Dock = DockStyle.Fill };
-    private SplitContainer _split = null!;
+    private readonly ToolStripMenuItem _refreshItem = new("&Refresh accounts");
+    private readonly AppShell _shell = new() { Dock = DockStyle.Fill };
 
-    // The accounts currently shown as tiles, and the one the user has selected (upload target).
+    // The accounts currently shown as tiles.
     private List<AccountSummary> _loadedAccounts = new();
-    private AccountSummary? _selected;
 
     // Guards so live-account detection never runs twice, or while an upload/export owns the process.
     private bool _busy;
@@ -112,47 +107,28 @@ public sealed class MainForm : Form
 
         BuildLayout();
 
-        _refresh.Click += async (_, _) => await LoadAccountsAsync();
-        _uploadResources.Click += async (_, _) => await UploadAsync(isResources: true);
-        _uploadChampions.Click += async (_, _) => await UploadAsync(isResources: false);
+        _refreshItem.Click += async (_, _) => await LoadAccountsAsync();
+        _shell.OpenUrlRequested += OpenUrl;
 #if EXTRACTION
-        _exportAccount.Click += async (_, _) => await ExportAccountAsync();
-        _reportBuild.LinkClicked += (_, _) => ReportUncoveredBuild();
-        _raidStatus.Visible = true;
+        // The export action lives in the shell (the accounts pane's button); it reads the live game
+        // and create-or-updates by the in-game id regardless of which tile drove the label.
+        _shell.ExportRequested += async () => await ExportAccountAsync();
+        _shell.ReportBuildRequested += ReportUncoveredBuild;
+        _shell.SetExportAvailable(true);
         FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
-#else
-        // Built without the private extraction engine (public clone) — game extraction unavailable.
-        _exportAccount.Visible = false;
 #endif
-        _accountsPanel.AccountSelected += userId =>
-        {
-            _selected = _loadedAccounts.FirstOrDefault(a => a.UserId == userId);
-            UpdateButtonState();
-        };
-        _updateBanner.LinkClicked += (_, _) =>
-            Process.Start(new ProcessStartInfo(_updateBanner.Tag as string ?? "https://get.rslcompanion.com") { UseShellExecute = true });
-        _checkUpdates.Click += async (_, _) => await CheckForUpdateAsync(silent: false);
+        // Public builds leave export unavailable (default), so the shell never shows the export button.
 
         Load += async (_, _) =>
         {
-            // Apply the pane min-sizes and split position now that the form has a real width. Doing
-            // this in BuildLayout throws (SplitterDistance out of range) because the container is
-            // still at its tiny default size there. Guarded so no layout edge case can crash the app.
-            try
-            {
-                _split.Panel1MinSize = 380;
-                _split.Panel2MinSize = 280;
-                _split.SplitterDistance = (int)(_split.Width * 0.55);
-            }
-            catch { /* window too small for these constraints — keep defaults, never crash */ }
-            _accountsPanel.Start();
+            _shell.Start();
 #if EXTRACTION
             ApplyGameState(GameState.NotRunning, force: true); // render a status before the first poll
             _ = PollGameStatusAsync(_statusCts.Token);
 #endif
 
             var who = _api.Session.DisplayName ?? _api.Session.Email ?? _api.Session.Uid ?? "signed in";
-            _user.Text = $"Signed in as {who}";
+            _shell.SetUser(who);
             await LoadAccountsAsync();
             _ = CheckForUpdateAsync(silent: true);
         };
@@ -342,13 +318,15 @@ public sealed class MainForm : Form
     /// </summary>
     private void UpdateReportPrompt()
     {
-        bool uncovered = _buildInfo is { CoveredByShippedCatalog: false };
-        _reportBuild.Visible = uncovered && _isLatestUploader == true;
-
-        if (_reportBuild.Visible)
+        bool show = _buildInfo is { CoveredByShippedCatalog: false } && _isLatestUploader == true;
+        if (show)
         {
             var label = _buildInfo!.GameVersion is string v && v.Length > 0 ? v : _buildInfo.GameAssemblyHash[..12];
-            _reportBuild.Text = $"Raid {label} isn't covered by this release yet — tell RSL Companion about it";
+            _shell.SetReport($"Raid {label} isn't covered by this release yet — tell RSL Companion about it");
+        }
+        else
+        {
+            _shell.SetReport(null);
         }
     }
 
@@ -411,21 +389,20 @@ public sealed class MainForm : Form
         var previous = _gameState;
         _gameState = state;
 
-        (string text, Color colour) = state switch
+        (string kind, string text) = state switch
         {
             GameState.Connected =>
-                ($"🟢  Connected to Raid — {_liveName} (#{_liveUserId})", Color.ForestGreen),
+                ("connected", $"Connected — {_liveName} (#{_liveUserId})"),
             GameState.Loading =>
-                ("🟡  Raid is running — waiting for account data…", Color.DarkGoldenrod),
+                ("loading", "Raid is running — waiting for account data…"),
             GameState.Calibrating =>
-                ("🔵  New game version — working out the memory map (about a minute)…", Color.RoyalBlue),
+                ("calibrating", "New game version — mapping memory (about a minute)…"),
             GameState.NeedsCalibration =>
-                ("🟠  Raid is running — account can't be identified", Color.DarkOrange),
+                ("needsCalibration", "Raid is running — account can't be identified"),
             _ =>
-                ("⚪  Raid not running — start the game to export", Color.Gray),
+                ("notRunning", "Raid not running — start the game to export"),
         };
-        _raidStatus.Text = text;
-        _raidStatus.ForeColor = colour;
+        _shell.SetStatus(kind, text);
 
         if (state == previous && !force) return;
 
@@ -482,97 +459,31 @@ public sealed class MainForm : Form
     {
         if (_liveUserId is not int uid)
         {
-            _accountsPanel.SetDetectedAccount(null, null);
-            _accountsPanel.SetIdentified(null);
+            _shell.SetDetectedAccount(null, null);
+            _shell.SetIdentified(null);
             return;
         }
 
         if (_loadedAccounts.Any(a => a.UserId == uid))
         {
-            _accountsPanel.SetDetectedAccount(null, null);
-            _accountsPanel.SetIdentified(uid);
+            _shell.SetDetectedAccount(null, null);
+            _shell.SetIdentified(uid);
         }
         else
         {
-            _accountsPanel.SetIdentified(null);
-            _accountsPanel.SetDetectedAccount(uid, _liveName);
+            _shell.SetIdentified(null);
+            _shell.SetDetectedAccount(uid, _liveName);
         }
     }
 #endif
 
     private void BuildLayout()
     {
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 8 };
-        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // update banner
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // header (user + actions)
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // Raid connection status
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // uncovered-build report prompt
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // file-upload buttons
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // export-account button
-        root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); // log label
-        root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // log
+        // The entire UI is the WebView2 shell; the form only adds the native menu strip on top.
+        Controls.Add(_shell);
 
-        root.Controls.Add(_updateBanner);
-
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        _user.Anchor = AnchorStyles.Left;
-        _user.Margin = new Padding(0, 6, 0, 0);
-        _refresh.Anchor = AnchorStyles.Right;
-        _refresh.Margin = new Padding(0, 0, 8, 0);
-        _checkUpdates.Anchor = AnchorStyles.Right;
-        _checkUpdates.Margin = new Padding(0, 0, 8, 0);
-        var signOut = new Button { Text = "Sign out", AutoSize = true, Anchor = AnchorStyles.Right };
-        signOut.Click += (_, _) => SignOut();
-        header.Controls.Add(_user, 0, 0);
-        header.Controls.Add(_refresh, 1, 0);
-        header.Controls.Add(_checkUpdates, 2, 0);
-        header.Controls.Add(signOut, 3, 0);
-        root.Controls.Add(header);
-
-        root.Controls.Add(_raidStatus);  // hidden in public builds; driven by the status poll under EXTRACTION
-        root.Controls.Add(_reportBuild); // shown only for a game build this release doesn't cover
-
-        var buttonRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 0, 0, 12) };
-        buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        buttonRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        _uploadResources.Dock = DockStyle.Fill;
-        _uploadResources.Margin = new Padding(0, 0, 6, 0);
-        _uploadChampions.Dock = DockStyle.Fill;
-        _uploadChampions.Margin = new Padding(6, 0, 0, 0);
-        buttonRow.Controls.Add(_uploadResources, 0, 0);
-        buttonRow.Controls.Add(_uploadChampions, 1, 0);
-        root.Controls.Add(buttonRow);
-
-        _exportAccount.Dock = DockStyle.Fill;
-        _exportAccount.Margin = new Padding(0, 0, 0, 12);
-        _exportAccount.Font = new Font(Font, FontStyle.Bold);
-        root.Controls.Add(_exportAccount);
-
-        root.Controls.Add(new Label { Text = "Activity", AutoSize = true, Margin = new Padding(0, 4, 0, 4) });
-        root.Controls.Add(_log);
-
-        // Left = actions (upload/export) + activity log; right = the account tiles picker.
-        // Min-sizes are deliberately NOT set here — a SplitContainer at its default width can't
-        // satisfy 380+280 and set_SplitterDistance throws. They're applied in Load (see ctor) once
-        // the form has a real width.
-        _split = new SplitContainer
-        {
-            Dock = DockStyle.Fill,
-            Orientation = Orientation.Vertical,
-            SplitterWidth = 6,
-        };
-        root.Dock = DockStyle.Fill;
-        _split.Panel1.Controls.Add(root);
-        _split.Panel2.Controls.Add(_accountsPanel);
-        Controls.Add(_split);
-
-        // Added after the Fill control on purpose: WinForms resolves docking from the highest
-        // child index down, so the menu must be last to claim the top strip before the splitter fills.
+        // Added after the Fill control on purpose: WinForms resolves docking from the highest child
+        // index down, so the menu must be last to claim the top strip before the shell fills.
         var menu = BuildMenu();
         Controls.Add(menu);
         MainMenuStrip = menu;
@@ -581,8 +492,11 @@ public sealed class MainForm : Form
     private MenuStrip BuildMenu()
     {
         var file = new ToolStripMenuItem("&File");
+        _refreshItem.ShortcutKeys = Keys.F5;
         var signOutItem = new ToolStripMenuItem("Sign &out", null, (_, _) => SignOut());
         var exitItem = new ToolStripMenuItem("&Close", null, (_, _) => Close()) { ShortcutKeys = Keys.Alt | Keys.F4 };
+        file.DropDownItems.Add(_refreshItem);
+        file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(signOutItem);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(exitItem);
@@ -647,18 +561,13 @@ public sealed class MainForm : Form
                 .OrderBy(a => a.Name)
                 .ToList();
 
-            // Drop a stale selection, then render the tiles.
-            if (_selected is not null && _loadedAccounts.All(a => a.UserId != _selected.UserId))
-                _selected = null;
-
-            _accountsPanel.SetAccounts(_loadedAccounts
-                .Select(a => new AccountsPanel.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName, a.HeroCount, a.ArtifactCount))
+            _shell.SetAccounts(_loadedAccounts
+                .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName, a.HeroCount, a.ArtifactCount))
                 .ToList());
-            _accountsPanel.SetSelected(_selected?.UserId);
 
             Log(_loadedAccounts.Count > 0
-                ? $"Loaded {_loadedAccounts.Count} account(s). Pick one on the right to upload a file to it."
-                : "No uploader accounts yet — open Raid and click Export account to create one.");
+                ? $"Loaded {_loadedAccounts.Count} account(s)."
+                : "No accounts in your profile yet — open Raid and click Export account to create one.");
         }
         catch (Exception ex)
         {
@@ -667,7 +576,6 @@ public sealed class MainForm : Form
         finally
         {
             SetBusy(false);
-            UpdateButtonState();
 #if EXTRACTION
             // The tiles just changed, so the live account's imported/new status may have too.
             ReconcileLiveAccount();
@@ -681,20 +589,18 @@ public sealed class MainForm : Form
     /// </summary>
     private async Task CheckForUpdateAsync(bool silent)
     {
-        _checkUpdates.Enabled = false;
         try
         {
             var result = await UpdateChecker.CheckForUpdateAsync();
             switch (result.Status)
             {
                 case UpdateCheckStatus.UpdateAvailable:
-                    _updateBanner.Text = $"A new version ({result.Info!.Version}) is available — click to download";
-                    _updateBanner.Tag = result.Info.ReleaseUrl;
-                    _updateBanner.Visible = true;
+                    _shell.SetUpdate(result.Info!.Version.ToString(), result.Info.ReleaseUrl);
                     _isLatestUploader = false;
                     if (!silent) Log($"Update available: {result.Info.Version}.");
                     break;
                 case UpdateCheckStatus.UpToDate:
+                    _shell.SetUpdate(null, null);
                     _isLatestUploader = true;
                     if (!silent) Log($"You're on the latest version ({UpdateChecker.CurrentVersion}).");
                     break;
@@ -705,60 +611,11 @@ public sealed class MainForm : Form
         }
         finally
         {
-            _checkUpdates.Enabled = true;
 #if EXTRACTION
             // The prompt is gated on being the latest uploader, which is only known once this
             // finishes — it runs asynchronously well after the first status poll.
             UpdateReportPrompt();
 #endif
-        }
-    }
-
-    private async Task UploadAsync(bool isResources)
-    {
-        if (_selected is not AccountSummary account)
-        {
-            Log("Pick an account tile on the right first.");
-            return;
-        }
-
-        var kind = isResources ? "resources" : "champions";
-        using var dialog = new OpenFileDialog
-        {
-            Title = $"Choose the {kind} JSON to upload for {account.Name}",
-            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
-        };
-        if (dialog.ShowDialog(this) != DialogResult.OK)
-            return;
-
-        string json;
-        try
-        {
-            json = await File.ReadAllTextAsync(dialog.FileName);
-        }
-        catch (Exception ex)
-        {
-            Log($"Could not read file: {ex.Message}");
-            return;
-        }
-
-        SetBusy(true);
-        Log($"Uploading {kind} for {account.Name} (#{account.UserId}) from {Path.GetFileName(dialog.FileName)}…");
-        try
-        {
-            var profileName = account.Name ?? $"Account {account.UserId}";
-            var result = isResources
-                ? await _api.UploadResourcesAsync(account.UserId, profileName, json)
-                : await _api.UploadChampionsAsync(account.UserId, profileName, json);
-            Log(result.Message);
-        }
-        catch (Exception ex)
-        {
-            Log($"Upload error: {ex.Message}");
-        }
-        finally
-        {
-            SetBusy(false);
         }
     }
 
@@ -806,20 +663,10 @@ public sealed class MainForm : Form
             var result = await _api.UploadConsolidatedAsync(json);
             Log(result.Message);
 
+            // Refresh the tiles (a new account now exists). LoadAccountsAsync reconciles the live
+            // account against them, so the exported one comes back highlighted as the in-game tile.
             if (result.Success)
-            {
-                // Refresh the tiles (a new account now exists), then light up and select this one.
                 await LoadAccountsAsync();
-                // LoadAccountsAsync already reconciled the live account against the refreshed tiles
-                // (it's imported now, so it shows the "In game" badge rather than "new"); all that's
-                // left is to select it as the upload target.
-                if (gameUserId is int id2 && _loadedAccounts.Any(a => a.UserId == id2))
-                {
-                    _selected = _loadedAccounts.First(a => a.UserId == id2);
-                    _accountsPanel.SetSelected(id2);
-                    UpdateButtonState();
-                }
-            }
         }
         catch (Exception ex)
         {
@@ -867,9 +714,8 @@ public sealed class MainForm : Form
 
     /// <summary>
     /// Runs the private extraction engine against the live Raid process on a background thread,
-    /// mirroring its console diagnostics into the activity log. Shared by "Sync from game" and
-    /// "Export account"; always pulls resources + champions, and artifacts when
-    /// <see cref="ExportArtifacts"/> is enabled.
+    /// mirroring its console diagnostics into the activity log. Backs "Export account"; always pulls
+    /// resources + champions, and artifacts when <see cref="ExportArtifacts"/> is enabled.
     /// </summary>
     private Task<ConsolidatedProfile> ExtractProfileAsync()
     {
@@ -901,35 +747,20 @@ public sealed class MainForm : Form
         Application.Restart();
     }
 
-    private void UpdateButtonState()
-    {
-        var hasAccount = _selected is not null;
-        _uploadResources.Enabled = hasAccount;
-        _uploadChampions.Enabled = hasAccount;
-    }
-
     private void SetBusy(bool busy)
     {
         _busy = busy;
         UseWaitCursor = busy;
-        _refresh.Enabled = !busy;
-        _exportAccount.Enabled = !busy;
-        if (busy)
-        {
-            _uploadResources.Enabled = false;
-            _uploadChampions.Enabled = false;
-        }
-        else
-        {
-            UpdateButtonState();
-        }
+        _refreshItem.Enabled = !busy;
+        _shell.SetBusy(busy); // reflects into the shell's export button (disabled + "Exporting…")
     }
 
+    // Marshals to the UI thread: the extraction engine logs from a background thread (see
+    // ConsoleLogWriter), and the shell may only be touched on the UI thread.
     private void Log(string message)
     {
-        var line = $"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}";
-        if (_log.InvokeRequired) _log.BeginInvoke(() => _log.AppendText(line));
-        else _log.AppendText(line);
+        if (InvokeRequired) BeginInvoke(() => _shell.Log(message));
+        else _shell.Log(message);
     }
 }
 

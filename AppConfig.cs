@@ -14,14 +14,8 @@ public sealed class AppConfig
     public string FirebaseApiKey { get; init; } = "AIzaSyCHDxSv2WwrZP2obwllWB9KwjyXaqklNog";
     public string FirebaseProjectId { get; init; } = "raid-account-manager";
 
-    /// <summary>Server-relative path the "Upload account resources" button posts to.</summary>
-    public string UploadResourcesEndpoint { get; init; } = "/api/profile-import/resources";
-
-    /// <summary>Server-relative path the "Upload champions" button posts to.</summary>
-    public string UploadChampionsEndpoint { get; init; } = "/api/profile-import/champions";
-
     /// <summary>
-    /// Server-relative path the "Sync from game" flow posts the extracted ConsolidatedProfile to.
+    /// Server-relative path the "Export account" flow posts the extracted ConsolidatedProfile to.
     /// Matches RaidTools.Api's parser sync endpoint (ConsolidatedJsonSyncAdapter).
     /// </summary>
     public string SyncConsolidatedEndpoint { get; init; } = "/api/sync/consolidated/raw";
@@ -61,8 +55,6 @@ public sealed class AppConfig
                 FrontendUrl = Str(root, "FrontendUrl", def.FrontendUrl).TrimEnd('/'),
                 FirebaseApiKey = fb.ValueKind == JsonValueKind.Object ? Str(fb, "ApiKey", def.FirebaseApiKey) : def.FirebaseApiKey,
                 FirebaseProjectId = fb.ValueKind == JsonValueKind.Object ? Str(fb, "ProjectId", def.FirebaseProjectId) : def.FirebaseProjectId,
-                UploadResourcesEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "UploadResources", def.UploadResourcesEndpoint) : def.UploadResourcesEndpoint,
-                UploadChampionsEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "UploadChampions", def.UploadChampionsEndpoint) : def.UploadChampionsEndpoint,
                 SyncConsolidatedEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncConsolidated", def.SyncConsolidatedEndpoint) : def.SyncConsolidatedEndpoint,
                 ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };

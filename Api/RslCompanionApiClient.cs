@@ -2,8 +2,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 using RslCompanionUploader.Auth;
 
 namespace RslCompanionUploader.Api;
@@ -57,23 +55,6 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
-    /// POSTs the resources slice to <c>/api/profile-import/resources</c> as
-    /// <c>{ profileId, profileName, resources: [...] }</c>. The array is extracted from
-    /// <paramref name="fileJson"/> (a "resources" property, a "resources"/root array, or a
-    /// consolidated export).
-    /// </summary>
-    public Task<UploadResult> UploadResourcesAsync(int profileId, string profileName, string fileJson, CancellationToken ct = default)
-        => PostSliceAsync(_config.UploadResourcesEndpoint, profileId, profileName, "resources", fileJson, ct);
-
-    /// <summary>
-    /// POSTs the champions slice to <c>/api/profile-import/champions</c> as
-    /// <c>{ profileId, profileName, champions: [...] }</c>. The array is extracted from
-    /// <paramref name="fileJson"/> (a "champions"/"heroes" property, a root array, or a consolidated export).
-    /// </summary>
-    public Task<UploadResult> UploadChampionsAsync(int profileId, string profileName, string fileJson, CancellationToken ct = default)
-        => PostSliceAsync(_config.UploadChampionsEndpoint, profileId, profileName, "champions", fileJson, ct, altArrayKey: "heroes");
-
-    /// <summary>
     /// POSTs a fully-formed <c>ConsolidatedProfile</c> JSON (produced by the extraction engine) to
     /// the parser sync endpoint. The profile carries its own in-game <c>accountId</c>, so the server
     /// routes it without a selected account. The Firebase ID token is still attached as a Bearer.
@@ -93,67 +74,6 @@ public sealed class RslCompanionApiClient
             return UploadResult.Fail($"Sync failed ({(int)resp.StatusCode} {resp.ReasonPhrase}).\n{Trim(body)}");
 
         return UploadResult.Ok($"Synced to RSL Companion ({(int)resp.StatusCode}).\n{Trim(body)}");
-    }
-
-    private async Task<UploadResult> PostSliceAsync(
-        string endpoint, int profileId, string profileName, string arrayKey, string fileJson,
-        CancellationToken ct, string? altArrayKey = null)
-    {
-        JsonArray items;
-        try
-        {
-            items = ExtractArray(fileJson, arrayKey, altArrayKey);
-        }
-        catch (Exception ex)
-        {
-            return UploadResult.Fail($"Could not build the {arrayKey} payload from the selected file:\n{ex.Message}");
-        }
-
-        var payload = new JsonObject
-        {
-            ["profileId"] = profileId,
-            ["profileName"] = profileName,
-            [arrayKey] = items,
-        };
-
-        using var req = await BuildRequestAsync(HttpMethod.Post, endpoint, ct);
-        req.Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json");
-
-        using var resp = await _http.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
-
-        if (resp.StatusCode == HttpStatusCode.NotFound)
-            return UploadResult.Fail($"Endpoint not found (404): {endpoint}\nThe server may not have this endpoint deployed yet.");
-
-        if (!resp.IsSuccessStatusCode)
-            return UploadResult.Fail($"Upload failed ({(int)resp.StatusCode} {resp.ReasonPhrase}).\n{Trim(body)}");
-
-        return UploadResult.Ok($"Uploaded {items.Count} {arrayKey} ({(int)resp.StatusCode}).\n{Trim(body)}");
-    }
-
-    /// <summary>
-    /// Finds the array to send. Accepts: the raw array at the root; an object with the named
-    /// property (e.g. "resources"/"champions"); or a consolidated export whose slice lives under
-    /// <paramref name="key"/> / <paramref name="altKey"/> (e.g. "heroes").
-    /// </summary>
-    private static JsonArray ExtractArray(string fileJson, string key, string? altKey)
-    {
-        var node = JsonNode.Parse(fileJson) ?? throw new InvalidOperationException("File is empty or not valid JSON.");
-
-        if (node is JsonArray rootArray)
-            return (JsonArray)rootArray.DeepClone();
-
-        if (node is JsonObject obj)
-        {
-            foreach (var candidate in new[] { key, altKey })
-            {
-                if (candidate != null && obj.TryGetPropertyValue(candidate, out var v) && v is JsonArray arr)
-                    return (JsonArray)arr.DeepClone();
-            }
-            throw new InvalidOperationException($"No \"{key}\" array found in the file.");
-        }
-
-        throw new InvalidOperationException("Expected a JSON array or object.");
     }
 
     private static string Trim(string s) => s.Length > 500 ? s[..500] + "…" : s;
