@@ -293,8 +293,6 @@ public sealed class AppShell : Panel
                      letter-spacing:.02em; text-transform:uppercase; }
   .tile .attach-note { margin-top:8px; font-size:11px; color:var(--accent); font-weight:600; }
 
-  .tile.offline { grid-column:1/-1; border:2px solid var(--bad); background:var(--badbg); color:var(--bad);
-                  font-size:13px; font-weight:600; line-height:1.5; }
   .empty { grid-column:1/-1; padding:8px 2px; color:var(--sub); font-size:13px; }
 
   #actionBar { flex:none; display:none; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
@@ -377,14 +375,6 @@ public sealed class AppShell : Panel
   function renderGrid(sel) {
     var grid = $('grid');
     grid.innerHTML = '';
-    var gameClosed = state.status && state.status.kind === 'notRunning';
-
-    if (gameClosed) {
-      var off = document.createElement('div');
-      off.className = 'tile offline';
-      off.textContent = 'Open the Raid game to fetch account details.';
-      grid.appendChild(off);
-    }
 
     if (state.detected) {
       var d = document.createElement('div');
@@ -401,7 +391,7 @@ public sealed class AppShell : Panel
     sec.querySelector('.cnt').textContent = state.accounts.length + (state.accounts.length === 1 ? ' profile' : ' profiles');
 
     if (!state.accounts.length) {
-      if (!gameClosed && !state.detected) {
+      if (!state.detected) {
         var empty = document.createElement('div');
         empty.className = 'empty';
         empty.textContent = 'No accounts in your profile.';

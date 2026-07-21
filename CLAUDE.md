@@ -25,12 +25,12 @@ recalibrate, about) is a native menu item calling straight into `MainForm` — n
 
 The page is a top bar (brand + connection pill + identity), optional banners, the accounts grid, a
 contextual export button, and a collapsible activity console. Tiles are status, not controls — the
-user can't select them. Raid closed shows a red "open Raid" tile, a running-but-unimported account
-shows a "new account detected" tile, and the profile matching the running game turns green (all others
-keep a black border). The export button's target is chosen automatically — it is the account the
-running game is on: "Add current game account…" for a new account, "Update account" for a matched
-existing one, and no button when no game is reachable. Clicking it runs the export (which reads the
-live game and routes by the in-game id).
+user can't select them. "Raid not running" is stated once, by the top-bar pill — the accounts grid
+never repeats it as a tile. A running-but-unimported account shows a "new account detected" tile, and
+the profile matching the running game turns green (all others keep a black border). The export
+button's target is chosen automatically — it is the account the running game is on: "Add current game
+account…" for a new account, "Update account" for a matched existing one, and no button when no game
+is reachable. Clicking it runs the export (which reads the live game and routes by the in-game id).
 
 Because the whole UI is WebView2, the runtime (preinstalled on Win11) is now load-bearing; if it's
 missing, `AppShell` shows a plain fallback label instead of the page.

@@ -405,7 +405,7 @@ public sealed class MainForm : Form
             GameState.NeedsCalibration =>
                 ("needsCalibration", "Raid is running — account can't be identified"),
             _ =>
-                ("notRunning", "Raid not running — start the game to export"),
+                ("notRunning", "Raid not running — start the game to fetch account details"),
         };
         _shell.SetStatus(kind, text);
 
