@@ -79,3 +79,19 @@ Type: filesandordirs; Name: "{localappdata}\RslCompanionUploader"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Inno already upgrades in place when AppId matches (files below are ignoreversion, so they get
+// overwritten regardless). This just surfaces that to the user instead of silently replacing files
+// with no feedback. It deliberately never runs the previous uninstaller: that would trigger
+// [UninstallDelete] and wipe creds.dat / the WebView2 profile, signing the user out on every update.
+function InitializeSetup(): Boolean;
+var
+  PrevVersion: String;
+  UninstallKey: String;
+begin
+  Result := True;
+  UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
+  if RegQueryStringValue(HKA, UninstallKey, 'DisplayVersion', PrevVersion) then
+    MsgBox(FmtMessage('{#MyAppName} %1 is already installed.'#13#10'Setup will update it to version {#MyAppVersion}.', [PrevVersion]), mbInformation, MB_OK);
+end;

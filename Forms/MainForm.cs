@@ -96,13 +96,18 @@ public sealed class MainForm : Form
         _api = api;
 
         // The running version is in the title bar as well as Help → About: "which build am I on?"
-        // is the first question in almost every support thread.
-        Text = $"RSL Companion — Uploader  v{AboutForm.DisplayVersion}";
+        // is the first question in almost every support thread. "RSL Companion" itself is left out —
+        // the WebView2 page's own top bar already shows that brand right underneath.
+        Text = $"Uploader  v{AboutForm.DisplayVersion}";
         Icon = AppIcon.Value;
         Width = 1000;
         Height = 560;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(820, 480);
+        // Fixed 1000x560 clipped the accounts grid on smaller/scaled screens (scrollbar visible on
+        // first launch instead of the dashboard fitting at a glance). Maximizing always claims the
+        // full work area; Width/Height above still set the restore-down size.
+        WindowState = FormWindowState.Maximized;
         Font = new Font("Segoe UI", 9.5f);
 
         BuildLayout();

@@ -202,7 +202,29 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("heroCount")] int HeroCount,
         [property: JsonPropertyName("artifactCount")] int ArtifactCount);
 
-    private const string Html = @"<!doctype html>
+    private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
+
+    /// <summary>
+    /// Renders the exe's own icon into the page's brand mark instead of an "RC" text placeholder, so
+    /// the in-page logo actually matches the taskbar/title-bar icon the user already recognises.
+    /// </summary>
+    private static string BuildLogoDataUri()
+    {
+        try
+        {
+            using var icon = AppIcon.Value ?? SystemIcons.Application;
+            using var bitmap = icon.ToBitmap();
+            using var ms = new MemoryStream();
+            bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+            return "data:image/png;base64," + Convert.ToBase64String(ms.ToArray());
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private const string HtmlTemplate = @"<!doctype html>
 <html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>
 <style>
   :root { color-scheme: light dark;
@@ -225,8 +247,7 @@ public sealed class AppShell : Panel
   #topbar { flex:none; display:flex; align-items:center; gap:12px; padding:10px 16px;
             border-bottom:1px solid var(--line); background:var(--card); }
   #brand { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
-  #logo { width:24px; height:24px; border-radius:6px; background:var(--accent); color:#fff;
-          display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+  #logo { width:24px; height:24px; border-radius:6px; object-fit:contain; flex:none; }
   #pill { display:none; align-items:center; gap:6px; padding:4px 11px; border-radius:999px;
           font-size:12px; font-weight:600; }
   #pill .dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
@@ -252,8 +273,7 @@ public sealed class AppShell : Panel
   .tile { position:relative; border:1px solid var(--line); border-radius:12px; background:var(--card);
           padding:14px; transition:border-color .12s, background .12s, box-shadow .12s; }
   .tile.identified { border-color:var(--ok); border-width:2px; background:var(--okbg); }
-  .tile.selected { box-shadow:0 0 0 2px var(--accent) inset; }
-  .tile.selected:not(.identified) { border-color:var(--accent); }
+  .tile.selected:not(.identified) { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
   .tile .head { display:flex; align-items:center; gap:10px; }
   .tile .avatar { width:34px; height:34px; border-radius:9px; background:var(--panel); color:var(--fg);
                   display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; flex:none; }
@@ -297,7 +317,7 @@ public sealed class AppShell : Panel
 </style></head>
 <body>
   <div id='topbar'>
-    <div id='brand'><span id='logo'>RC</span><span>RSL Companion</span></div>
+    <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span></div>
     <div id='pill'><span class='dot'></span><span class='txt'></span></div>
     <div id='who'></div>
   </div>
