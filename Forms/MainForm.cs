@@ -8,6 +8,7 @@ using NewParserOpus.Models;
 #endif
 using RslCompanionUploader.Api;
 using RslCompanionUploader.Auth;
+using RslCompanionUploader;
 
 namespace RslCompanionUploader.Forms;
 
@@ -135,7 +136,11 @@ public sealed class MainForm : Form
             var who = _api.Session.DisplayName ?? _api.Session.Email ?? _api.Session.Uid ?? "signed in";
             _shell.SetUser(who);
             await LoadAccountsAsync();
-            _ = CheckForUpdateAsync(silent: true);
+
+            // Packaged (MSIX/Store) builds get updates via the Store or App Installer instead of
+            // this GitHub-release poll, so the banner/menu item would be confusing there.
+            if (!PackagedAppInfo.IsPackaged)
+                _ = CheckForUpdateAsync(silent: true);
         };
     }
 
@@ -507,8 +512,11 @@ public sealed class MainForm : Form
         file.DropDownItems.Add(exitItem);
 
         var help = new ToolStripMenuItem("&Help");
-        help.DropDownItems.Add(new ToolStripMenuItem("Check for &updates…", null,
-            async (_, _) => await CheckForUpdateAsync(silent: false)));
+        if (!PackagedAppInfo.IsPackaged)
+        {
+            help.DropDownItems.Add(new ToolStripMenuItem("Check for &updates…", null,
+                async (_, _) => await CheckForUpdateAsync(silent: false)));
+        }
 #if EXTRACTION
         // The manual retry for a build whose automatic attempt ran too early (game still loading).
         help.DropDownItems.Add(new ToolStripMenuItem("&Recalibrate for this game version", null,

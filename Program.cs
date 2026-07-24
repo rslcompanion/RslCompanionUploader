@@ -14,7 +14,11 @@ internal static class Program
     private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
-        ProtocolHandler.RegisterCurrentUser();
+
+        // Packaged (MSIX) builds declare the protocol in Package.appxmanifest instead; a runtime
+        // registry write would be redundant at best and conflict with the manifest at worst.
+        if (!PackagedAppInfo.IsPackaged)
+            ProtocolHandler.RegisterCurrentUser();
 
         // Single-instance: when the app is already running and the browser fires
         // rslcompanion-extractor://sync?rt=..., that second launch forwards its args to the running
