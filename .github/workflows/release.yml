@@ -97,6 +97,89 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
+      # --- MSIX (sideload) packaging: a second, independent artifact built from the same publish
+      # output. Signed with a persistent self-signed cert (not Trusted Signing) until this is
+      # either submitted to the Store (which signs for free) or a paid cert is worth the cost.
+      - name: Assemble MSIX layout
+        shell: pwsh
+        run: |
+          $layout = "msix-layout"
+          New-Item -ItemType Directory -Force -Path $layout | Out-Null
+          Copy-Item "publish\win-x64\*" $layout -Recurse -Force
+          Copy-Item "Package\Assets" "$layout\Assets" -Recurse -Force
+
+          [xml]$manifest = Get-Content "Package\Package.appxmanifest"
+          $manifest.Package.Identity.Version = "${{ steps.ver.outputs.version }}.0"
+          $manifest.Save("$PWD\$layout\AppxManifest.xml")
+
+      # Whether MSIX signing runs is gated on the self-signed cert secrets being configured (see
+      # Package/Package.appxmanifest's header comment for how to generate one), same soft-gate
+      # style as the Azure Trusted Signing check above.
+      - name: Check MSIX signing config
+        id: msixsigncfg
+        shell: pwsh
+        run: |
+          $enabled = -not [string]::IsNullOrEmpty('${{ secrets.MSIX_SIGNING_CERT_PFX_BASE64 }}')
+          "enabled=$enabled" >> $env:GITHUB_OUTPUT
+          Write-Host "MSIX signing enabled: $enabled"
+
+      - name: Pack MSIX
+        shell: pwsh
+        run: |
+          $sdkBin = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object Name -Descending | Select-Object -First 1
+          $makeappx = Join-Path $sdkBin.FullName "x64\makeappx.exe"
+
+          New-Item -ItemType Directory -Force -Path "installer\dist" | Out-Null
+          & $makeappx pack /d msix-layout /p "installer\dist\RslCompanionAccountDataExtractor-${{ steps.ver.outputs.version }}.msix" /overwrite
+          if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit code $LASTEXITCODE" }
+
+      - name: Sign MSIX
+        if: steps.msixsigncfg.outputs.enabled == 'True'
+        shell: pwsh
+        run: |
+          $sdkBin = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+\.\d+$' } |
+            Sort-Object Name -Descending | Select-Object -First 1
+          $signtool = Join-Path $sdkBin.FullName "x64\signtool.exe"
+
+          $pfxPath = Join-Path $env:RUNNER_TEMP "msix-signing.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String('${{ secrets.MSIX_SIGNING_CERT_PFX_BASE64 }}'))
+          try {
+            & $signtool sign /fd SHA256 /f $pfxPath /p '${{ secrets.MSIX_CERT_PASSWORD }}' /tr http://timestamp.acs.microsoft.com /td SHA256 "installer\dist\RslCompanionAccountDataExtractor-${{ steps.ver.outputs.version }}.msix"
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+          } finally {
+            Remove-Item -Force $pfxPath -ErrorAction SilentlyContinue
+          }
+
+      - name: Version MSIX artifact and generate SHA-256 checksum
+        id: msixart
+        shell: pwsh
+        run: |
+          $version = '${{ steps.ver.outputs.version }}'
+          $name = "RslCompanionAccountDataExtractor-$version.msix"
+          $hash = (Get-FileHash "installer\dist\$name" -Algorithm SHA256).Hash.ToLower()
+          "$hash *$name" | Out-File -Encoding ascii "installer\dist\$name.sha256"
+
+          # Stable, unversioned copy mirroring the installer's pattern above.
+          $stableName = "RslCompanionAccountDataExtractor.msix"
+          Copy-Item "installer\dist\$name" "installer\dist\$stableName"
+          "$hash *$stableName" | Out-File -Encoding ascii "installer\dist\$stableName.sha256"
+
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+      # Package\rsl-msix.cer (public key only) lets testers import-trust the signing cert once.
+      # Not present until the cert has been generated locally — see Package.appxmanifest's header.
+      - name: Include MSIX signing certificate for sideload trust
+        shell: pwsh
+        run: |
+          if (Test-Path "Package\rsl-msix.cer") {
+            Copy-Item "Package\rsl-msix.cer" "installer\dist\rsl-msix.cer"
+          } else {
+            Write-Host "Package\rsl-msix.cer not present — skipping (no cert for testers to trust yet)."
+          }
+
       - name: Compile installer
         shell: pwsh
         run: |
@@ -148,7 +231,9 @@ jobs:
       - name: Generate build provenance attestation
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: installer/dist/RslCompanionAccountDataExtractor-Setup-*.exe
+          subject-path: |
+            installer/dist/RslCompanionAccountDataExtractor-Setup-*.exe
+            installer/dist/RslCompanionAccountDataExtractor-*.msix
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -159,13 +244,18 @@ jobs:
           files: |
             installer/dist/RslCompanionAccountDataExtractor-Setup-*.exe
             installer/dist/RslCompanionAccountDataExtractor-Setup.exe
+            installer/dist/RslCompanionAccountDataExtractor-*.msix
+            installer/dist/RslCompanionAccountDataExtractor.msix
             installer/dist/*.sha256
+            installer/dist/*.cer
           body: |
-            **SHA-256:** `${{ steps.art.outputs.sha256 }}`
+            **SHA-256 (installer):** `${{ steps.art.outputs.sha256 }}`
+            **SHA-256 (MSIX):** `${{ steps.msixart.outputs.sha256 }}`
 
             Verify your download (PowerShell):
             ```
             Get-FileHash RslCompanionAccountDataExtractor-Setup-${{ steps.ver.outputs.version }}.exe -Algorithm SHA256
+            Get-FileHash RslCompanionAccountDataExtractor-${{ steps.ver.outputs.version }}.msix -Algorithm SHA256
             ```
 
             **Verify this build came from this repo's source** (requires the [GitHub CLI](https://cli.github.com)):
@@ -173,3 +263,13 @@ jobs:
             gh attestation verify RslCompanionAccountDataExtractor-Setup-${{ steps.ver.outputs.version }}.exe -R rslcompanion/RslCompanionUploader
             ```
             This checks a signed attestation tying the exe's hash to this exact GitHub Actions run and commit — proof the binary wasn't tampered with after the build, even though the extraction engine's source is private.
+
+            **Sideload (.msix):** this is a direct-install alternative to the installer above, ahead
+            of an eventual Microsoft Store listing. It's signed with a self-signed certificate (not
+            yet a paid/CA-trusted one), so Windows won't trust it out of the box. One-time setup per
+            machine: download `rsl-msix.cer` from this release and import it before installing the
+            `.msix`:
+            ```
+            Import-Certificate -FilePath rsl-msix.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+            ```
+            (run from an elevated PowerShell prompt). After that, double-click the `.msix` to install.

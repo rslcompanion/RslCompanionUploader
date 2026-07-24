@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Hand-authored MSIX packaging manifest — not compiled by MSBuild (no .wapproj). CI text-patches
+  Identity/@Version to the release version (4 numeric parts, e.g. 1.2.3.0) before packing with
+  makeappx. See D:\Codex\RslCompanionUploader\.github\workflows\release.yml.
+
+  Identity/@Name and Identity/@Publisher are PROVISIONAL: self-chosen for sideload distribution.
+  If/when this app is reserved in Microsoft Partner Center for Store submission, both must be
+  replaced with the exact values Partner Center assigns. Publisher must exactly character-match
+  (case + whitespace) the Subject of whatever certificate signs the package — for the current
+  self-signed sideload cert, that's "CN=RSL Companion".
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 rescap">
+
+  <Identity
+    Name="RSLCompanion.AccountDataExtractor"
+    Publisher="CN=RSL Companion"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>RSL Companion Account Data Extractor</DisplayName>
+    <PublisherDisplayName>RSL Companion</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Signs in to rslcompanion.com and uploads Raid: Shadow Legends account data.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="RslCompanionUploader" Executable="RslCompanionUploader.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="RSL Companion Account Data Extractor"
+        Description="Signs in to rslcompanion.com and uploads Raid: Shadow Legends account data."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <!-- Declarative replacement for ProtocolHandler.RegisterCurrentUser()'s runtime HKCU
+             write — see PackagedAppInfo.IsPackaged, which skips that write for packaged builds. -->
+        <uap3:Extension Category="windows.protocol">
+          <uap3:Protocol Name="rslcompanion-extractor" />
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>
