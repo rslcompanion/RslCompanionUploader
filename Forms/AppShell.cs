@@ -34,7 +34,9 @@ public sealed class AppShell : Panel
     private bool _ready;
 
     // The full view-state pushed into the page. Plain fields; PushState serializes a snapshot.
+    private bool _signedIn;
     private string? _user;
+    private string? _email;
     private object? _status;                 // { kind, text } or null (public builds have no game status)
     private object? _update;                 // { version, url } or null
     private string? _report;                 // uncovered-build prompt text, or null
@@ -56,6 +58,12 @@ public sealed class AppShell : Panel
 
     /// <summary>Raised with a URL the page asked to open (e.g. the update-download link).</summary>
     public event Action<string>? OpenUrlRequested;
+
+    /// <summary>Raised when the top-bar (or signed-out CTA) "Sign In" button is clicked.</summary>
+    public event Action? SignInRequested;
+
+    /// <summary>Raised when "Sign out" is chosen from the top-bar account menu.</summary>
+    public event Action? SignOutRequested;
 
     public AppShell()
     {
@@ -99,7 +107,30 @@ public sealed class AppShell : Panel
         }
     }
 
-    public void SetUser(string user) { _user = user; PushState(); }
+    /// <summary>Marks the UI signed in and sets the identity shown in the top-bar account menu.</summary>
+    public void SetUser(string? name, string? email)
+    {
+        _signedIn = true;
+        _user = name;
+        _email = email;
+        PushState();
+    }
+
+    /// <summary>
+    /// Resets the UI to the signed-out state: the top bar shows a "Sign In" button, the body shows a
+    /// sign-in prompt, and any account/detection state from the previous session is cleared.
+    /// </summary>
+    public void SetSignedOut()
+    {
+        _signedIn = false;
+        _user = null;
+        _email = null;
+        _accounts = Array.Empty<Tile>();
+        _identified = null;
+        _detectedUserId = null;
+        _detectedName = null;
+        PushState();
+    }
 
     /// <summary>Sets the connection pill. Pass null (public builds) to hide it and treat the game as unknown.</summary>
     public void SetStatus(string? kind, string? text)
@@ -157,7 +188,9 @@ public sealed class AppShell : Panel
         Post(new
         {
             type = "state",
+            signedIn = _signedIn,
             user = _user,
+            userEmail = _email,
             status = _status,
             update = _update,
             report = _report,
@@ -182,6 +215,8 @@ public sealed class AppShell : Panel
             switch (t.GetString())
             {
                 case "export": ExportRequested?.Invoke(); break;
+                case "signIn": SignInRequested?.Invoke(); break;
+                case "signOut": SignOutRequested?.Invoke(); break;
                 case "reportBuild": ReportBuildRequested?.Invoke(); break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
@@ -200,7 +235,8 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("clanName")] string? ClanName,
         [property: JsonPropertyName("heroCount")] int HeroCount,
-        [property: JsonPropertyName("artifactCount")] int ArtifactCount);
+        [property: JsonPropertyName("artifactCount")] int ArtifactCount,
+        [property: JsonPropertyName("lastSync")] string? LastSync = null);
 
     private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
 
@@ -212,7 +248,10 @@ public sealed class AppShell : Panel
     {
         try
         {
-            using var icon = AppIcon.Value ?? SystemIcons.Application;
+            // Do NOT dispose this: AppIcon.Value (and SystemIcons.Application) are shared, long-lived
+            // icons reused by every window's title bar. Disposing here left later windows (the sign-in
+            // splash) setting Form.Icon to a dead handle → ObjectDisposedException on show.
+            var icon = AppIcon.Value ?? SystemIcons.Application;
             using var bitmap = icon.ToBitmap();
             using var ms = new MemoryStream();
             bitmap.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
@@ -240,22 +279,54 @@ public sealed class AppShell : Panel
             --warn:#fbbf24; --warnbg:rgba(251,191,36,.14);
             --bad:#f87171; --badbg:rgba(248,113,113,.12); } }
   * { box-sizing:border-box; }
-  html, body { height:100%; }
+  /* The shell is a fixed frame: only #scroll scrolls. Locking the outer page prevents a spurious
+     vertical scrollbar from fractional-pixel rounding under Windows display scaling (125/150%). */
+  html, body { height:100%; overflow:hidden; }
   body { margin:0; font-family:'Segoe UI', system-ui, sans-serif; background:var(--bg); color:var(--fg);
          display:flex; flex-direction:column; font-size:13px; }
 
-  #topbar { flex:none; display:flex; align-items:center; gap:12px; padding:10px 16px;
+  #topbar { position:relative; flex:none; display:flex; align-items:center; gap:12px; padding:10px 16px;
             border-bottom:1px solid var(--line); background:var(--card); }
-  #brand { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
+  #brand { flex:none; display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
   #logo { width:24px; height:24px; border-radius:6px; object-fit:contain; flex:none; }
+  /* Shrinkable so the Sign In button always stays on the top row: when width is tight the status
+     pill yields space and ellipsises rather than pushing the button off the row. */
   #pill { display:none; align-items:center; gap:6px; padding:4px 11px; border-radius:999px;
-          font-size:12px; font-weight:600; }
-  #pill .dot { width:8px; height:8px; border-radius:50%; background:currentColor; }
+          font-size:12px; font-weight:600; flex:0 1 auto; min-width:0; }
+  #pill .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #pill .dot { width:8px; height:8px; border-radius:50%; background:currentColor; flex:none; }
   #pill.connected { color:var(--ok); background:var(--okbg); }
   #pill.loading, #pill.needsCalibration { color:var(--warn); background:var(--warnbg); }
   #pill.calibrating { color:var(--accent); background:var(--accentbg); }
   #pill.notRunning { color:var(--mut); background:var(--panel); }
-  #who { margin-left:auto; font-size:12px; color:var(--sub); white-space:nowrap; }
+  #signin { display:none; flex:none; margin-left:auto; padding:6px 18px; border:none; border-radius:8px;
+            background:var(--fg); color:var(--bg); font-family:inherit; font-size:13px; font-weight:600;
+            cursor:pointer; transition:opacity .12s; }
+  #signin:hover { opacity:.85; }
+
+  /* Account avatar button (shown when signed in) + its dropdown menu. */
+  #account { display:none; flex:none; margin-left:auto; width:32px; height:32px; border-radius:50%;
+             border:none; background:var(--fg); color:var(--bg); font-family:inherit; font-size:12px;
+             font-weight:700; cursor:pointer; align-items:center; justify-content:center; padding:0;
+             transition:opacity .12s, box-shadow .12s; }
+  #account:hover { opacity:.9; }
+  #account.open { box-shadow:0 0 0 3px var(--accentbg); }
+
+  #accountMenu { display:none; position:absolute; top:calc(100% + 6px); right:12px; z-index:30; width:264px;
+                 background:var(--card); border:1px solid var(--line); border-radius:12px;
+                 box-shadow:0 10px 30px rgba(0,0,0,.22); overflow:hidden; }
+  #accountMenu.open { display:block; }
+  #accountMenu .am-head { display:flex; align-items:center; gap:12px; padding:14px 16px; }
+  #accountMenu .am-avatar { width:40px; height:40px; border-radius:50%; background:var(--fg); color:var(--bg);
+                            display:flex; align-items:center; justify-content:center; font-weight:700;
+                            font-size:15px; flex:none; }
+  #accountMenu .am-name { font-size:14px; font-weight:600; color:var(--fg); word-break:break-word; }
+  #accountMenu .am-email { font-size:12px; color:var(--sub); word-break:break-word; margin-top:1px; }
+  #accountMenu .am-sep { height:1px; background:var(--line); }
+  #accountMenu .am-item { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+                          padding:11px 16px; border:none; background:none; font-family:inherit; font-size:13px;
+                          color:var(--fg); cursor:pointer; }
+  #accountMenu .am-item:hover { background:var(--panel); }
 
   .banner { flex:none; display:none; padding:9px 16px; font-size:12px; font-weight:600; cursor:pointer;
             border-bottom:1px solid var(--line); }
@@ -263,7 +334,7 @@ public sealed class AppShell : Panel
   #reportBanner { color:var(--warn); background:var(--warnbg); }
   .banner:hover { text-decoration:underline; }
 
-  #scroll { flex:1 1 auto; overflow:auto; padding:16px; }
+  #scroll { flex:1 1 auto; min-height:0; overflow:auto; padding:16px; display:flex; flex-direction:column; }
   #secHdr { display:none; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
   #secHdr .lbl { font-size:12px; font-weight:600; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; }
   #secHdr .cnt { font-size:12px; color:var(--mut); }
@@ -283,6 +354,8 @@ public sealed class AppShell : Panel
   .tile .clan { font-size:12px; color:var(--sub); margin-top:2px; }
   .tile .meta { font-size:12px; color:var(--sub); margin-top:10px; display:flex; gap:16px; }
   .tile.identified .meta { color:var(--ok); }
+  .tile .synced { font-size:11px; color:var(--mut); margin-top:8px; }
+  .tile.identified .synced { color:var(--ok); }
   .tile .badge { position:absolute; top:12px; right:12px; display:inline-flex; align-items:center; gap:5px;
                  font-size:11px; font-weight:600; color:var(--ok); }
   .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); }
@@ -294,6 +367,15 @@ public sealed class AppShell : Panel
   .tile .attach-note { margin-top:8px; font-size:11px; color:var(--accent); font-weight:600; }
 
   .empty { grid-column:1/-1; padding:8px 2px; color:var(--sub); font-size:13px; }
+
+  /* Signed-out call-to-action, shown in the body instead of the accounts grid. Centered via
+     margin:auto (not height:100%, which overflowed the padded #scroll and forced a scrollbar). */
+  #signedOut { display:none; flex-direction:column; align-items:center; justify-content:center;
+               text-align:center; gap:8px; margin:auto; color:var(--sub); }
+  #signedOut .cta-logo { width:56px; height:56px; border-radius:14px; object-fit:contain; opacity:.9; margin-bottom:6px; }
+  #signedOut .cta-title { font-size:17px; font-weight:600; color:var(--fg); }
+  #signedOut .cta-sub { font-size:13px; max-width:360px; line-height:1.5; }
+  #signedOut .cta-sub strong { color:var(--fg); }
 
   #actionBar { flex:none; display:none; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
   #action { width:100%; padding:12px 14px; border:none; border-radius:10px; color:#fff; cursor:pointer;
@@ -317,12 +399,29 @@ public sealed class AppShell : Panel
   <div id='topbar'>
     <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span></div>
     <div id='pill'><span class='dot'></span><span class='txt'></span></div>
-    <div id='who'></div>
+    <button id='signin' type='button'>Sign In</button>
+    <button id='account' type='button' aria-label='Account'><span id='accountAvatar'></span></button>
+    <div id='accountMenu'>
+      <div class='am-head'>
+        <span class='am-avatar'></span>
+        <div style='min-width:0'>
+          <div class='am-name'></div>
+          <div class='am-email'></div>
+        </div>
+      </div>
+      <div class='am-sep'></div>
+      <button id='signout' type='button' class='am-item'>Sign out</button>
+    </div>
   </div>
   <div id='updateBanner' class='banner'></div>
   <div id='reportBanner' class='banner'></div>
 
   <div id='scroll'>
+    <div id='signedOut'>
+      <img class='cta-logo' src='__LOGO_SRC__' alt=''>
+      <div class='cta-title'>Sign in to RSL Companion</div>
+      <div class='cta-sub'>Use the <strong>Sign In</strong> button in the top-right to view the accounts linked to your profile and sync your Raid data.</div>
+    </div>
     <div id='secHdr'><span class='lbl'>Your accounts</span><span class='cnt'></span></div>
     <div id='grid'></div>
   </div>
@@ -335,7 +434,7 @@ public sealed class AppShell : Panel
   </div>
 
 <script>
-  var state = { user:null, status:null, update:null, report:null, accounts:[], identifiedUserId:null, detected:null, busy:false, exportAvailable:false };
+  var state = { signedIn:false, user:null, status:null, update:null, report:null, accounts:[], identifiedUserId:null, detected:null, busy:false, exportAvailable:false };
   var logLines = [];
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
@@ -348,7 +447,21 @@ public sealed class AppShell : Panel
   }
 
   function renderTopbar() {
-    $('who').textContent = state.user ? ('Signed in as ' + state.user) : '';
+    var signin = $('signin'), account = $('account');
+    if (state.signedIn) {
+      signin.style.display = 'none';
+      account.style.display = 'inline-flex';
+      var name = state.user || state.userEmail || 'Signed in';
+      var email = (state.user && state.userEmail) ? state.userEmail : (state.user ? '' : '');
+      $('accountAvatar').textContent = initials(state.user || state.userEmail);
+      document.querySelector('#accountMenu .am-avatar').textContent = initials(state.user || state.userEmail);
+      document.querySelector('#accountMenu .am-name').textContent = name;
+      document.querySelector('#accountMenu .am-email').textContent = email;
+    } else {
+      signin.style.display = 'inline-block';
+      account.style.display = 'none';
+      closeAccountMenu();
+    }
     var pill = $('pill');
     if (state.status) {
       pill.style.display = 'inline-flex';
@@ -408,6 +521,7 @@ public sealed class AppShell : Panel
       var html = ""<div class='head'><div class='avatar'>"" + esc(initials(a.name)) + ""</div><div><div class='name'>"" + esc(a.name) + ""</div>"";
       html += a.clanName ? (""<div class='clan'>"" + esc(a.clanName) + ""</div>"") : '';
       html += ""</div></div>"" + tileMeta(a);
+      if (a.lastSync) html += ""<div class='synced'>Last synced "" + esc(a.lastSync) + ""</div>"";
       if (a.userId === state.identifiedUserId) html += ""<div class='badge'>In game</div>"";
       el.innerHTML = html;
       grid.appendChild(el);
@@ -428,6 +542,15 @@ public sealed class AppShell : Panel
     var sel = liveSelection();
     renderTopbar();
     renderBanners();
+    if (!state.signedIn) {
+      // Signed out: show the sign-in prompt instead of the accounts grid / export button.
+      $('signedOut').style.display = 'flex';
+      $('secHdr').style.display = 'none';
+      $('grid').innerHTML = '';
+      renderAction(null);
+      return;
+    }
+    $('signedOut').style.display = 'none';
     renderGrid(sel);
     renderAction(sel);
   }
@@ -442,6 +565,21 @@ public sealed class AppShell : Panel
 
   $('consoleHdr').onclick = function(){ $('console').classList.toggle('open'); };
   $('action').onclick = function(){ if (!$('action').disabled) window.chrome.webview.postMessage({ type:'export' }); };
+  $('signin').onclick = function(){ window.chrome.webview.postMessage({ type:'signIn' }); };
+
+  function closeAccountMenu(){ $('accountMenu').classList.remove('open'); $('account').classList.remove('open'); }
+  $('account').onclick = function(e){
+    e.stopPropagation();
+    var open = $('accountMenu').classList.toggle('open');
+    $('account').classList.toggle('open', open);
+  };
+  $('signout').onclick = function(){ closeAccountMenu(); window.chrome.webview.postMessage({ type:'signOut' }); };
+  // Click anywhere else (or Esc) dismisses the menu.
+  document.addEventListener('click', function(e){
+    if (!$('accountMenu').contains(e.target) && e.target !== $('account') && !$('account').contains(e.target))
+      closeAccountMenu();
+  });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAccountMenu(); });
   $('updateBanner').onclick = function(){ if (state.update && state.update.url) window.chrome.webview.postMessage({ type:'openUrl', url: state.update.url }); };
   $('reportBanner').onclick = function(){ window.chrome.webview.postMessage({ type:'reportBuild' }); };
 

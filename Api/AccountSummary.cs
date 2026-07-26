@@ -23,6 +23,9 @@ public sealed class AccountSummary
     [JsonPropertyName("artifactCount")] public int ArtifactCount { get; set; }
     [JsonPropertyName("lastSyncMethod")] public string? LastSyncMethod { get; set; }
 
+    /// <summary>When this account was last synced. Returned by <c>GET /api/accounts</c>.</summary>
+    [JsonPropertyName("lastSyncDate")] public DateTimeOffset? LastSyncDate { get; set; }
+
     /// <summary>Text shown in the dropdown.</summary>
     public override string ToString()
     {

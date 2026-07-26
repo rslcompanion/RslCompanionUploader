@@ -30,21 +30,13 @@ internal static class Program
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
         var auth = new FirebaseAuthClient(http, config.FirebaseApiKey);
 
+        // Try to restore a session up front, but never block startup on it: the main window always
+        // opens. If there is no session, it opens signed-out and the user signs in from its top bar
+        // (see MainForm.SignIn), mirroring how Postman opens before you log in.
         AuthSession? session = TrySignInFromLaunchUri(auth, args) ?? TrySilentSignIn(auth);
 
-        if (session is null)
-        {
-            // No cached session: open the user's browser and wait for the token to be handed back.
-            using var signIn = new BrowserSignInForm(config, auth);
-            if (signIn.ShowDialog() != DialogResult.OK || signIn.Session is null)
-                return;
-
-            session = signIn.Session;
-            Persist(session);
-        }
-
         var api = new RslCompanionApiClient(http, config, auth, session);
-        Application.Run(new MainForm(config, api));
+        Application.Run(new MainForm(config, auth, api));
     }
 
     // When launched from rslcompanion.com via rslcompanion-extractor://, the site passes the
@@ -97,7 +89,8 @@ internal static class Program
         }
     }
 
-    private static void Persist(AuthSession s) => CredentialStore.Save(new SavedCredentials
+    // Internal so MainForm can persist the session obtained from the in-app sign-in flow.
+    internal static void Persist(AuthSession s) => CredentialStore.Save(new SavedCredentials
     {
         Email = s.Email,
         Uid = s.Uid,

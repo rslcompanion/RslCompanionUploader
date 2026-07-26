@@ -16,10 +16,17 @@ public sealed class RslCompanionApiClient
     private readonly AppConfig _config;
     private readonly FirebaseAuthClient _auth;
 
-    /// <summary>The live session. Replaced in place whenever the token is refreshed.</summary>
-    public AuthSession Session { get; private set; }
+    /// <summary>
+    /// The live session, or <c>null</c> when signed out. Replaced in place whenever the token is
+    /// refreshed. The app now opens its main window before authenticating (the user signs in from the
+    /// top bar), so the client must exist without a session.
+    /// </summary>
+    public AuthSession? Session { get; private set; }
 
-    public RslCompanionApiClient(HttpClient http, AppConfig config, FirebaseAuthClient auth, AuthSession session)
+    /// <summary>Whether a session is present. Callers must not hit the API endpoints when false.</summary>
+    public bool IsAuthenticated => Session is not null;
+
+    public RslCompanionApiClient(HttpClient http, AppConfig config, FirebaseAuthClient auth, AuthSession? session)
     {
         _http = http;
         _config = config;
@@ -27,11 +34,18 @@ public sealed class RslCompanionApiClient
         Session = session;
     }
 
+    /// <summary>Adopts a freshly obtained session (from the browser sign-in handoff).</summary>
+    public void SignIn(AuthSession session) => Session = session;
+
+    /// <summary>Drops the session; subsequent API calls throw until <see cref="SignIn"/> is called.</summary>
+    public void SignOut() => Session = null;
+
     private async Task<string> ValidTokenAsync(CancellationToken ct)
     {
-        if (Session.IsExpiringSoon)
-            Session = await _auth.RefreshAsync(Session, ct);
-        return Session.IdToken;
+        var session = Session ?? throw new InvalidOperationException("Not signed in.");
+        if (session.IsExpiringSoon)
+            Session = session = await _auth.RefreshAsync(session, ct);
+        return session.IdToken;
     }
 
     private async Task<HttpRequestMessage> BuildRequestAsync(HttpMethod method, string pathOrUrl, CancellationToken ct)

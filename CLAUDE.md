@@ -18,13 +18,21 @@ Extraction runs off the UI thread; engine console output is redirected into the 
 The **entire UI is one full-window WebView2 page** ([Forms/AppShell.cs](Forms/AppShell.cs)), styled to
 match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native shell: title bar + a
 File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
-status poll, extraction and API calls, and **pushes a single view-state** into the shell (user,
-connection status, update/uncovered-build banners, accounts, busy). The page posts back only three
-actions: `export`, `reportBuild`, `openUrl`. Everything else (refresh, sign out, check for updates,
-recalibrate, about) is a native menu item calling straight into `MainForm` — no bridge needed.
+status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
+flag, user, connection status, update/uncovered-build banners, accounts, busy). The page posts back
+only four actions: `export`, `signIn`, `reportBuild`, `openUrl`. Everything else (refresh, sign out,
+check for updates, recalibrate, about) is a native menu item calling straight into `MainForm` — no
+bridge needed.
 
-The page is a top bar (brand + connection pill + identity), optional banners, the accounts grid, a
-contextual export button, and a collapsible activity console. Tiles are status, not controls — the
+The app opens its main window **before authenticating** (like Postman): [Program.cs](Program.cs) tries
+to restore a session but never blocks on it. When there is no session the window opens signed-out —
+the top bar shows a **Sign In** button and the body a sign-in prompt; the game-status pill still works.
+Clicking Sign In runs the browser handoff via the [BrowserSignInForm](Forms/BrowserSignInForm.cs) splash
+and, on success, `MainForm.EnterSignedInAsync` loads accounts and enables export. Sign out drops back to
+the signed-out state in place (no process restart).
+
+The page is a top bar (brand + connection pill + Sign In button / identity), optional banners, the
+accounts grid, a contextual export button, and a collapsible activity console. Tiles are status, not controls — the
 user can't select them. "Raid not running" is stated once, by the top-bar pill — the accounts grid
 never repeats it as a tile. A running-but-unimported account shows a "new account detected" tile, and
 the profile matching the running game turns green (all others keep a black border). The export

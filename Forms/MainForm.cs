@@ -31,6 +31,7 @@ public sealed class MainForm : Form
     private const string UploaderSyncMethod = "ConsolidatedJson";
 
     private readonly AppConfig _config;
+    private readonly FirebaseAuthClient _auth;
     private readonly RslCompanionApiClient _api;
 
     private readonly ToolStripMenuItem _refreshItem = new("&Refresh accounts");
@@ -91,9 +92,10 @@ public sealed class MainForm : Form
     private readonly CancellationTokenSource _statusCts = new();
 #endif
 
-    public MainForm(AppConfig config, RslCompanionApiClient api)
+    public MainForm(AppConfig config, FirebaseAuthClient auth, RslCompanionApiClient api)
     {
         _config = config;
+        _auth = auth;
         _api = api;
 
         // The running version is in the title bar as well as Help → About: "which build am I on?"
@@ -101,29 +103,32 @@ public sealed class MainForm : Form
         // the WebView2 page's own top bar already shows that brand right underneath.
         Text = $"Uploader  v{AboutForm.DisplayVersion}";
         Icon = AppIcon.Value;
-        Width = 1000;
-        Height = 560;
+        Width = 1210;   // ~10% larger than the previous 1100×680 default
+        Height = 748;
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(820, 480);
-        // Fixed 1000x560 clipped the accounts grid on smaller/scaled screens (scrollbar visible on
-        // first launch instead of the dashboard fitting at a glance). Maximizing always claims the
-        // full work area; Width/Height above still set the restore-down size.
-        WindowState = FormWindowState.Maximized;
+        // Open windowed (not maximized) and centered. The size below is generous enough that the
+        // accounts grid fits at a glance on a typical display without claiming the whole screen;
+        // the user can still maximize manually if they want the full work area.
         Font = new Font("Segoe UI", 9.5f);
 
         BuildLayout();
 
         _refreshItem.Click += async (_, _) => await LoadAccountsAsync();
         _shell.OpenUrlRequested += OpenUrl;
+        // Defer to the message loop: SignInRequested is raised from inside a WebView2 message handler,
+        // and opening a modal dialog (a nested message loop) directly inside that callback crashes the
+        // WebView2 host. BeginInvoke lets the handler return first, then shows the dialog.
+        _shell.SignInRequested += () => BeginInvoke(new Action(SignIn));
+        _shell.SignOutRequested += () => BeginInvoke(new Action(SignOut));
 #if EXTRACTION
         // The export action lives in the shell (the accounts pane's button); it reads the live game
         // and create-or-updates by the in-game id regardless of which tile drove the label.
         _shell.ExportRequested += async () => await ExportAccountAsync();
         _shell.ReportBuildRequested += ReportUncoveredBuild;
-        _shell.SetExportAvailable(true);
+        // Export availability is gated on being signed in — set in EnterSignedInAsync, not here.
         FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
 #endif
-        // Public builds leave export unavailable (default), so the shell never shows the export button.
 
         Load += async (_, _) =>
         {
@@ -132,16 +137,45 @@ public sealed class MainForm : Form
             ApplyGameState(GameState.NotRunning, force: true); // render a status before the first poll
             _ = PollGameStatusAsync(_statusCts.Token);
 #endif
-
-            var who = _api.Session.DisplayName ?? _api.Session.Email ?? _api.Session.Uid ?? "signed in";
-            _shell.SetUser(who);
-            await LoadAccountsAsync();
-
-            // Packaged (MSIX/Store) builds get updates via the Store or App Installer instead of
-            // this GitHub-release poll, so the banner/menu item would be confusing there.
-            if (!PackagedAppInfo.IsPackaged)
-                _ = CheckForUpdateAsync(silent: true);
+            // The game-status poll above runs regardless of sign-in. Everything account-related waits
+            // until there is a session — the window opens signed-out and the user signs in from the
+            // top bar (see SignIn).
+            if (_api.IsAuthenticated)
+                await EnterSignedInAsync();
+            else
+                _shell.SetSignedOut();
         };
+    }
+
+    /// <summary>
+    /// Opens the browser sign-in splash and, on success, adopts the session and switches the UI into
+    /// the signed-in state. Invoked from the shell's "Sign In" button.
+    /// </summary>
+    private async void SignIn()
+    {
+        using var dlg = new BrowserSignInForm(_config, _auth);
+        if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Session is null)
+            return;
+
+        _api.SignIn(dlg.Session);
+        Program.Persist(dlg.Session); // keep today's remember-me behaviour; a real opt-in comes later
+        await EnterSignedInAsync();
+    }
+
+    /// <summary>Populates the signed-in UI: identity, export availability, accounts, and update check.</summary>
+    private async Task EnterSignedInAsync()
+    {
+        var session = _api.Session!;
+        _shell.SetUser(session.DisplayName, session.Email ?? session.Uid);
+#if EXTRACTION
+        _shell.SetExportAvailable(true);
+#endif
+        await LoadAccountsAsync();
+
+        // Packaged (MSIX/Store) builds get updates via the Store or App Installer instead of this
+        // GitHub-release poll, so the banner/menu item would be confusing there.
+        if (!PackagedAppInfo.IsPackaged)
+            _ = CheckForUpdateAsync(silent: true);
     }
 
 #if EXTRACTION
@@ -575,7 +609,8 @@ public sealed class MainForm : Form
                 .ToList();
 
             _shell.SetAccounts(_loadedAccounts
-                .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName, a.HeroCount, a.ArtifactCount))
+                .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName,
+                    a.HeroCount, a.ArtifactCount, FormatLastSync(a.LastSyncDate)))
                 .ToList());
 
             Log(_loadedAccounts.Count > 0
@@ -594,6 +629,21 @@ public sealed class MainForm : Form
             ReconcileLiveAccount();
 #endif
         }
+    }
+
+    /// <summary>Friendly, local-time "last synced" label for a tile, or null when unknown.</summary>
+    private static string? FormatLastSync(DateTimeOffset? when)
+    {
+        if (when is not { } dt) return null;
+        var local = dt.ToLocalTime();
+        var age = DateTimeOffset.Now - local;
+        if (age < TimeSpan.Zero) return local.ToString("MMM d, yyyy");     // clock skew — show the date
+        if (age < TimeSpan.FromMinutes(1)) return "just now";
+        if (age < TimeSpan.FromHours(1)) return $"{(int)age.TotalMinutes} min ago";
+        if (local.Date == DateTimeOffset.Now.Date) return $"today at {local:h:mm tt}";
+        if (local.Date == DateTimeOffset.Now.Date.AddDays(-1)) return "yesterday";
+        if (age < TimeSpan.FromDays(7)) return $"{(int)age.TotalDays} days ago";
+        return local.ToString("MMM d, yyyy");
     }
 
     /// <summary>
@@ -757,7 +807,14 @@ public sealed class MainForm : Form
     private void SignOut()
     {
         CredentialStore.ClearSession();
-        Application.Restart();
+        _api.SignOut();
+        _loadedAccounts.Clear();
+#if EXTRACTION
+        _shell.SetExportAvailable(false);
+#endif
+        // Drop straight to the signed-out UI in place rather than restarting the process; the
+        // game-status poll keeps running, and the top bar shows the "Sign In" button again.
+        _shell.SetSignedOut();
     }
 
     private void SetBusy(bool busy)
