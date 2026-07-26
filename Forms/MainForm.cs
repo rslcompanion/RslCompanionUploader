@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 #if EXTRACTION
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using NewParserOpus;
 using NewParserOpus.Il2Cpp;
 using NewParserOpus.Models;
@@ -722,7 +723,7 @@ public sealed class MainForm : Form
                 : "This game account isn't registered yet — a new account will be created for it.");
 
             Log("Exporting to RSL Companion…");
-            var json = JsonSerializer.Serialize(profile);
+            var json = SerializeWithAvailableScrolls(profile);
             var result = await _api.UploadConsolidatedAsync(json);
             Log(result.Message);
 
@@ -801,6 +802,61 @@ public sealed class MainForm : Form
                 Console.SetError(originalError);
             }
         });
+    }
+
+    // Mastery-scroll rarities, in canonical order, so availableScrolls keys read basic→advanced→divine.
+    private static readonly string[] ScrollTypes = { "basic", "advanced", "divine" };
+
+    /// <summary>
+    /// Serializes the profile, adding a per-hero <c>availableScrolls</c> object alongside the engine's
+    /// <c>masteryScrolls</c>. <b>available = unspent + spent</b>, per scroll rarity: <c>unspent</c> is
+    /// the hero's current <c>masteryScrolls</c> balance (omitted/null when zero) and <c>spent</c> is
+    /// summed from the hero's activated masteries — each node's <c>scrollCount</c> grouped by
+    /// <c>scrollType</c> (basic/advanced/divine). Only non-zero rarities are written; the field is
+    /// omitted for heroes with no masteries and no unspent scrolls. Done here in the uploader (not the
+    /// engine) since it is purely derived from what the engine already exports.
+    /// </summary>
+    private static string SerializeWithAvailableScrolls(ConsolidatedProfile profile)
+    {
+        var root = JsonSerializer.SerializeToNode(profile)!;
+        if (root["heroes"] is JsonArray heroes)
+        {
+            for (int i = 0; i < profile.Heroes.Count && i < heroes.Count; i++)
+            {
+                var available = ComputeAvailableScrolls(profile.Heroes[i]);
+                if (available.Count == 0 || heroes[i] is not JsonObject heroObj) continue;
+
+                var obj = new JsonObject();
+                foreach (var type in ScrollTypes)
+                    if (available.TryGetValue(type, out int n) && n > 0)
+                        obj[type] = n;
+                heroObj["availableScrolls"] = obj;
+            }
+        }
+        return root.ToJsonString();
+    }
+
+    /// <summary>
+    /// Total mastery scrolls the hero has had access to, per rarity: the scrolls already spent on
+    /// their activated masteries (sum of each node's <see cref="MasteryItem.ScrollCount"/> by
+    /// <see cref="MasteryItem.ScrollType"/>) plus the current unspent balance
+    /// (<see cref="HeroItem.MasteryScrolls"/>). Empty when the hero has neither.
+    /// </summary>
+    private static Dictionary<string, int> ComputeAvailableScrolls(HeroItem hero)
+    {
+        var total = new Dictionary<string, int>();
+
+        // Spent — derived from the champion's activated masteries.
+        foreach (var m in hero.Masteries)
+            if (m.ScrollType is string type && m.ScrollCount is int count && count > 0)
+                total[type] = total.GetValueOrDefault(type) + count;
+
+        // Plus the current unspent balance.
+        if (hero.MasteryScrolls is { } unspent)
+            foreach (var (type, count) in unspent)
+                total[type] = total.GetValueOrDefault(type) + count;
+
+        return total;
     }
 #endif
 
