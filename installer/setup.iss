@@ -51,8 +51,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Package the whole publish output: exe, appsettings.json, and — when built with the private
 ; extraction submodule — the engine's runtime data (known-offsets.json, offsets_cache.json,
-; resource-allowlist.json). The champion index is deliberately not among them: it is a product of
-; the engine, not an input, and the server keys heroes off baseTypeId rather than the name it fed.
+; resource-allowlist.json) and the bundled metadata catalogs under exports\ (champion_index.json,
+; mastery_index.json). Those are shipped as plain JSON so refreshing them after a game patch is a
+; file swap in {app}\exports, not a rebuild; champion_index.json gives each hero a real name.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.xml"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]
