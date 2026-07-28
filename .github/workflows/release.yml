@@ -33,8 +33,31 @@ jobs:
       # produce an upload-only binary.
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           token: ${{ secrets.EXTRACTION_REPO_TOKEN }}
+
+      # Fail fast with a human-readable message if the extraction gitlink points at a commit
+      # that was never pushed to the private RslCompanionExtraction repo. Letting the recursive
+      # submodule fetch discover this instead dies with a cryptic "upload-pack: not our ref"
+      # exit 128 (v1.5.2 post-mortem: the engine was committed into the gitlink but not pushed).
+      - name: Verify extraction submodule commit is pushed
+        shell: pwsh
+        run: |
+          $sha = (git ls-tree HEAD extraction).Split()[2]
+          Write-Host "Extraction gitlink pinned to $sha"
+          $url = "https://x-access-token:${{ secrets.EXTRACTION_REPO_TOKEN }}@github.com/rslcompanion/RslCompanionExtraction.git"
+          git fetch --depth 1 $url $sha 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "Extraction commit $sha is not on the remote — it was committed into the gitlink but never pushed to the private extraction repo. Push the engine first (git -C extraction push origin main), then re-run this release."
+          }
+          Write-Host "OK: commit is present on the extraction remote."
+
+      # Now that the commit is known-reachable, do the actual (recursive) submodule checkout.
+      # Auth is supplied inline so it does not depend on checkout's credential injection.
+      - name: Check out extraction submodule
+        shell: pwsh
+        run: |
+          git -c url."https://x-access-token:${{ secrets.EXTRACTION_REPO_TOKEN }}@github.com/".insteadOf="https://github.com/" submodule update --init --recursive
+          if ($LASTEXITCODE -ne 0) { throw "Submodule checkout failed." }
 
       - name: Ensure extraction engine is present
         shell: pwsh
