@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace RslCompanionUploader;
@@ -19,7 +20,12 @@ namespace RslCompanionUploader;
 internal static class SingleInstance
 {
     // Per-user names so two Windows users on the same machine (or a Local\ session) never collide.
-    private static readonly string Suffix = Environment.UserName.GetHashCode().ToString("x8");
+    // The suffix MUST be identical across separate process launches for the same user: the whole
+    // single-instance handoff depends on the browser-launched process computing the same mutex/pipe
+    // names as the already-running primary. String.GetHashCode() is randomized per process in modern
+    // .NET, so it CANNOT be used here — it made every launch look like a fresh primary, which is why
+    // browser sign-in opened a second window instead of forwarding the token to the waiting splash.
+    private static readonly string Suffix = StableSuffix(Environment.UserName);
     private static readonly string MutexName = $@"Local\RslCompanionUploader.Instance.{Suffix}";
     private static readonly string PipeName = $"RslCompanionUploader.Ipc.{Suffix}";
 
@@ -45,6 +51,15 @@ internal static class SingleInstance
 
         TryForward(args);
         return false;
+    }
+
+    // Deterministic across processes (unlike String.GetHashCode): first 4 bytes of SHA-256 of the
+    // user name, hex-encoded. Same user → same suffix on every launch, so the second instance finds
+    // the primary's mutex and pipe.
+    private static string StableSuffix(string value)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(hash, 0, 4).ToLowerInvariant();
     }
 
     private static void StartServer()

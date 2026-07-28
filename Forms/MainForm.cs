@@ -157,9 +157,31 @@ public sealed class MainForm : Form
         if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Session is null)
             return;
 
+        // The browser held the foreground while the user signed in; pull this existing window back to
+        // the front so the freshly signed-in state is what they see, not the leftover browser tab.
+        BringToForeground();
+
         _api.SignIn(dlg.Session);
         Program.Persist(dlg.Session); // keep today's remember-me behaviour; a real opt-in comes later
         await EnterSignedInAsync();
+    }
+
+    /// <summary>
+    /// Surfaces this window above whatever currently holds the foreground (typically the browser tab
+    /// used for sign-in). Toggling <see cref="Form.TopMost"/> is used deliberately: a plain
+    /// <see cref="Form.Activate"/> from a background process is reduced to a taskbar flash by Windows'
+    /// foreground lock, whereas the TopMost toggle reliably raises the window without staying pinned.
+    /// </summary>
+    private void BringToForeground()
+    {
+        if (WindowState == FormWindowState.Minimized)
+            WindowState = FormWindowState.Normal;
+
+        bool wasTopMost = TopMost;
+        TopMost = true;
+        Activate();
+        BringToFront();
+        TopMost = wasTopMost;
     }
 
     /// <summary>Populates the signed-in UI: identity, export availability, accounts, and update check.</summary>
