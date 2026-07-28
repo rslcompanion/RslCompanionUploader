@@ -9,12 +9,13 @@ namespace RslCompanionUploader.Forms;
 /// The whole application UI, rendered as one full-window WebView2 page so it matches rslcompanion.com
 /// rather than looking like native WinForms chrome. The C# side stays the backend: it owns all data
 /// and pushes a single view-state into the page, and receives back only the few actions the page can
-/// trigger (export, report a game build, open a link). Everything else — sign out, refresh, check for
-/// updates, recalibrate, about — stays on the native menu, which calls into <see cref="MainForm"/>
-/// directly and needs no bridge.
+/// trigger (export, sign in/out, refresh accounts, report a game build, open a link). Check for
+/// updates, recalibrate, and about stay on the native Help menu, which calls into
+/// <see cref="MainForm"/> directly and needs no bridge.
 ///
-/// The page is a top bar (brand + connection pill + identity), optional update / uncovered-build
-/// banners, the accounts grid with its contextual export button, and a collapsible activity console.
+/// The page is a top bar (brand + connection pill + identity, whose account dropdown holds refresh
+/// and sign out), optional update / uncovered-build banners, the accounts grid with its contextual
+/// export button, and a collapsible activity console.
 ///
 /// Initialization is async and degrades gracefully: if the WebView2 runtime is missing, a plain label
 /// is shown instead of throwing. State and log lines pushed before the view is ready are buffered and
@@ -64,6 +65,9 @@ public sealed class AppShell : Panel
 
     /// <summary>Raised when "Sign out" is chosen from the top-bar account menu.</summary>
     public event Action? SignOutRequested;
+
+    /// <summary>Raised when "Refresh accounts" is chosen from the top-bar account menu.</summary>
+    public event Action? RefreshRequested;
 
     public AppShell()
     {
@@ -217,6 +221,7 @@ public sealed class AppShell : Panel
                 case "export": ExportRequested?.Invoke(); break;
                 case "signIn": SignInRequested?.Invoke(); break;
                 case "signOut": SignOutRequested?.Invoke(); break;
+                case "refresh": RefreshRequested?.Invoke(); break;
                 case "reportBuild": ReportBuildRequested?.Invoke(); break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
@@ -410,6 +415,8 @@ public sealed class AppShell : Panel
         </div>
       </div>
       <div class='am-sep'></div>
+      <button id='refresh' type='button' class='am-item'>Refresh accounts</button>
+      <div class='am-sep'></div>
       <button id='signout' type='button' class='am-item'>Sign out</button>
     </div>
   </div>
@@ -573,6 +580,7 @@ public sealed class AppShell : Panel
     var open = $('accountMenu').classList.toggle('open');
     $('account').classList.toggle('open', open);
   };
+  $('refresh').onclick = function(){ closeAccountMenu(); window.chrome.webview.postMessage({ type:'refresh' }); };
   $('signout').onclick = function(){ closeAccountMenu(); window.chrome.webview.postMessage({ type:'signOut' }); };
   // Click anywhere else (or Esc) dismisses the menu.
   document.addEventListener('click', function(e){

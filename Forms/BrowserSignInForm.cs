@@ -12,7 +12,9 @@ namespace RslCompanionUploader.Forms;
 /// <see cref="SingleInstance.SecondInstanceLaunched"/>.
 ///
 /// The window is deliberately bare — it is a transient "waiting for the browser" state, not a form the
-/// user fills in. The only affordances are a retry link (in case the browser never opened) and cancel.
+/// user fills in. The only affordances are a "remember me" checkbox (<see cref="RememberMe"/>, read by
+/// the caller once <see cref="Session"/> is set, to decide whether to persist a refresh token for next
+/// launch), a retry link (in case the browser never opened), and cancel.
 /// </summary>
 public sealed class BrowserSignInForm : Form
 {
@@ -34,6 +36,13 @@ public sealed class BrowserSignInForm : Form
         Dock = DockStyle.Fill,
         Height = 6,
     };
+    private readonly CheckBox _rememberMe = new()
+    {
+        Text = "Remember me on this device",
+        AutoSize = true,
+        Checked = true,
+        ForeColor = Color.DimGray,
+    };
     private readonly LinkLabel _retry = new()
     {
         Text = "Open browser again",
@@ -54,6 +63,13 @@ public sealed class BrowserSignInForm : Form
     /// <summary>Set when sign-in succeeds; the caller uses this to open the main window.</summary>
     public AuthSession? Session { get; private set; }
 
+    /// <summary>
+    /// Whether the user asked to stay signed in on this device. When true, the caller persists a
+    /// refresh token so the next launch skips this browser handoff entirely; when false, the session
+    /// only lives for this run of the app.
+    /// </summary>
+    public bool RememberMe => _rememberMe.Checked;
+
     public BrowserSignInForm(AppConfig config, FirebaseAuthClient auth)
     {
         _config = config;
@@ -66,7 +82,7 @@ public sealed class BrowserSignInForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.White;
         Font = new Font("Segoe UI", 9.75f);
-        ClientSize = new Size(360, 260);
+        ClientSize = new Size(360, 288);
         Padding = new Padding(1); // room for the hairline border painted in OnPaint
 
         BuildLayout();
@@ -93,13 +109,14 @@ public sealed class BrowserSignInForm : Form
             Dock = DockStyle.Fill,
             Padding = new Padding(28, 30, 28, 22),
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 5,
             BackColor = Color.White,
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // logo + brand
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // status
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // spinner
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // remember me
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));     // links
 
         layout.Controls.Add(BuildBrand(), 0, 0);
@@ -110,6 +127,10 @@ public sealed class BrowserSignInForm : Form
 
         _spinner.Margin = new Padding(4, 0, 4, 14);
         layout.Controls.Add(_spinner, 0, 2);
+
+        _rememberMe.Anchor = AnchorStyles.None;
+        _rememberMe.Margin = new Padding(0, 0, 0, 14);
+        layout.Controls.Add(_rememberMe, 0, 3);
 
         var links = new FlowLayoutPanel
         {
@@ -122,7 +143,7 @@ public sealed class BrowserSignInForm : Form
         links.Controls.Add(_retry);
         links.Controls.Add(sep);
         links.Controls.Add(_cancel);
-        layout.Controls.Add(links, 0, 3);
+        layout.Controls.Add(links, 0, 4);
 
         Controls.Add(layout);
     }

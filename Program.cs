@@ -90,12 +90,14 @@ internal static class Program
     }
 
     // Internal so MainForm can persist the session obtained from the in-app sign-in flow.
-    internal static void Persist(AuthSession s) => CredentialStore.Save(new SavedCredentials
+    // rememberMe defaults to true for the launch-uri and silent-refresh paths, which have no UI to
+    // ask the question; the in-app browser sign-in passes the user's actual checkbox choice.
+    internal static void Persist(AuthSession s, bool rememberMe = true) => CredentialStore.Save(new SavedCredentials
     {
         Email = s.Email,
         Uid = s.Uid,
         DisplayName = s.DisplayName,
-        RefreshToken = s.RefreshToken,
-        RememberSession = true,
+        RefreshToken = rememberMe ? s.RefreshToken : null,
+        RememberSession = rememberMe,
     });
 }

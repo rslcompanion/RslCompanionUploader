@@ -13,13 +13,14 @@ using RslCompanionUploader;
 namespace RslCompanionUploader.Forms;
 
 /// <summary>
-/// Main window: a thin native shell (title bar + File/Help menu) hosting the whole UI as one
+/// Main window: a thin native shell (title bar + Help menu) hosting the whole UI as one
 /// full-window WebView2 page (<see cref="AppShell"/>). "Export account" reads the running game and
 /// create-or-updates the matching account, highlighting its tile.
 ///
 /// This class stays the backend: it runs the status poll, extraction and API calls, and pushes the
-/// resulting view-state into the shell. The menu actions (refresh, sign out, check for updates,
-/// recalibrate, about) call straight into these methods.
+/// resulting view-state into the shell. Refresh and sign out live in the shell's own account menu;
+/// check for updates, recalibrate, and about stay on the native Help menu — both call straight into
+/// these methods.
 ///
 /// File-based imports (resources/champions JSON) deliberately do not live here — they belong to the
 /// rslcompanion.com metadata tooling. This app's job is the live game export.
@@ -34,7 +35,6 @@ public sealed class MainForm : Form
     private readonly FirebaseAuthClient _auth;
     private readonly RslCompanionApiClient _api;
 
-    private readonly ToolStripMenuItem _refreshItem = new("&Refresh accounts");
     private readonly AppShell _shell = new() { Dock = DockStyle.Fill };
 
     // The accounts currently shown as tiles.
@@ -114,7 +114,7 @@ public sealed class MainForm : Form
 
         BuildLayout();
 
-        _refreshItem.Click += async (_, _) => await LoadAccountsAsync();
+        _shell.RefreshRequested += async () => { if (!_busy) await LoadAccountsAsync(); };
         _shell.OpenUrlRequested += OpenUrl;
         // Defer to the message loop: SignInRequested is raised from inside a WebView2 message handler,
         // and opening a modal dialog (a nested message loop) directly inside that callback crashes the
@@ -162,7 +162,7 @@ public sealed class MainForm : Form
         BringToForeground();
 
         _api.SignIn(dlg.Session);
-        Program.Persist(dlg.Session); // keep today's remember-me behaviour; a real opt-in comes later
+        Program.Persist(dlg.Session, dlg.RememberMe);
         await EnterSignedInAsync();
     }
 
@@ -557,16 +557,6 @@ public sealed class MainForm : Form
 
     private MenuStrip BuildMenu()
     {
-        var file = new ToolStripMenuItem("&File");
-        _refreshItem.ShortcutKeys = Keys.F5;
-        var signOutItem = new ToolStripMenuItem("Sign &out", null, (_, _) => SignOut());
-        var exitItem = new ToolStripMenuItem("&Close", null, (_, _) => Close()) { ShortcutKeys = Keys.Alt | Keys.F4 };
-        file.DropDownItems.Add(_refreshItem);
-        file.DropDownItems.Add(new ToolStripSeparator());
-        file.DropDownItems.Add(signOutItem);
-        file.DropDownItems.Add(new ToolStripSeparator());
-        file.DropDownItems.Add(exitItem);
-
         var help = new ToolStripMenuItem("&Help");
         if (!PackagedAppInfo.IsPackaged)
         {
@@ -599,7 +589,6 @@ public sealed class MainForm : Form
         }));
 
         var menu = new MenuStrip { Dock = DockStyle.Top };
-        menu.Items.Add(file);
         menu.Items.Add(help);
         return menu;
     }
@@ -862,7 +851,6 @@ public sealed class MainForm : Form
     {
         _busy = busy;
         UseWaitCursor = busy;
-        _refreshItem.Enabled = !busy;
         _shell.SetBusy(busy); // reflects into the shell's export button (disabled + "Exporting…")
     }
 
