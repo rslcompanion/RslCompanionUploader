@@ -744,7 +744,12 @@ public sealed class MainForm : Form
                 : "This game account isn't registered yet — a new account will be created for it.");
 
             Log("Exporting to RSL Companion…");
-            var json = JsonSerializer.Serialize(profile);
+            // Stamp uploader-side provenance onto every export/update. These are the uploader's own
+            // concern (not the shared extraction model), so they are injected here at serialization
+            // time rather than baked into ConsolidatedProfile. The export just read the live game, so
+            // read its build version now (cheap — the GameAssembly hash is memoized).
+            var gameVersion = (_buildInfo ?? ExtractionService.TryGetGameBuild())?.GameVersion;
+            var json = SerializeWithProvenance(profile, gameVersion);
             var result = await _api.UploadConsolidatedAsync(json);
             Log(result.Message);
 
@@ -796,6 +801,20 @@ public sealed class MainForm : Form
     // Flip this to true to include artifacts — the consolidated profile already carries an
     // "artifacts" slice and the export path posts the whole profile, so nothing else changes.
     private const bool ExportArtifacts = false;
+
+    /// <summary>
+    /// Serializes the extracted profile and stamps the uploader-side <c>uploaderVersion</c> /
+    /// <c>gameVersion</c> fields onto the top level, without touching the shared extraction model.
+    /// <paramref name="gameVersion"/> is the live Raid build ("11.67.0"); null when it couldn't be
+    /// read. <c>uploaderVersion</c> is this app's own build (the value shown in About).
+    /// </summary>
+    private static string SerializeWithProvenance(ConsolidatedProfile profile, string? gameVersion)
+    {
+        var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(profile))!.AsObject();
+        node["uploaderVersion"] = AboutForm.DisplayVersion;
+        node["gameVersion"] = gameVersion;
+        return node.ToJsonString();
+    }
 
     /// <summary>
     /// Runs the private extraction engine against the live Raid process on a background thread,
