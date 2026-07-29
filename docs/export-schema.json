@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
+  "title": "RSL Companion consolidated account export",
+  "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
+  "schemaVersion": 3,
+  "x-uploaderVersion": "1.5.4",
+  "x-lastUpdated": "2026-07-29",
+  "type": "object",
+  "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "factionGuardians"],
+  "additionalProperties": true,
+  "properties": {
+    "accountId": {
+      "type": "string",
+      "description": "In-game account id. The routing key; always equals account.accountId.",
+      "examples": ["95604564"]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC instant the snapshot was taken.",
+      "examples": ["2026-07-29T07:44:24.990Z"]
+    },
+    "uploaderVersion": {
+      "type": "string",
+      "description": "Desktop app build that produced this payload. Stamped by the app, NOT by the extraction engine, so it is absent from engine-level dumps.",
+      "examples": ["1.5.4"]
+    },
+    "gameVersion": {
+      "type": ["string", "null"],
+      "description": "Live Raid build the snapshot was read from. Null when it could not be determined.",
+      "examples": ["11.67.0"]
+    },
+    "account": {
+      "type": "object",
+      "required": ["name", "level", "accountId"],
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "level": { "type": "integer" },
+        "accountId": { "type": "string", "description": "Duplicate of the top-level accountId; always equal." },
+        "arenaPoints": { "type": "integer" },
+        "liveArenaPoints": { "type": "integer" },
+        "arenaLeague": { "type": "integer" },
+        "liveArenaLeague": { "type": "integer" },
+        "arena3x3League": { "type": "integer" }
+      }
+    },
+    "resources": {
+      "type": "array",
+      "description": "ALWAYS the complete allowlist (49 ids as of schema 3). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4).",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "quantity"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "integer", "description": "Stable allowlist id. The only safe join key." },
+          "name": { "type": "string", "description": "Display label. NOT stable across releases." },
+          "quantity": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "64-bit; Silver exceeds int32."
+          }
+        }
+      },
+      "x-soulEconomy": {
+        "description": "Corrected in schema 3 / v1.5.4. Ids 10101, 10102, 10104, 10105, 10201 and 10204 are a DEFUNCT earlier soul system: they are not allowlisted, are never emitted, and must not be mapped onto the ids below - doing so is the bug v1.5.4 fixed.",
+        "ids": {
+          "1111": "Mortal Soul Coin (was 'Silver Soul Coin'; value was wrong before v1.5.4)",
+          "1112": "Immortal Soul Coin (was 'Gold Soul Coin'; value was wrong before v1.5.4)",
+          "1113": "Eternal Soul Coin (was 'Immortal Essence'; value was wrong before v1.5.4)",
+          "1121": "Immortal Soul Essence (NEW in v1.5.4)",
+          "1122": "Eternal Soul Essence (NEW in v1.5.4)",
+          "10202": "Prism Crystals",
+          "10205": "Eternal Essence (legacy; still emitted, semantics unverified)",
+          "12001": "Mortal Soulstone (unchanged)",
+          "12002": "Immortal Soulstone (unchanged)",
+          "12003": "Eternal Soulstone (unchanged)"
+        }
+      }
+    },
+    "heroes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["instanceId", "baseTypeId", "masteries"],
+        "additionalProperties": true,
+        "properties": {
+          "name": { "type": ["string", "null"], "description": "Null when the champion index cannot resolve it." },
+          "instanceId": { "type": "integer", "description": "int64. Unique per OWNED COPY. Join key for factionGuardians and artifacts." },
+          "baseTypeId": { "type": "integer", "description": "Champion type, ascension digit stripped. Copies of one champion share this." },
+          "factionId": { "type": "integer", "description": "0 when unresolved. Same id space as factionGuardians[].factionId." },
+          "stars": { "type": "integer" },
+          "ascensionLevel": { "type": "integer" },
+          "level": { "type": "integer" },
+          "experience": { "type": "integer" },
+          "fullExperience": { "type": "integer" },
+          "empowerLevel": { "type": "integer" },
+          "locked": { "type": "boolean" },
+          "inStorage": { "type": "boolean" },
+          "inBathhouse": { "type": "boolean" },
+          "awakeningLevel": { "type": "integer", "minimum": 0, "maximum": 6, "description": "The game calls Awakening 'DoubleAscend' internally." },
+          "blessingChosen": { "type": "boolean", "description": "A blessing is equipped. Only ever true when awakeningLevel > 0." },
+          "isFactionGuardian": { "type": "boolean", "description": "This copy is placed in an Academy guardian slot." },
+          "masteries": {
+            "type": "object",
+            "description": "Always present and fully populated - deliberately verbose so consumers never null-check. Per-node metadata (name/tree/tier/cost) is intentionally absent: it is constant game data, joined from mastery_index.json in the RslCompanionMetadata repo.",
+            "required": ["selected", "unusedScrolls", "totalScrolls"],
+            "additionalProperties": false,
+            "properties": {
+              "selected": {
+                "type": "array",
+                "description": "Chosen mastery node ids; empty array when none, never null. The id encodes position: 500*tree*tier*slot, tier being the tens digit.",
+                "items": { "type": "integer" }
+              },
+              "unusedScrolls": { "$ref": "#/$defs/scrollBalance", "description": "Currently unspent scrolls." },
+              "totalScrolls": { "$ref": "#/$defs/scrollBalance", "description": "Unspent PLUS already spent on selected (each node's activation cost)." }
+            }
+          }
+        }
+      }
+    },
+    "factionGuardians": {
+      "type": "array",
+      "description": "Academy guardian slots. Each slot fuses up to TWO copies of one champion, hence the First/Second pair.",
+      "items": {
+        "type": "object",
+        "required": ["factionId", "rarityId", "slotIndex", "heroTypeId", "heroBaseTypeId"],
+        "additionalProperties": false,
+        "properties": {
+          "factionId": { "type": "integer" },
+          "rarityId": { "type": "integer" },
+          "slotIndex": { "type": "integer" },
+          "heroTypeId": { "type": "integer", "description": "Champion type WITH the ascension digit (366 = base 360 at ascension 6). Do NOT join this onto heroes[].baseTypeId." },
+          "heroBaseTypeId": { "type": "integer", "description": "Ascension stripped. THIS is what joins to heroes[].baseTypeId. The game's own field is misleadingly named HeroBaseTypeId but carries the ascension digit; both forms are published so consumers need not guess." },
+          "firstHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty." },
+          "secondHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty." },
+          "consumed": { "type": "boolean" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "description": "EXPECT THIS TO BE EMPTY. Artifact stats moved to Unity ECS component storage and extraction is blocked upstream; the app also skips artifacts unless explicitly enabled. Treat any content as optional/best-effort and never assume non-empty.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "artifactId": { "type": "integer" },
+          "setKindId": { "type": "integer" },
+          "rankId": { "type": "integer" },
+          "rarityId": { "type": "integer" },
+          "kindId": { "type": "integer" },
+          "primaryStatId": { "type": "integer" },
+          "level": { "type": "integer" },
+          "heroInstanceId": { "type": "integer", "description": "Joins to heroes[].instanceId. Omitted when 0." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "scrollBalance": {
+      "type": "object",
+      "description": "Mastery-scroll balance. ALWAYS carries all three rarities, defaulting to 0.",
+      "required": ["basic", "advanced", "divine"],
+      "additionalProperties": false,
+      "properties": {
+        "basic": { "type": "integer", "minimum": 0, "description": "White scrolls." },
+        "advanced": { "type": "integer", "minimum": 0, "description": "Green scrolls." },
+        "divine": { "type": "integer", "minimum": 0, "description": "Red scrolls." }
+      }
+    }
+  }
+}

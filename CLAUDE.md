@@ -66,6 +66,25 @@ the installer also registers it at install time. rslcompanion.com launches
 `rslcompanion-extractor://sync?rt=<firebase refresh token>`; the app exchanges the refresh token
 for a session ([Program.cs](Program.cs) `TrySignInFromLaunchUri`) and skips the login screen.
 
+## Export payload contract — keep it in sync
+
+[docs/export-schema.md](docs/export-schema.md) (prose + changelog) and
+[docs/export-schema.json](docs/export-schema.json) (JSON Schema 2020-12) are **the contract** for what
+`POST /api/sync/consolidated/raw` receives. RaidTools' `ConsolidatedJsonSyncAdapter` and
+rslcompanion.com read against them; they live in this repo precisely because it is public, so
+consumers can reference them without access to the private engine.
+
+**Any change to the emitted JSON must update both files in the same commit as the code change** — a
+new/renamed/retyped field, a new resource id, or even a changed resource *name*. Bump `schemaVersion`
+in the JSON Schema plus the "Schema version" line in the `.md`, add a Changelog row, and state the
+consumer impact in the commit message and release tag. The contract is only useful if it is never
+behind the code.
+
+Note the payload has two fields the engine's own `ConsolidatedProfile` model does not:
+`uploaderVersion` and `gameVersion` are stamped on at serialize time by
+`MainForm.SerializeWithProvenance`, so engine-level dumps legitimately lack them (the schema marks
+them optional for that reason).
+
 ## Config
 
 `appsettings.json` (next to the exe):
