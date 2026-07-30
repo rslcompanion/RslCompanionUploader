@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 5** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 6** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - The account's **clan roster** is a separate payload with its own contract:
   [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
 
@@ -124,6 +124,21 @@ mapping consumer-side either.
 
 `instanceId` identifies an owned copy; `baseTypeId` identifies the champion. Two copies of the same
 champion share `baseTypeId` and differ in `instanceId`.
+
+### `heroes[]` is never empty — treat a zero-length array as a corrupt payload
+
+The game gives every new player a starter champion, so **an account with zero champions does not
+exist**. A zero-length `heroes[]` is always a failed read, never an empty roster.
+
+That distinction matters because the failure is otherwise silent: `heroes: []` is structurally valid,
+so a consumer applying it faithfully would **wipe the account's entire champion roster** on what was
+really a bad memory read. Two causes are known — a game that hadn't finished loading its roster, and
+a recalibration that rediscovered the roster's memory offset wrongly.
+
+The uploader now refuses to send one (extraction fails loudly instead), and the JSON Schema declares
+`minItems: 1` so a consumer rejects it too. **Server-side, treat a payload failing that constraint as
+"discard and keep what you have", not as an update.** The same reasoning applies to `resources[]`,
+which is always the full allowlist and so is never empty either.
 
 ### `heroes[].masteries`
 
@@ -250,6 +265,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 6 | v1.5.5 | 2026-07-30 | **`heroes` declares `minItems: 1`.** No wire change — this documents an invariant that always held: every account has at least a starter champion, so a zero-length `heroes[]` is a failed read, never an empty roster. It was silently postable and would have wiped a roster server-side; the uploader now fails extraction instead of sending one, and consumers should treat a payload failing this constraint as "discard, keep what you have". |
 | 5 | v1.5.5 | 2026-07-30 | **BREAKING — `clan` is replaced by `clanId`.** The v4 `clan` object (`id`, `name`, `abbreviation`, `level`, `leaderId`, `membersLimit`, `members[]`) is **gone from this payload**; the top level now carries `clanId` (int64 or `null`) and nothing else clan-related. A consumer written against v4 reading `clan` will see `undefined`. Why: building the v4 object cost two full-memory scans of the game (18–31 s on a ~4 s export), so the roster moved to its own export and endpoint — [`clan-export-schema.md`](clan-export-schema.md), which is where `name` / `members[]` now live. `clanId` is the free read and joins to `clan.id` there. This payload no longer contains any data about other players. |
 | 4 | — | 2026-07-29 | **New top-level `clan`** (object or `null`) with the full roster. **Superseded by 5 before release — no shipped uploader ever emitted it.** |
 | 3 | v1.5.4 | 2026-07-29 | Soul economy corrected. **New ids `1121` / `1122`** (Immortal / Eternal Soul Essence). **Renamed** `1111` → Mortal Soul Coin, `1112` → Immortal Soul Coin, `1113` → Eternal Soul Coin — values for all three were previously wrong. `resources[]` 47 → 49 entries. No structural change. |

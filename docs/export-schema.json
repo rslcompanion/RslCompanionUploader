@@ -3,7 +3,7 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "x-uploaderVersion": "1.5.5",
   "x-lastUpdated": "2026-07-30",
   "x-relatedSchemas": {
@@ -84,6 +84,8 @@
     },
     "heroes": {
       "type": "array",
+      "minItems": 1,
+      "description": "The owned champion roster. NEVER EMPTY: the game gives every new player a starter champion, so there is no such thing as an account with zero. A zero-length array is therefore a failed read, not an empty roster — the uploader refuses to send one, and this constraint makes a consumer reject it rather than faithfully applying it and wiping the account's champions. Treat a validation failure here as 'discard this payload and keep what you have'.",
       "items": {
         "type": "object",
         "required": ["instanceId", "baseTypeId", "masteries"],
