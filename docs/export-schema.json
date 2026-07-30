@@ -51,7 +51,13 @@
     },
     "resources": {
       "type": "array",
-      "description": "ALWAYS the complete allowlist (49 ids as of schema 3). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4).",
+      "minItems": 1,
+      "contains": {
+        "type": "object",
+        "required": ["quantity"],
+        "properties": { "quantity": { "type": "integer", "minimum": 1 } }
+      },
+      "description": "ALWAYS the complete allowlist (49 ids as of schema 3). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
       "items": {
         "type": "object",
         "required": ["id", "name", "quantity"],
