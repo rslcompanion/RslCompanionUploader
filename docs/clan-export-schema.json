@@ -44,16 +44,17 @@
         "id": {
           "type": "integer",
           "description": "int64 clan id. Stable, and the key for joining accounts that share a clan — store clans by this, NOT by the reporting accountId, since several accounts legitimately report the same clan. Same id space as clanId in the account export.",
-          "examples": [3734897]
+          "examples": [20000001]
         },
         "name": {
           "type": "string",
           "description": "Clan display name.",
-          "examples": ["Unimatrix Zero One"]
+          "examples": ["Example Clan"]
         },
         "abbreviation": {
           "type": "string",
-          "description": "Clan tag. May be empty."
+          "description": "Clan tag. May be empty, and is frequently non-ASCII — do not assume it fits a narrow charset.",
+          "examples": ["Ëxc"]
         },
         "level": {
           "type": "integer",

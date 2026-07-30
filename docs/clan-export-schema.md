@@ -85,9 +85,9 @@ The account's own clan (the game calls it an *Alliance*) and its roster.
 
 ```jsonc
 {
-  "id": 3734897,                  // int64 — clan id; stable, and the key to join accounts by clan
-  "name": "Unimatrix Zero One",   // string — display name
-  "abbreviation": "Boȑg",         // string — clan tag; may be empty
+  "id": 20000001,                 // int64 — clan id; stable, and the key to join accounts by clan
+  "name": "Example Clan",         // string — display name
+  "abbreviation": "Ëxc",          // string — clan tag; may be empty, and is often non-ASCII
   "level": 19,                    // int32
   "leaderId": 10000001,           // int64 — always one of members[].id
   "membersLimit": 30,             // int32 — capacity, NOT the current member count

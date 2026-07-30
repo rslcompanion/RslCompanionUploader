@@ -42,7 +42,7 @@ there is no partial/patch mode.
   "heroes":     [ … ],                      // array
   "artifacts":  [ … ],                      // array — often EMPTY, see caveat
   "factionGuardians": [ … ],                // array
-  "clanId":     3734897 | null,             // int64|null — the account's clan; null when in none
+  "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "uploaderVersion": "1.5.5",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
 }
@@ -177,7 +177,7 @@ silently matches only unascended champions. Both are published so consumers don'
 The id of the clan this account belongs to (the game calls a clan an *Alliance*).
 
 ```jsonc
-"clanId": 3734897
+"clanId": 20000001
 ```
 
 - **`null` means "no clan is being reported"** — the account is in none, *or* the value could not be
