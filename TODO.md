@@ -8,8 +8,10 @@ The native `MenuStrip` (File / Help) still sits above the WebView2 page — the 
 If we commit to a fully web UI, the natural next step is to fold File/Help into the web top bar
 (the user chip in the design mockup) and drop the `MenuStrip` from [Forms/MainForm.cs](Forms/MainForm.cs).
 That means routing the remaining menu actions through the shell bridge instead of native handlers:
-Refresh accounts, Sign out, Check for updates, Recalibrate (EXTRACTION-only), Open rslcompanion.com,
-and About. Export / report-build / open-url already go through the bridge, so the pattern is set.
+Check for updates, Recalibrate (EXTRACTION-only), and About. Everything else already goes through
+the bridge — export, export-clan, refresh, sign out, report-build, open-url — so the pattern is set.
+Help ▸ "Open rslcompanion.com" is now a duplicate of the page's "Open RSL Helper" button and can
+simply be dropped with the menu.
 
 Deferred until we've lived with the current layout and confirmed the web-UI direction.
 

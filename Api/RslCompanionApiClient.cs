@@ -73,16 +73,33 @@ public sealed class RslCompanionApiClient
     /// the parser sync endpoint. The profile carries its own in-game <c>accountId</c>, so the server
     /// routes it without a selected account. The Firebase ID token is still attached as a Bearer.
     /// </summary>
-    public async Task<UploadResult> UploadConsolidatedAsync(string consolidatedJson, CancellationToken ct = default)
+    public Task<UploadResult> UploadConsolidatedAsync(string consolidatedJson, CancellationToken ct = default)
+        => PostSyncAsync(_config.SyncConsolidatedEndpoint, consolidatedJson, ct);
+
+    /// <summary>
+    /// POSTs a fully-formed <c>ClanProfile</c> JSON (the separate, slow clan export) to the clan sync
+    /// endpoint. Self-identifying in the same way — it carries the in-game <c>accountId</c> — but a
+    /// distinct payload with its own contract, so it goes to its own endpoint. Contract:
+    /// <c>docs/clan-export-schema.md</c> / <c>.json</c>.
+    /// </summary>
+    public Task<UploadResult> UploadClanAsync(string clanJson, CancellationToken ct = default)
+        => PostSyncAsync(_config.SyncClanEndpoint, clanJson, ct);
+
+    /// <summary>
+    /// The shared POST for both sync payloads. A 404 is called out separately because it means
+    /// something different from a failure: the endpoint isn't deployed yet, which is a server-side
+    /// state the user can do nothing about and must not read as "your export is broken".
+    /// </summary>
+    private async Task<UploadResult> PostSyncAsync(string endpoint, string json, CancellationToken ct)
     {
-        using var req = await BuildRequestAsync(HttpMethod.Post, _config.SyncConsolidatedEndpoint, ct);
-        req.Content = new StringContent(consolidatedJson, Encoding.UTF8, "application/json");
+        using var req = await BuildRequestAsync(HttpMethod.Post, endpoint, ct);
+        req.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
         using var resp = await _http.SendAsync(req, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
 
         if (resp.StatusCode == HttpStatusCode.NotFound)
-            return UploadResult.Fail($"Endpoint not found (404): {_config.SyncConsolidatedEndpoint}\nThe server may not have this endpoint deployed yet.");
+            return UploadResult.Fail($"Endpoint not found (404): {endpoint}\nThe server may not have this endpoint deployed yet.");
 
         if (!resp.IsSuccessStatusCode)
             return UploadResult.Fail($"Sync failed ({(int)resp.StatusCode} {resp.ReasonPhrase}).\n{Trim(body)}");

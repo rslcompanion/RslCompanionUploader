@@ -6,7 +6,9 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 3** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 5** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- The account's **clan roster** is a separate payload with its own contract:
+  [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
 
 > **Maintenance rule:** any change to the emitted JSON — a new field, a renamed field, a changed type,
 > a new resource id, a changed resource *name* — must update this file **and** `export-schema.json`
@@ -40,7 +42,8 @@ there is no partial/patch mode.
   "heroes":     [ … ],                      // array
   "artifacts":  [ … ],                      // array — often EMPTY, see caveat
   "factionGuardians": [ … ],                // array
-  "uploaderVersion": "1.5.4",               // string — added by the app, not the engine
+  "clanId":     3734897 | null,             // int64|null — the account's clan; null when in none
+  "uploaderVersion": "1.5.5",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
 }
 ```
@@ -169,6 +172,34 @@ silently matches only unascended champions. Both are published so consumers don'
 
 ---
 
+## `clanId` — int64 or `null`
+
+The id of the clan this account belongs to (the game calls a clan an *Alliance*).
+
+```jsonc
+"clanId": 3734897
+```
+
+- **`null` means "no clan is being reported"** — the account is in none, *or* the value could not be
+  read and validated. Both are normal; never treat `null` as "left the clan", and never clear a
+  previously known clan association on a `null` (see below).
+- **`clanId` is stable and is the join key.** Two accounts that share a clan report the same
+  `clanId`, so clan grouping works from this payload alone — no roster required.
+- Same id space as `clan.id` in the clan export.
+
+**This is the only clan field in this payload, and that is a cost decision, not an oversight.** The
+clan's name and roster are not reachable from the account data at all: getting them needs a
+full-memory scan of the game process, 18–31 s against the ~4 s this entire snapshot takes. `clanId`
+sits two pointers off the account and is free. Everything else clan-related — name, abbreviation,
+level, leader, and the member roster with display names — is a **separate export with a separate
+endpoint and contract**: [`clan-export-schema.md`](clan-export-schema.md). The two payloads join on
+`clanId` ↔ `clan.id`.
+
+Consequently, **do not derive "the user left their clan" from this payload**. This export cannot
+distinguish "no clan" from "unreadable", and it carries no membership list to diff against.
+
+---
+
 ## `artifacts[]` — expect this to be empty
 
 ```jsonc
@@ -195,7 +226,10 @@ optional/best-effort, and never assume non-empty.
    version bump — ignore unknown keys rather than failing.
 4. **`artifacts[]` may be empty** (see above). `gameVersion` may be `null`.
 5. **`account.accountId` == top-level `accountId`.** Route on the top-level one.
-6. Server-side, `ConsolidatedJsonSyncAdapter` in RaidTools is the reader that must track this file.
+6. **Clan names and rosters do not arrive here.** This payload has `clanId` only; the roster is a
+   separate, user-initiated export ([`clan-export-schema.md`](clan-export-schema.md)) that may never
+   be run, or run far less often. Treat clan detail as independently-aged data joined on `clanId`.
+7. Server-side, `ConsolidatedJsonSyncAdapter` in RaidTools is the reader that must track this file.
 
 ---
 
@@ -216,6 +250,8 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 5 | v1.5.5 | 2026-07-30 | **BREAKING — `clan` is replaced by `clanId`.** The v4 `clan` object (`id`, `name`, `abbreviation`, `level`, `leaderId`, `membersLimit`, `members[]`) is **gone from this payload**; the top level now carries `clanId` (int64 or `null`) and nothing else clan-related. A consumer written against v4 reading `clan` will see `undefined`. Why: building the v4 object cost two full-memory scans of the game (18–31 s on a ~4 s export), so the roster moved to its own export and endpoint — [`clan-export-schema.md`](clan-export-schema.md), which is where `name` / `members[]` now live. `clanId` is the free read and joins to `clan.id` there. This payload no longer contains any data about other players. |
+| 4 | — | 2026-07-29 | **New top-level `clan`** (object or `null`) with the full roster. **Superseded by 5 before release — no shipped uploader ever emitted it.** |
 | 3 | v1.5.4 | 2026-07-29 | Soul economy corrected. **New ids `1121` / `1122`** (Immortal / Eternal Soul Essence). **Renamed** `1111` → Mortal Soul Coin, `1112` → Immortal Soul Coin, `1113` → Eternal Soul Coin — values for all three were previously wrong. `resources[]` 47 → 49 entries. No structural change. |
 | 2 | v1.5.2 | 2026-07-28 | Added top-level `uploaderVersion` and `gameVersion`. Added resource ids `6500` / `6501` (Rank 1/2 Chicken). |
 | 1 | — | — | Baseline: `accountId`, `account`, `timestamp`, `resources`, `heroes`, `artifacts`, `factionGuardians`; `heroes[].masteries` as an object with `selected` / `unusedScrolls` / `totalScrolls`. |

@@ -50,10 +50,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 ; Package the whole publish output: exe, appsettings.json, and — when built with the private
-; extraction submodule — the engine's runtime data (known-offsets.json, offsets_cache.json,
-; resource-allowlist.json) and the bundled metadata catalogs under exports\ (champion_index.json,
-; mastery_index.json). Those are shipped as plain JSON so refreshing them after a game patch is a
-; file swap in {app}\exports, not a rebuild; champion_index.json gives each hero a real name.
+; extraction submodule — the engine's runtime data (known-offsets.json, resource-allowlist.json)
+; and the bundled metadata catalogs under exports\ (champion_index.json, mastery_index.json). Those
+; are shipped as plain JSON so refreshing them after a game patch is a file swap in {app}\exports,
+; not a rebuild; champion_index.json gives each hero a real name.
+; offsets_cache.json is deliberately NOT among them: it is per-session scratch the app writes next
+; to the exe on first run, and a shipped copy would only carry a heap address that died with
+; whichever machine produced it. known-offsets.json is what spares users the calibration scan.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.xml"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Registry]

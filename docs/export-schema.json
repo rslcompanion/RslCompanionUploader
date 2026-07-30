@@ -3,9 +3,12 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 3,
-  "x-uploaderVersion": "1.5.4",
-  "x-lastUpdated": "2026-07-29",
+  "schemaVersion": 5,
+  "x-uploaderVersion": "1.5.5",
+  "x-lastUpdated": "2026-07-30",
+  "x-relatedSchemas": {
+    "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
+  },
   "type": "object",
   "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "factionGuardians"],
   "additionalProperties": true,
@@ -156,6 +159,11 @@
           "heroInstanceId": { "type": "integer", "description": "Joins to heroes[].instanceId. Omitted when 0." }
         }
       }
+    },
+    "clanId": {
+      "type": ["integer", "null"],
+      "description": "int64 id of the clan this account belongs to (the game calls a clan an Alliance). Null when the account is in no clan AND when the value could not be validated — this payload cannot distinguish the two, so never infer 'left the clan' from null. Stable and usable as a join key on its own: two accounts in the same clan report the same clanId. It is the ONLY clan field here because it is the only free one — a two-pointer read off the account data — whereas the clan's name and roster need a full-memory scan of the game (18-31s on a ~4s export) and are therefore a separate export: see clan-export-schema.json, which joins to this on clan.id.",
+      "examples": [3734897, null]
     }
   },
   "$defs": {

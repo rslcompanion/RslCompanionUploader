@@ -18,13 +18,20 @@ exports the live Raid: Shadow Legends account to RSL Companion.
      website; the app then reads the resulting Firebase ID token + refresh token out of the page's
      IndexedDB. No extra OAuth client IDs/secrets are needed.
 2. **View your accounts** — the UI (a single full-window WebView2 page styled like the site) lists
-   accounts from `GET /api/accounts` (Bearer = Firebase ID token) as read-only status tiles: Raid
-   closed shows a red "open Raid" prompt, an unimported running account shows a "new account
-   detected" tile, and the profile matching the running game turns green.
-3. **Export account** *(builds with the private engine only)* — reads the **live Raid: Shadow
+   accounts from `GET /api/accounts` (Bearer = Firebase ID token) as status tiles: Raid closed shows
+   a red "open Raid" prompt, an unimported running account shows a "new account detected" tile, and
+   the profile matching the running game turns green. Only that last tile is interactive — it
+   carries the export buttons below, since both read the running game and so can target no other
+   account.
+3. **Update user data** *(builds with the private engine only)* — reads the **live Raid: Shadow
    Legends process** in memory via the private extraction engine (submodule at `extraction/`),
-   builds a consolidated profile (resources + champions), and POSTs it to
-   `/api/sync/consolidated/raw`. Requires the game to be running.
+   builds a consolidated profile (resources + champions + clan id), and POSTs it to
+   `/api/sync/consolidated/raw`. Requires the game to be running. Takes a few seconds.
+4. **Export clan** *(same)* — a separate action for the account's clan record and full member
+   roster, POSTed to `/api/sync/clan/raw`. Its own button because it is its own cost: the clan
+   roster is not reachable from the game's account data and has to be found by scanning the whole
+   process, which takes up to a minute rather than a few seconds.
+5. **Open RSL Helper** — opens rslcompanion.com in the default browser.
 
 File-based JSON import (resources/champions) previously lived here; it has moved to the
 rslcompanion.com metadata tooling.
@@ -35,8 +42,8 @@ The Firebase ID token is auto-refreshed (via the refresh token) before it expire
 
 This repository is public; the game-data extraction engine is a **private git submodule** at
 `extraction/` (repo `RslCompanionExtraction`). Anyone can build and run this project without it —
-the "Export account" button is compiled out (`EXTRACTION` define absent), leaving auth and the
-accounts pane. With access to the private repo:
+the export buttons are compiled out (`EXTRACTION` define absent), leaving auth and the accounts
+pane. With access to the private repo:
 
 ```
 git submodule update --init

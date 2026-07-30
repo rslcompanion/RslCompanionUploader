@@ -8,14 +8,20 @@ namespace RslCompanionUploader.Forms;
 /// <summary>
 /// The whole application UI, rendered as one full-window WebView2 page so it matches rslcompanion.com
 /// rather than looking like native WinForms chrome. The C# side stays the backend: it owns all data
-/// and pushes a single view-state into the page, and receives back only the few actions the page can
-/// trigger (export, sign in/out, refresh accounts, report a game build, open a link). Check for
-/// updates, recalibrate, and about stay on the native Help menu, which calls into
-/// <see cref="MainForm"/> directly and needs no bridge.
+/// and pushes a single view-state into the page, and receives back only the actions the page can
+/// trigger — <c>export</c>, <c>exportClan</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>,
+/// <c>reportBuild</c>, <c>openUrl</c>. Check for updates, recalibrate, and about stay on the native
+/// Help menu, which calls into <see cref="MainForm"/> directly and needs no bridge.
 ///
 /// The page is a top bar (brand + connection pill + identity, whose account dropdown holds refresh
-/// and sign out), optional update / uncovered-build banners, the accounts grid with its contextual
-/// export button, and a collapsible activity console.
+/// and sign out), optional update / uncovered-build banners, the accounts grid, and a collapsible
+/// activity console, with an "Open RSL Helper" bar above it.
+///
+/// <para><b>Tiles are status, with one exception: the account the running game is on.</b> That tile
+/// — and only that one — carries the two game-reading actions ("Update user data", and "Export
+/// clan" once the account is imported). Both read the live process, so they can never target any
+/// other tile; putting them on the tile they act on is what makes the target obvious. Every other
+/// tile stays unselectable status. When no game is reachable no tile carries buttons at all.</para>
 ///
 /// Initialization is async and degrades gracefully: if the WebView2 runtime is missing, a plain label
 /// is shown instead of throwing. State and log lines pushed before the view is ready are buffered and
@@ -46,13 +52,18 @@ public sealed class AppShell : Panel
     private int? _detectedUserId;
     private string? _detectedName;
     private bool _busy;
+    private string? _busyKind;               // "export" | "clan" | null — drives which button shows progress
     private bool _exportAvailable;
+    private string? _frontendUrl;            // target of the "Open RSL Helper" button
 
     // Log lines produced before the page is ready, flushed on load.
     private readonly List<string> _pendingLog = new();
 
-    /// <summary>Raised (on the UI thread) when the accounts pane's export button is clicked.</summary>
+    /// <summary>Raised (on the UI thread) when the live tile's "Update user data" button is clicked.</summary>
     public event Action? ExportRequested;
+
+    /// <summary>Raised when the live tile's "Export clan" button is clicked (the slow export).</summary>
+    public event Action? ExportClanRequested;
 
     /// <summary>Raised when the uncovered-build banner is clicked.</summary>
     public event Action? ReportBuildRequested;
@@ -172,11 +183,24 @@ public sealed class AppShell : Panel
         PushState();
     }
 
-    /// <summary>Reflects an in-flight export: the export button shows progress and is disabled.</summary>
-    public void SetBusy(bool busy) { _busy = busy; PushState(); }
+    /// <summary>
+    /// Reflects an in-flight operation: every action button is disabled, and the one named by
+    /// <paramref name="kind"/> ("export" or "clan") shows progress in place. The clan export runs a
+    /// full memory scan for up to a minute, so the page needs to know *which* is running — a shared
+    /// "busy" spinner on a half-minute operation is indistinguishable from a hang.
+    /// </summary>
+    public void SetBusy(bool busy, string? kind = null)
+    {
+        _busy = busy;
+        _busyKind = busy ? kind : null;
+        PushState();
+    }
 
-    /// <summary>Whether the export action exists at all (false in public builds without the engine).</summary>
+    /// <summary>Whether the export actions exist at all (false in public builds without the engine).</summary>
     public void SetExportAvailable(bool available) { _exportAvailable = available; PushState(); }
+
+    /// <summary>Target of the "Open RSL Helper" button (<c>AppConfig.FrontendUrl</c>).</summary>
+    public void SetFrontendUrl(string? url) { _frontendUrl = url; PushState(); }
 
     /// <summary>Appends a timestamped line to the activity console.</summary>
     public void Log(string message)
@@ -202,7 +226,9 @@ public sealed class AppShell : Panel
             identifiedUserId = _identified,
             detected = _detectedUserId is int id ? new { userId = id, name = _detectedName ?? $"Account {id}" } : null,
             busy = _busy,
+            busyKind = _busyKind,
             exportAvailable = _exportAvailable,
+            frontendUrl = _frontendUrl,
         });
     }
 
@@ -219,6 +245,7 @@ public sealed class AppShell : Panel
             switch (t.GetString())
             {
                 case "export": ExportRequested?.Invoke(); break;
+                case "exportClan": ExportClanRequested?.Invoke(); break;
                 case "signIn": SignInRequested?.Invoke(); break;
                 case "signOut": SignOutRequested?.Invoke(); break;
                 case "refresh": RefreshRequested?.Invoke(); break;
@@ -345,7 +372,9 @@ public sealed class AppShell : Panel
   #secHdr .cnt { font-size:12px; color:var(--mut); }
   #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; }
 
-  /* Tiles are status, not controls — not clickable. The export target is chosen automatically. */
+  /* Tiles are status and cannot be selected — with one exception: the tile for the account the
+     running game is on carries the two game-reading actions (see .tile .actions below). Both read
+     the live process, so no other tile could ever be their target. */
   .tile { position:relative; border:1px solid var(--line); border-radius:12px; background:var(--card);
           padding:14px; transition:border-color .12s, background .12s, box-shadow .12s; }
   .tile.identified { border-color:var(--ok); border-width:2px; background:var(--okbg); }
@@ -365,6 +394,26 @@ public sealed class AppShell : Panel
                  font-size:11px; font-weight:600; color:var(--ok); }
   .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); }
 
+  /* Action row on the live tile only. */
+  .tile .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .tile .actions .btn { flex:1 1 120px; padding:9px 10px; border-radius:8px; border:1px solid transparent;
+                        font-family:inherit; font-size:12px; font-weight:600; cursor:pointer;
+                        transition:filter .12s, background .12s; }
+  .tile .actions .btn.add { background:var(--accent); color:#fff; }
+  .tile .actions .btn.update { background:var(--ok); color:#fff; }
+  .tile .actions .btn.ghost { background:transparent; color:var(--fg); border-color:var(--line); }
+  .tile .actions .btn.ghost:hover:not(:disabled) { background:var(--panel); }
+  .tile .actions .btn:hover:not(:disabled) { filter:brightness(1.07); }
+  .tile .actions .btn:disabled { opacity:.55; cursor:default; filter:none; }
+
+  /* Indeterminate bar for the clan export. It has no measurable progress — it is a memory scan —
+     but it runs for up to a minute, and a frozen button on a frozen window reads as a crash. */
+  .tile .progress { margin-top:10px; height:4px; border-radius:999px; overflow:hidden; background:var(--panel); }
+  .tile .progress::after { content:''; display:block; width:40%; height:100%; border-radius:999px;
+                           background:var(--accent); animation:sweep 1.3s ease-in-out infinite; }
+  @keyframes sweep { from { transform:translateX(-100%); } to { transform:translateX(250%); } }
+  .tile .progress-note { margin-top:7px; font-size:11px; color:var(--sub); line-height:1.45; }
+
   .tile.detected { border:1px dashed var(--accent); background:var(--accentbg); }
   .tile .badge-new { display:inline-block; margin-bottom:8px; padding:2px 8px; border-radius:999px;
                      background:var(--accent); color:#fff; font-size:10px; font-weight:700;
@@ -382,12 +431,13 @@ public sealed class AppShell : Panel
   #signedOut .cta-sub { font-size:13px; max-width:360px; line-height:1.5; }
   #signedOut .cta-sub strong { color:var(--fg); }
 
-  #actionBar { flex:none; display:none; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
-  #action { width:100%; padding:12px 14px; border:none; border-radius:10px; color:#fff; cursor:pointer;
-            font-family:inherit; font-size:14px; font-weight:600; background:var(--accent); transition:filter .12s; }
-  #action.update { background:var(--ok); }
-  #action:hover:not(:disabled) { filter:brightness(1.06); }
-  #action:disabled { opacity:.6; cursor:default; }
+  /* Always present, and deliberately not an export: this is the one action that has nothing to do
+     with the running game, so it does not belong on a tile. */
+  #actionBar { flex:none; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
+  #openHelper { width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:10px;
+                background:transparent; color:var(--fg); cursor:pointer; font-family:inherit;
+                font-size:13px; font-weight:600; transition:background .12s; }
+  #openHelper:hover { background:var(--panel); }
 
   #console { flex:none; border-top:1px solid var(--line); background:var(--panel); }
   #consoleHdr { display:flex; align-items:center; gap:8px; padding:8px 16px; cursor:pointer;
@@ -433,7 +483,7 @@ public sealed class AppShell : Panel
     <div id='grid'></div>
   </div>
 
-  <div id='actionBar'><button id='action' type='button'></button></div>
+  <div id='actionBar'><button id='openHelper' type='button'>Open RSL Helper</button></div>
 
   <div id='console'>
     <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><span class='chev'>&#9650;</span></div>
@@ -441,7 +491,7 @@ public sealed class AppShell : Panel
   </div>
 
 <script>
-  var state = { signedIn:false, user:null, status:null, update:null, report:null, accounts:[], identifiedUserId:null, detected:null, busy:false, exportAvailable:false };
+  var state = { signedIn:false, user:null, status:null, update:null, report:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null };
   var logLines = [];
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
@@ -492,6 +542,29 @@ public sealed class AppShell : Panel
     return ""<div class='meta'><span>"" + a.heroCount + "" champions</span><span>"" + a.artifactCount + "" gear</span></div>"";
   }
 
+  // The action row for the tile the running game is on. 'add' = the game is on an account that is
+  // not imported yet, so the only thing to do is import it; clan export is offered once the account
+  // exists, because the clan payload is filed against an account the server already knows.
+  function tileActions(kind) {
+    if (!state.exportAvailable) return '';
+    var clanBusy = state.busyKind === 'clan';
+    var dataBusy = state.busyKind === 'export';
+    var dis = state.busy ? ' disabled' : '';
+    var html = ""<div class='actions'>"";
+    html += ""<button id='btnData' type='button' class='btn "" + (kind === 'add' ? 'add' : 'update') + ""'"" + dis + "">""
+          + (dataBusy ? 'Updating…' : (kind === 'add' ? 'Add this game account' : 'Update user data'))
+          + ""</button>"";
+    if (kind !== 'add')
+      html += ""<button id='btnClan' type='button' class='btn ghost'"" + dis + "">""
+            + (clanBusy ? 'Scanning… 0s' : 'Export clan') + ""</button>"";
+    html += ""</div>"";
+    if (clanBusy)
+      html += ""<div class='progress'></div><div class='progress-note'>Reading the clan roster. The game keeps ""
+            + ""no direct route to it, so this searches the whole of its memory — up to about a minute. ""
+            + ""The activity log below shows each step.</div>"";
+    return html;
+  }
+
   function renderGrid(sel) {
     var grid = $('grid');
     grid.innerHTML = '';
@@ -502,7 +575,8 @@ public sealed class AppShell : Panel
       d.innerHTML = ""<div class='badge-new'>New account detected</div>""
         + ""<div class='name'>"" + esc(state.detected.name) + ""</div>""
         + ""<div class='meta'><span>Playing now · not imported yet</span></div>""
-        + ""<div class='attach-note'>Can be attached to your signed-in account</div>"";
+        + ""<div class='attach-note'>Can be attached to your signed-in account</div>""
+        + tileActions('add');
       grid.appendChild(d);
     }
 
@@ -530,19 +604,26 @@ public sealed class AppShell : Panel
       html += ""</div></div>"" + tileMeta(a);
       if (a.lastSync) html += ""<div class='synced'>Last synced "" + esc(a.lastSync) + ""</div>"";
       if (a.userId === state.identifiedUserId) html += ""<div class='badge'>In game</div>"";
+      if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;
       grid.appendChild(el);
     });
   }
 
-  function renderAction(sel) {
-    var bar = $('actionBar'), btn = $('action');
-    if (!state.exportAvailable || !sel) { bar.style.display = 'none'; return; }
-    bar.style.display = 'block';
-    if (state.busy) { btn.disabled = true; btn.className = ''; btn.textContent = 'Exporting…'; return; }
-    btn.disabled = false;
-    if (sel.kind === 'add') { btn.className = ''; btn.textContent = 'Add current game account to RSL Companion account'; }
-    else { btn.className = 'update'; btn.textContent = 'Update account'; }
+  // The clan scan has no measurable progress, so the button counts seconds instead: a number that
+  // keeps moving is the difference between ""working"" and ""hung"" on a 30-second operation.
+  var clanTimer = null, clanStartedAt = 0;
+  function tickClan() {
+    var b = $('btnClan');
+    if (b) b.textContent = 'Scanning… ' + Math.round((Date.now() - clanStartedAt) / 1000) + 's';
+  }
+  function syncClanTimer() {
+    if (state.busyKind === 'clan') {
+      if (!clanTimer) { clanStartedAt = Date.now(); clanTimer = setInterval(tickClan, 1000); }
+      tickClan();   // the grid was just re-rendered, so restore the count immediately
+    } else if (clanTimer) {
+      clearInterval(clanTimer); clanTimer = null;
+    }
   }
 
   function render() {
@@ -550,16 +631,17 @@ public sealed class AppShell : Panel
     renderTopbar();
     renderBanners();
     if (!state.signedIn) {
-      // Signed out: show the sign-in prompt instead of the accounts grid / export button.
+      // Signed out: show the sign-in prompt instead of the accounts grid. The RSL Helper link stays
+      // — it is a website, not an export, and works without a session.
       $('signedOut').style.display = 'flex';
       $('secHdr').style.display = 'none';
       $('grid').innerHTML = '';
-      renderAction(null);
+      syncClanTimer();
       return;
     }
     $('signedOut').style.display = 'none';
     renderGrid(sel);
-    renderAction(sel);
+    syncClanTimer();
   }
 
   function renderLog() {
@@ -571,8 +653,18 @@ public sealed class AppShell : Panel
   }
 
   $('consoleHdr').onclick = function(){ $('console').classList.toggle('open'); };
-  $('action').onclick = function(){ if (!$('action').disabled) window.chrome.webview.postMessage({ type:'export' }); };
   $('signin').onclick = function(){ window.chrome.webview.postMessage({ type:'signIn' }); };
+  $('openHelper').onclick = function(){
+    if (state.frontendUrl) window.chrome.webview.postMessage({ type:'openUrl', url: state.frontendUrl });
+  };
+  // Delegated: the tile buttons are rebuilt by renderGrid on every state push, so binding them
+  // directly would leave handlers on discarded nodes.
+  $('grid').addEventListener('click', function(e){
+    var btn = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!btn || btn.disabled) return;
+    if (btn.id === 'btnData') window.chrome.webview.postMessage({ type:'export' });
+    else if (btn.id === 'btnClan') window.chrome.webview.postMessage({ type:'exportClan' });
+  });
 
   function closeAccountMenu(){ $('accountMenu').classList.remove('open'); $('account').classList.remove('open'); }
   $('account').onclick = function(e){
