@@ -65,7 +65,7 @@ as something guaranteed to accompany an account sync.
   "accountId": "95604564",                 // string — in-game account id; the routing key
   "timestamp": "2026-07-30T09:12:44.317Z", // string — ISO-8601 UTC, when the snapshot was taken
   "clan":      { … } | null,               // object|null — see below
-  "uploaderVersion": "1.5.5",              // string — added by the app, not the engine
+  "uploaderVersion": "1.5.6",              // string — added by the app, not the engine
   "gameVersion":     "11.67.0"             // string|null — live Raid build; null if unreadable
 }
 ```
@@ -165,4 +165,4 @@ When the emitted JSON changes:
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 1 | v1.5.5 | 2026-07-30 | Baseline. New endpoint `POST /api/sync/clan/raw` and new payload: `accountId`, `timestamp`, `clan` (`id`, `name`, `abbreviation`, `level`, `leaderId`, `membersLimit`, `members[]` of `{id, name}`), plus the app-stamped `uploaderVersion` / `gameVersion`. Carries the roster that briefly lived on the account export as `clan` (never released — see `export-schema.md` schema 4 → 5). |
+| 1 | v1.5.6 | 2026-07-30 | Baseline. New endpoint `POST /api/sync/clan/raw` and new payload: `accountId`, `timestamp`, `clan` (`id`, `name`, `abbreviation`, `level`, `leaderId`, `membersLimit`, `members[]` of `{id, name}`), plus the app-stamped `uploaderVersion` / `gameVersion`. Carries the roster that briefly lived on the account export as `clan` (never released — see `export-schema.md` schema 4 → 5). |

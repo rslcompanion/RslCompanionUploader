@@ -4,7 +4,7 @@
   "title": "RSL Companion clan export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/clan/raw. One complete snapshot of one clan as seen from one member's game client; a full replace of that clan's roster, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Separate from the account snapshot (export-schema.json) because it is separate work — the clan record and the player-name cache are not reachable from the game's account data and must be found by scanning the whole process (18-31s, against ~4s for the entire account snapshot). It is therefore a distinct, user-initiated action that may arrive rarely or never, and is likely to be older than the account snapshots around it. Human-readable contract and changelog: clan-export-schema.md (keep both in sync, same commit).",
   "schemaVersion": 1,
-  "x-uploaderVersion": "1.5.5",
+  "x-uploaderVersion": "1.5.6",
   "x-lastUpdated": "2026-07-30",
   "x-privacy": "This payload describes people OTHER than the uploading user — their in-game account ids and display names — collected from one member's game client. No other uploader payload does. Scope access to the clan, do not expose a member's id or name outside it, and delete roster rows with the clan record rather than leaving orphans keyed by player id.",
   "x-relatedSchemas": {
@@ -28,7 +28,7 @@
     "uploaderVersion": {
       "type": "string",
       "description": "Desktop app build that produced this payload. Stamped by the app, NOT by the extraction engine, so it is absent from engine-level dumps.",
-      "examples": ["1.5.5"]
+      "examples": ["1.5.6"]
     },
     "gameVersion": {
       "type": ["string", "null"],

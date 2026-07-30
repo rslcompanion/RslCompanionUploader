@@ -4,7 +4,7 @@
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
   "schemaVersion": 6,
-  "x-uploaderVersion": "1.5.5",
+  "x-uploaderVersion": "1.5.6",
   "x-lastUpdated": "2026-07-30",
   "x-relatedSchemas": {
     "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
