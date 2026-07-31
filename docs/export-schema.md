@@ -267,6 +267,25 @@ Two consumer notes: `artifactId` is unique per record (no artifact is worn twice
 *equipped* artifacts appear — **an account's unequipped inventory is not in this payload at all**, so
 never infer "artifacts owned" from this array's length.
 
+### Reconciling against the in-game counter
+
+`kindId` 1–6 (**Gear**) and 7–9 (**Accessories**) are two *separate* inventory categories in-game,
+and the count the game shows on its Artifacts screen covers **Gear only**. So this array's length
+matches no single number on screen. Verified against a live account (2026-07-31):
+
+| | |
+|---|---:|
+| Gear equipped — `kindId` 1–6 | 892 |
+| Gear unequipped — *not in this payload* | 1,852 |
+| **Gear total — matches the in-game counter** | **2,744** |
+| Accessories equipped — `kindId` 7–9 | 969 |
+| **`artifacts[]` length** (892 + 969) | **1,861** |
+
+To compare against the game, filter to `kindId <= 6` and expect *equipped gear only*; the unequipped
+remainder is unreachable from this payload. A useful sanity check falls out of this: slots 1–6 should
+each land near the count of fully-geared champions (146–150 apiece here), while 7/8/9 typically run
+much higher, since accessories get parked on farm champions that wear no gear.
+
 ---
 
 ## Consumer guidance
