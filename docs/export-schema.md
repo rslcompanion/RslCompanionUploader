@@ -277,14 +277,22 @@ matches no single number on screen. Verified against a live account (2026-07-31)
 |---|---:|
 | Gear equipped — `kindId` 1–6 | 892 |
 | Gear unequipped — *not in this payload* | 1,852 |
-| **Gear total — matches the in-game counter** | **2,744** |
+| **Gear total — matches the in-game Artifacts counter** | **2,744** |
 | Accessories equipped — `kindId` 7–9 | 969 |
+| Accessories in inventory / unclaimed in mailbox — *not in this payload* | ~2,000 / a few hundred |
 | **`artifacts[]` length** (892 + 969) | **1,861** |
 
-To compare against the game, filter to `kindId <= 6` and expect *equipped gear only*; the unequipped
-remainder is unreachable from this payload. A useful sanity check falls out of this: slots 1–6 should
-each land near the count of fully-geared champions (146–150 apiece here), while 7/8/9 typically run
-much higher, since accessories get parked on farm champions that wear no gear.
+To compare against the game, filter to `kindId <= 6` and expect *equipped gear only*.
+
+> **There is no "total owned" figure derivable from this payload — not even by adding an inventory
+> count to it.** Beyond the unequipped inventory, the game's **mailbox holds unclaimed items** that
+> the player owns in no meaningful sense yet and that appear in neither the equipped map nor the
+> inventory counter. Any "artifacts owned" number must come from the game's own screens, never from
+> arithmetic on this array.
+
+A useful sanity check does fall out of the slot shape: slots 1–6 should each land near the count of
+fully-geared champions (146–150 apiece here), while 7/8/9 typically run much higher, since
+accessories get parked on farm champions that wear no gear.
 
 ---
 
