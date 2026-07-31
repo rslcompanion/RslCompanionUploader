@@ -839,12 +839,19 @@ public sealed class MainForm : Form
         return ex.Message;
     }
 
-    // Artifacts are only partially recoverable in the current game build: equipped artifact ids
-    // exist, but their stats moved to Unity ECS storage the engine can't decode yet (see
-    // extraction/CLAUDE.md). Until upstream ECS decoding lands we skip the futile artifact scan.
-    // Flip this to true to include artifacts — the consolidated profile already carries an
-    // "artifacts" slice and the export path posts the whole profile, so nothing else changes.
-    private const bool ExportArtifacts = false;
+    // Artifacts are only partially recoverable in the current game build: equipped artifact IDs
+    // export fine, but every stat field (set/rank/rarity/primaryStat/level) is 0 because artifact
+    // stats moved to Unity ECS storage the engine can't decode yet (see extraction/CLAUDE.md and
+    // extraction/docs/artifact-findings.md).
+    //
+    // Enabled 2026-07-31: the id map is genuinely useful on its own (it says which champion wears
+    // which artifact) and now costs ~34ms for ~1.9k records. It previously returned *zero* records
+    // for ~2.5s, because the extractor hunted stat-bearing Artifact objects that no longer exist
+    // instead of reading HeroArtifactData.ArtifactIdByKind.
+    //
+    // Consumers must treat a 0 stat as "unknown", never as a real value — docs/export-schema.md
+    // (schema version 6) spells this out.
+    private const bool ExportArtifacts = true;
 
     /// <summary>
     /// Serializes an extracted payload and stamps the uploader-side <c>uploaderVersion</c> /

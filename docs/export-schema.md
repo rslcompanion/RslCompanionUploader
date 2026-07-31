@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 6** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 7** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - The account's **clan roster** is a separate payload with its own contract:
   [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
 
@@ -40,7 +40,7 @@ there is no partial/patch mode.
   "timestamp":  "2026-07-29T07:44:24.990Z", // string — ISO-8601 UTC, when the snapshot was taken
   "resources":  [ … ],                      // array — always the full allowlist, see below
   "heroes":     [ … ],                      // array
-  "artifacts":  [ … ],                      // array — often EMPTY, see caveat
+  "artifacts":  [ … ],                      // array — equipped ids only; all stat fields 0, see caveat
   "factionGuardians": [ … ],                // array
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "uploaderVersion": "1.5.6",               // string — added by the app, not the engine
@@ -230,20 +230,42 @@ distinguish "no clan" from "unreadable", and it carries no membership list to di
 
 ---
 
-## `artifacts[]` — expect this to be empty
+## `artifacts[]` — ids only; **every stat field is `0` and means "unknown"**
 
 ```jsonc
 {
-  "artifactId": 0, "setKindId": 0, "rankId": 0, "rarityId": 0,
-  "kindId": 0, "primaryStatId": 0, "level": 0,
-  "heroInstanceId": 0   // omitted when 0
+  "artifactId": 81887,   // int32 — the equipped artifact's instance id. Real.
+  "kindId": 7,           // int32 1..9 — the SLOT it is worn in. Real. See table below.
+  "heroInstanceId": 9526,// int64 — joins to heroes[].instanceId. Real. Omitted when 0.
+
+  "setKindId": 0, "rankId": 0, "rarityId": 0,   // ALWAYS 0 — not readable, NOT "no set"/"rank 0"
+  "primaryStatId": 0, "level": 0                // ALWAYS 0 — not readable, NOT "level 0"
 }
 ```
 
-**Artifact extraction is currently blocked upstream** — artifact *stats* moved to Unity ECS component
-storage and the old singleton no longer exists. In practice this array arrives **empty**, and the app
-skips artifacts entirely unless the export-artifacts option is on. Treat a populated `artifacts[]` as
-optional/best-effort, and never assume non-empty.
+Since schema 6 this array is **populated** (~1.9k records on a mature account) where it used to
+arrive empty. What it carries is the **equipped-artifact map**: which champion is wearing which
+artifact in which slot. That is the whole of it.
+
+> ⚠️ **`0` in a stat field is a null, not a value.** Artifact *stats* live in Unity ECS component
+> storage that the extraction engine cannot decode, so `setKindId`, `rankId`, `rarityId`,
+> `primaryStatId` and `level` are emitted as `0` for **every** record on **every** account. A
+> consumer that renders these as real values will show an entire vault as rank-0/level-0 grey junk.
+> Treat them as absent; do not persist them over previously-known-good stat data.
+
+`kindId` is the slot, and its meaning is stable:
+
+| `kindId` | Slot | | `kindId` | Slot |
+| --- | --- | --- | --- | --- |
+| 1 | Weapon | | 6 | Boots |
+| 2 | Helmet | | 7 | Ring |
+| 3 | Shield | | 8 | Amulet |
+| 4 | Gauntlets | | 9 | Banner |
+| 5 | Chestplate | | | |
+
+Two consumer notes: `artifactId` is unique per record (no artifact is worn twice), and only
+*equipped* artifacts appear — **an account's unequipped inventory is not in this payload at all**, so
+never infer "artifacts owned" from this array's length.
 
 ---
 
@@ -254,7 +276,9 @@ optional/best-effort, and never assume non-empty.
    missing id means the allowlist changed.
 3. **Additive changes are expected.** New resource ids and new hero fields get added without a major
    version bump — ignore unknown keys rather than failing.
-4. **`artifacts[]` may be empty** (see above). `gameVersion` may be `null`.
+4. **`artifacts[]` carries equipped ids with all stats `0`** (see above) — a `0` stat is "unknown",
+   never a real value, and the array covers equipped artifacts only, not inventory. It may also be
+   empty (a brand-new account equips nothing). `gameVersion` may be `null`.
 5. **`account.accountId` == top-level `accountId`.** Route on the top-level one.
 6. **Clan names and rosters do not arrive here.** This payload has `clanId` only; the roster is a
    separate, user-initiated export ([`clan-export-schema.md`](clan-export-schema.md)) that may never
@@ -280,6 +304,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 7 | unreleased | 2026-07-31 | **`artifacts[]` is now populated — equipped ids only, all stats `0`.** Previously it always arrived empty and consumers were told to expect that; it now carries one record per equipped artifact (~1.9k on a mature account) with **real** `artifactId`, `kindId` (slot 1–9) and `heroInstanceId`, and **`setKindId` / `rankId` / `rarityId` / `primaryStatId` / `level` hard-zero on every record** because artifact stats live in Unity ECS storage the engine still cannot decode. **Consumer impact: a `0` stat is "unknown", not a value.** A consumer that renders them literally will show every artifact as rank-0/level-0, and one that persists them will overwrite known-good stat data with nulls — gate writes on the field being non-zero. The array covers **equipped artifacts only**; unequipped inventory is absent, so it is not an "artifacts owned" count. Why now: the id map was always readable, but the extractor was looking for stat-bearing objects that no longer exist, so enabling it used to yield 0 records for ~2.5 s of scanning; reading `HeroArtifactData.ArtifactIdByKind` instead gives 1,861 records in ~34 ms. |
 | 6 | v1.5.6 | 2026-07-30 | **`heroes` and `resources` now declare their "cannot occur" states.** No wire change — both document invariants that always held. `heroes` gets `minItems: 1`: every account has at least a starter champion, so a zero-length array is a failed read, never an empty roster. `resources` gets `minItems: 1` **plus a `contains` requiring at least one `quantity >= 1`** — because every allowlisted id is emitted unconditionally, a failed resource read returns a full-length array of zeroes rather than an empty one, so length proves nothing and all-zero is the real signal. Both were silently postable and would have wiped a roster or an inventory server-side; the uploader now fails extraction instead of sending either, and consumers should treat a payload failing these constraints as "discard, keep what you have". |
 | 5 | v1.5.6 | 2026-07-30 | **BREAKING — `clan` is replaced by `clanId`.** The v4 `clan` object (`id`, `name`, `abbreviation`, `level`, `leaderId`, `membersLimit`, `members[]`) is **gone from this payload**; the top level now carries `clanId` (int64 or `null`) and nothing else clan-related. A consumer written against v4 reading `clan` will see `undefined`. Why: building the v4 object cost two full-memory scans of the game (18–31 s on a ~4 s export), so the roster moved to its own export and endpoint — [`clan-export-schema.md`](clan-export-schema.md), which is where `name` / `members[]` now live. `clanId` is the free read and joins to `clan.id` there. This payload no longer contains any data about other players. |
 | 4 | — | 2026-07-29 | **New top-level `clan`** (object or `null`) with the full roster. **Superseded by 5 before release — no shipped uploader ever emitted it.** |

@@ -3,7 +3,7 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "x-uploaderVersion": "1.5.6",
   "x-lastUpdated": "2026-07-30",
   "x-relatedSchemas": {
@@ -152,19 +152,19 @@
     },
     "artifacts": {
       "type": "array",
-      "description": "EXPECT THIS TO BE EMPTY. Artifact stats moved to Unity ECS component storage and extraction is blocked upstream; the app also skips artifacts unless explicitly enabled. Treat any content as optional/best-effort and never assume non-empty.",
+      "description": "The EQUIPPED-ARTIFACT MAP: which champion wears which artifact in which slot. Populated since schema 7 (~1.9k records on a mature account); before that it always arrived empty. CRITICAL: every stat field (setKindId, rankId, rarityId, primaryStatId, level) is 0 on EVERY record for EVERY account, because artifact stats live in Unity ECS component storage the extraction engine cannot decode. A 0 there means UNKNOWN, not a real value - rendering it as one shows an entire vault as rank-0/level-0 junk, and it must never overwrite previously-known-good stat data. Only artifactId, kindId and heroInstanceId carry real information. Covers EQUIPPED artifacts only: unequipped inventory is absent entirely, so never infer 'artifacts owned' from this array's length. May legitimately be empty for a brand-new account that has equipped nothing.",
       "items": {
         "type": "object",
         "additionalProperties": true,
         "properties": {
-          "artifactId": { "type": "integer" },
-          "setKindId": { "type": "integer" },
-          "rankId": { "type": "integer" },
-          "rarityId": { "type": "integer" },
-          "kindId": { "type": "integer" },
-          "primaryStatId": { "type": "integer" },
-          "level": { "type": "integer" },
-          "heroInstanceId": { "type": "integer", "description": "Joins to heroes[].instanceId. Omitted when 0." }
+          "artifactId": { "type": "integer", "description": "REAL. The equipped artifact's instance id; unique across the array (no artifact is worn twice)." },
+          "kindId": { "type": "integer", "minimum": 1, "maximum": 9, "description": "REAL. The SLOT worn in: 1 Weapon, 2 Helmet, 3 Shield, 4 Gauntlets, 5 Chestplate, 6 Boots, 7 Ring, 8 Amulet, 9 Banner." },
+          "heroInstanceId": { "type": "integer", "description": "REAL. Joins to heroes[].instanceId. Omitted when 0." },
+          "setKindId": { "type": "integer", "description": "ALWAYS 0 - unknown, not 'no set'. See the array description." },
+          "rankId": { "type": "integer", "description": "ALWAYS 0 - unknown, not rank 0. See the array description." },
+          "rarityId": { "type": "integer", "description": "ALWAYS 0 - unknown, not a rarity. See the array description." },
+          "primaryStatId": { "type": "integer", "description": "ALWAYS 0 - unknown, not a stat id. See the array description." },
+          "level": { "type": "integer", "description": "ALWAYS 0 - unknown, not level 0. See the array description." }
         }
       }
     },
