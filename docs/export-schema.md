@@ -45,7 +45,7 @@ there is no partial/patch mode.
   "artifacts":  [ … ],                      // array — equipped ids only; all stat fields 0, see caveat
   "factionGuardians": [ … ],                // array
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
-  "uploaderVersion": "1.5.8",               // string — added by the app, not the engine
+  "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
 }
 ```
