@@ -6,9 +6,11 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 7** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 8** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - The account's **clan roster** is a separate payload with its own contract:
   [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
+- Champion **role** ids are named in [`role-names.json`](role-names.json) — static game metadata, not
+  account data (see `heroes[].roleId` below).
 
 > **Maintenance rule:** any change to the emitted JSON — a new field, a renamed field, a changed type,
 > a new resource id, a changed resource *name* — must update this file **and** `export-schema.json`
@@ -117,6 +119,8 @@ mapping consumer-side either.
   "locked": true, "inStorage": false, "inBathhouse": false,
   "awakeningLevel": 4,            // int32 0–6 (the game calls Awakening "DoubleAscend" internally)
   "blessingChosen": true,         // bool — a blessing is equipped; only ever true when awakeningLevel > 0
+  "roleId": 0,                    // int32 0–5 or NULL — champion role; null, never 0, when unresolved
+  "skills": [ … ],                // array, always present — see below
   "masteries": { … },             // object, always present — see below
   "isFactionGuardian": false      // bool — this copy is placed in an Academy guardian slot
 }
@@ -154,6 +158,78 @@ keep what it has** — applying it zeroes the account's entire inventory.
 Both guards exist because these two sections are the ones with a provable "this state cannot occur"
 invariant. Other sections have no equivalent, so a corrupt read there is still only detectable by
 comparison against previous data.
+
+### `heroes[].roleId` — champion **metadata**, carried here for convenience
+
+The champion's role: **0 Attack, 1 Defense, 2 Health, 3 Support, 4 Evolve, 5 Xp**. Names, display
+labels and localization keys are in [`role-names.json`](role-names.json). The ids and their order are
+the game's own `HeroRole` enum, read off the live client — `Health` is the internal name for what the
+UI labels **HP**, and `Evolve` / `Xp` are the fodder champions (Chickens and XP brew food).
+
+> ⚠️ **`null` means unresolved. `0` does not — `0` is Attack.** Unlike `factionId`, this field has no
+> spare sentinel, so a consumer that coalesces `null → 0` silently relabels a fifth of the roster as
+> Attack champions. Check for null explicitly.
+
+**This is static game data, not account data.** A role is a property of the *champion*, so every copy
+of a champion reports the same value and the field is a denormalized convenience — it saves a catalog
+join for the common case, nothing more. It is published as an int, with the id→name table shipped
+separately, for exactly the reason `masteries.selected` publishes bare node ids: names are labels,
+ids are the contract.
+
+**Expect roughly a fifth of a mature roster to be `null`, and do not treat that as an error.** The
+field is read from the champion's shared type object, which the game client **hydrates lazily** — a
+copy it has never rendered has no type object at all, and mostly those are never-opened food
+champions. The engine already recovers what it can by backfilling from another copy of the same
+`baseTypeId` (156 of 340 unresolved copies on the mapping account), but a champion with *no* hydrated
+copy cannot be resolved from the account's memory at all.
+
+**So for complete coverage, join a champion metadata catalog on `baseTypeId` and treat that as
+authoritative** — it covers every champion in the game rather than the subset this account has had
+rendered. Use this field as a fallback, not the other way round.
+
+### `heroes[].skills`
+
+```jsonc
+"skills": [
+  { "typeId": 15101, "level": 6 },
+  { "typeId": 15103, "level": 6 },
+  { "typeId": 15104, "level": 5 }
+]
+```
+
+This copy's skills and how far the player has upgraded each. Always present and sorted by `typeId`,
+so two snapshots diff cleanly. Every champion has at least one skill — an **empty array is a failed
+read**, though unlike `heroes[]` itself there is no schema constraint enforcing it.
+
+- **`typeId` is the skill's identity and the catalog join key.** It is stable across every copy and
+  every ascension of a champion. **Treat it as opaque — join it, don't derive it** (see below).
+- **Slots are not dense.** The example above is a real, complete Kael: three skills numbered
+  `…01`, `…03`, `…04`. Do not infer a missing skill from a gap, and do not assume `count == max slot`.
+- **`level` is 1-based.** `1` is an un-upgraded skill, so **books applied = `level - 1`**. Observed
+  range on a mature account is 1–9.
+
+#### Why `typeId` looks derivable but is not
+
+`typeId` is usually `baseTypeId * 10 + slot` — 3,027 of 3,082 skills on the mapping account — which
+makes it tempting to compute rather than join. Two things break that, and both are normal data:
+
+| | |
+|---|---|
+| **Second forms** | A champion with a transformation **also** carries its other form's whole block, at `800000 + the own-block id`: Alaz the Sunbearer (base `8630`) reports `86301…86305` **and** `886301…886305`. 10 champions, 53 skills here — and this is why `skills[]` can hold 10–12 entries when a champion "has 5 skills". |
+| **Borrowed skills** | A skill can sit in a *different champion's* id block outright. Ezio Auditore (base `10270`) and Edward Kenway (base `10280`) both carry `102505`, which belongs to neither. |
+
+So `Math.floor(typeId / 10) === baseTypeId` is **not** an invariant, and a consumer that filters on it
+silently drops transformation skills. Join on `typeId` and let the catalog say what it is.
+
+> **The per-skill maximum level is deliberately not in this payload, and you need it to say anything
+> about progress.** Caps vary by skill, and `"level": 5` is meaningless — maxed or half-done — without
+> knowing whether that skill's cap is 5 or 9. The cap, along with the skill's name, description and
+> cooldown, is constant game data; join it from a skill catalog on `typeId`. This is the same split as
+> `masteries.selected` (ids here, node metadata in `mastery_index.json`).
+
+Note the engine cannot read the cap either: the static `SkillType` object each `Skill` would point at
+is null on the live account graph (`_allSkillTypes` was populated for 18 of 957 heroes), so this is a
+genuine boundary, not an omission that could be filled in later on this path.
 
 ### `heroes[].masteries`
 
@@ -307,6 +383,9 @@ accessories get parked on farm champions that wear no gear.
    never a real value, and the array covers equipped artifacts only, not inventory. It may also be
    empty (a brand-new account equips nothing). `gameVersion` may be `null`.
 5. **`account.accountId` == top-level `accountId`.** Route on the top-level one.
+5b. **`heroes[].roleId` is nullable and `0` is a real value** (Attack). Never coalesce `null → 0`.
+    Roles and skill metadata are *game* data joined by id — `role-names.json` here, a skill catalog
+    for `skills[].typeId`; this payload carries ids and levels only.
 6. **Clan names and rosters do not arrive here.** This payload has `clanId` only; the roster is a
    separate, user-initiated export ([`clan-export-schema.md`](clan-export-schema.md)) that may never
    be run, or run far less often. Treat clan detail as independently-aged data joined on `clanId`.
@@ -331,6 +410,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 8 | v1.5.9 | 2026-08-01 | **New `heroes[].skills[]` and `heroes[].roleId`; `heroes[].factionId` silently gets more accurate.** `skills[]` is one `{typeId, level}` per skill on that copy, sorted by `typeId`, always present (3,082 records across 957 heroes on the mapping account). `level` is **1-based** — books applied is `level - 1` — and the per-skill **cap is not here**, so `"level": 5` cannot be read as maxed without a skill catalog joined on `typeId` (the engine cannot read the cap either: the static `SkillType` is null on the account graph). **`typeId` is opaque**: it is usually `baseTypeId*10 + slot`, but a champion with a second form also carries that form's block at `800000 + own id`, and some skills sit in another champion's block entirely, so deriving it instead of joining drops data. `roleId` is the game's `HeroRole` enum — `0` Attack, `1` Defense, `2` Health/"HP", `3` Support, `4` Evolve, `5` Xp — named in the new [`role-names.json`](role-names.json). **Consumer impact: `roleId` is nullable and `null` ≠ `0`**, because `0` is Attack; expect ~19% null on a mature roster (the client hydrates a champion's shared type lazily) and prefer a champion metadata catalog keyed on `baseTypeId` as authoritative — role is champion-constant game data, and this field is a denormalized convenience. Same root cause fixed a pre-existing silent bug: `factionId` came off that same lazily-hydrated object and had been exporting `0` for 340 of 957 heroes; both fields are now backfilled from another copy of the same `baseTypeId`, recovering 156. `factionId` keeps `0`-as-unknown for compatibility. |
 | 7 | v1.5.8 | 2026-07-31 | **`artifacts[]` is now populated — equipped ids only, all stats `0`.** Previously it always arrived empty and consumers were told to expect that; it now carries one record per equipped artifact (~1.9k on a mature account) with **real** `artifactId`, `kindId` (slot 1–9) and `heroInstanceId`, and **`setKindId` / `rankId` / `rarityId` / `primaryStatId` / `level` hard-zero on every record** because artifact stats live in Unity ECS storage the engine still cannot decode. **Consumer impact: a `0` stat is "unknown", not a value.** A consumer that renders them literally will show every artifact as rank-0/level-0, and one that persists them will overwrite known-good stat data with nulls — gate writes on the field being non-zero. The array covers **equipped artifacts only**; unequipped inventory is absent, so it is not an "artifacts owned" count. Why now: the id map was always readable, but the extractor was looking for stat-bearing objects that no longer exist, so enabling it used to yield 0 records for ~2.5 s of scanning; reading `HeroArtifactData.ArtifactIdByKind` instead gives 1,861 records in ~34 ms. |
 | 6 | v1.5.6 | 2026-07-30 | **`heroes` and `resources` now declare their "cannot occur" states.** No wire change — both document invariants that always held. `heroes` gets `minItems: 1`: every account has at least a starter champion, so a zero-length array is a failed read, never an empty roster. `resources` gets `minItems: 1` **plus a `contains` requiring at least one `quantity >= 1`** — because every allowlisted id is emitted unconditionally, a failed resource read returns a full-length array of zeroes rather than an empty one, so length proves nothing and all-zero is the real signal. Both were silently postable and would have wiped a roster or an inventory server-side; the uploader now fails extraction instead of sending either, and consumers should treat a payload failing these constraints as "discard, keep what you have". |
 | 5 | v1.5.6 | 2026-07-30 | **BREAKING — `clan` is replaced by `clanId`.** The v4 `clan` object (`id`, `name`, `abbreviation`, `level`, `leaderId`, `membersLimit`, `members[]`) is **gone from this payload**; the top level now carries `clanId` (int64 or `null`) and nothing else clan-related. A consumer written against v4 reading `clan` will see `undefined`. Why: building the v4 object cost two full-memory scans of the game (18–31 s on a ~4 s export), so the roster moved to its own export and endpoint — [`clan-export-schema.md`](clan-export-schema.md), which is where `name` / `members[]` now live. `clanId` is the free read and joins to `clan.id` there. This payload no longer contains any data about other players. |

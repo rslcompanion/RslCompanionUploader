@@ -96,6 +96,12 @@ Two doc pairs, one per endpoint, each prose + JSON Schema 2020-12:
 - [docs/clan-export-schema.md](docs/clan-export-schema.md) / [.json](docs/clan-export-schema.json) —
   what `POST /api/sync/clan/raw` receives. They join on `clanId` ↔ `clan.id`.
 
+Alongside them, [docs/role-names.json](docs/role-names.json) names the champion-role ids that
+`heroes[].roleId` carries. It is **static game metadata, not a payload** — a champion's role never
+changes and every account sees the same table — but it ships here because `roleId` is an opaque int
+without it. Same rule applies: if the role enum ever gains a member, that file and the schema pair
+change together.
+
 They live in this repo precisely because it is public, so consumers can reference them without access
 to the private engine. The clan pair also carries a **privacy note**: it is the only payload
 describing people other than the uploading user (clanmates' ids and display names).

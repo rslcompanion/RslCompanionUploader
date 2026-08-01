@@ -3,11 +3,14 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "x-uploaderVersion": "1.5.8",
   "x-lastUpdated": "2026-07-31",
   "x-relatedSchemas": {
     "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
+  },
+  "x-relatedCatalogs": {
+    "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it."
   },
   "type": "object",
   "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "factionGuardians"],
@@ -94,13 +97,19 @@
       "description": "The owned champion roster. NEVER EMPTY: the game gives every new player a starter champion, so there is no such thing as an account with zero. A zero-length array is therefore a failed read, not an empty roster — the uploader refuses to send one, and this constraint makes a consumer reject it rather than faithfully applying it and wiping the account's champions. Treat a validation failure here as 'discard this payload and keep what you have'.",
       "items": {
         "type": "object",
-        "required": ["instanceId", "baseTypeId", "masteries"],
+        "required": ["instanceId", "baseTypeId", "masteries", "skills"],
         "additionalProperties": true,
         "properties": {
           "name": { "type": ["string", "null"], "description": "Null when the champion index cannot resolve it." },
           "instanceId": { "type": "integer", "description": "int64. Unique per OWNED COPY. Join key for factionGuardians and artifacts." },
           "baseTypeId": { "type": "integer", "description": "Champion type, ascension digit stripped. Copies of one champion share this." },
           "factionId": { "type": "integer", "description": "0 when unresolved. Same id space as factionGuardians[].factionId." },
+          "roleId": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 5,
+            "description": "Champion role: 0 Attack, 1 Defense, 2 Health (shown as 'HP'), 3 Support, 4 Evolve, 5 Xp. NULL — never 0 — when unresolved, because 0 is a real role. Static per champion, NOT per copy: it is the game's HeroRole enum on the shared champion type, so every copy of a champion reports the same value and the id table is game metadata (role-names.json), not account data. Null on roughly a fifth of a mature roster because the client hydrates a champion's type lazily; prefer a champion metadata catalog keyed on baseTypeId as the authoritative source, and treat this field as a convenience copy."
+          },
           "stars": { "type": "integer" },
           "ascensionLevel": { "type": "integer" },
           "level": { "type": "integer" },
@@ -113,6 +122,19 @@
           "awakeningLevel": { "type": "integer", "minimum": 0, "maximum": 6, "description": "The game calls Awakening 'DoubleAscend' internally." },
           "blessingChosen": { "type": "boolean", "description": "A blessing is equipped. Only ever true when awakeningLevel > 0." },
           "isFactionGuardian": { "type": "boolean", "description": "This copy is placed in an Academy guardian slot." },
+          "skills": {
+            "type": "array",
+            "description": "This copy's skills and how far each is upgraded, sorted by typeId. Always present; empty only on a failed read (every champion has at least one skill). Per-skill metadata - name, description, cooldown, and the MAXIMUM level - is intentionally absent: it is constant game data, joined on typeId from a skill catalog. Without that catalog 'level 5' cannot be read as maxed or not.",
+            "items": {
+              "type": "object",
+              "required": ["typeId", "level"],
+              "additionalProperties": false,
+              "properties": {
+                "typeId": { "type": "integer", "description": "Skill type id, and the catalog join key. TREAT AS OPAQUE - join it, do not derive it. It is usually baseTypeId*10 + slot (Kael, base 1510 -> 15101..15104) and is stable across copies and ascensions, but two documented exceptions break any derivation: a champion with a second form ALSO carries that form's block at 800000 + the own-block id (10 champions, 53 skills on the mapping account, which is why skills[] can hold 10-12 entries), and a skill can belong to another champion's id block entirely (Ezio Auditore and Edward Kenway both carry 102505). Slots are also not dense: a 3-skill champion may report 15101/15103/15104." },
+                "level": { "type": "integer", "minimum": 1, "description": "Upgrade level, 1-BASED. 1 means un-upgraded, so books applied = level-1. Observed range 1-9; the cap is per-skill and lives in the catalog, not here." }
+              }
+            }
+          },
           "masteries": {
             "type": "object",
             "description": "Always present and fully populated - deliberately verbose so consumers never null-check. Per-node metadata (name/tree/tier/cost) is intentionally absent: it is constant game data, joined from mastery_index.json in the RslCompanionMetadata repo.",

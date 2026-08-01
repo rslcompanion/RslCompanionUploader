@@ -1,0 +1,53 @@
+{
+  "$comment": "Champion ROLE id -> name. Static game metadata, not account data: a champion's role never changes, and every account sees the same table. Published here because heroes[].roleId in export-schema.json is an opaque int without it. Source: the game's own IL2CPP `HeroRole` enum, read live off build 11.67.0 (RslCompanionExtraction, `BlessingProbe --rolenames`).",
+  "generatedAt": "2026-08-01T00:00:00Z",
+  "gameVersion": "11.67.0",
+  "source": "IL2CPP enum HeroRole",
+  "roleCount": 6,
+  "roles": [
+    {
+      "id": 0,
+      "name": "Attack",
+      "displayName": "Attack",
+      "l10nKey": "l10n:hero/role/attack#label",
+      "playable": true
+    },
+    {
+      "id": 1,
+      "name": "Defense",
+      "displayName": "Defense",
+      "l10nKey": "l10n:hero/role/defence#label",
+      "playable": true
+    },
+    {
+      "id": 2,
+      "name": "Health",
+      "displayName": "HP",
+      "l10nKey": "l10n:hero/role/health#label",
+      "playable": true
+    },
+    {
+      "id": 3,
+      "name": "Support",
+      "displayName": "Support",
+      "l10nKey": "l10n:hero/role/support#label",
+      "playable": true
+    },
+    {
+      "id": 4,
+      "name": "Evolve",
+      "displayName": "Evolve",
+      "l10nKey": "l10n:hero/role/evolve#label",
+      "playable": false,
+      "note": "Ascension fodder (Chickens). Declared by the enum and by the l10n table; not yet observed on a live roster, because the client does not hydrate a HeroType for copies it has never rendered and these never are."
+    },
+    {
+      "id": 5,
+      "name": "Xp",
+      "displayName": "XP",
+      "l10nKey": "l10n:hero/role/xp#label",
+      "playable": false,
+      "note": "Levelling fodder. Same caveat as Evolve."
+    }
+  ]
+}
