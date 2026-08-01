@@ -538,8 +538,10 @@ public sealed class AppShell : Panel
     else rb.style.display = 'none';
   }
 
+  // 'artifacts', not 'gear': the game counts Gear (slots 1-6) and Accessories (slots 7-9)
+  // separately, and artifactCount spans both. See docs/export-schema.md.
   function tileMeta(a) {
-    return ""<div class='meta'><span>"" + a.heroCount + "" champions</span><span>"" + a.artifactCount + "" gear</span></div>"";
+    return ""<div class='meta'><span>"" + a.heroCount + "" champions</span><span>"" + a.artifactCount + "" artifacts</span></div>"";
   }
 
   // The action row for the tile the running game is on. 'add' = the game is on an account that is

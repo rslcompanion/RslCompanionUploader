@@ -20,6 +20,13 @@ public sealed class AccountSummary
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("clanName")] public string? ClanName { get; set; }
     [JsonPropertyName("heroCount")] public int HeroCount { get; set; }
+
+    /// <summary>
+    /// Server-side count of the account's artifacts. Label it "artifacts", never "gear": the game
+    /// splits these into Gear (slots 1–6) and Accessories (rings/amulets/banners, slots 7–9) and
+    /// counts them separately — on the mapping account 969 of 1,861 were accessories. See the
+    /// reconciliation table in docs/export-schema.md.
+    /// </summary>
     [JsonPropertyName("artifactCount")] public int ArtifactCount { get; set; }
     [JsonPropertyName("lastSyncMethod")] public string? LastSyncMethod { get; set; }
 
@@ -32,6 +39,6 @@ public sealed class AccountSummary
         var label = string.IsNullOrWhiteSpace(Name) ? $"Account {UserId}" : Name;
         if (!string.IsNullOrWhiteSpace(ClanName))
             label += $"  [{ClanName}]";
-        return $"{label}  —  {HeroCount} heroes, {ArtifactCount} gear  (#{UserId})";
+        return $"{label}  —  {HeroCount} heroes, {ArtifactCount} artifacts  (#{UserId})";
     }
 }
