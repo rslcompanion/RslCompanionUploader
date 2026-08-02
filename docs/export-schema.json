@@ -3,7 +3,7 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 9,
+  "schemaVersion": 10,
   "x-uploaderVersion": "1.6.0",
   "x-lastUpdated": "2026-08-02",
   "x-relatedSchemas": {
@@ -199,7 +199,7 @@
         "artifactId": { "type": "integer", "description": "Instance id, unique across BOTH arrays, and stable for the life of the piece (it survives upgrades and re-equips) - so it is the join key for change detection." },
         "kindId": { "type": "integer", "minimum": 1, "maximum": 9, "description": "Slot, from the game's ArtifactKindId enum: 1 Helmet, 2 Chest, 3 Gloves, 4 Boots, 5 Weapon, 6 Shield, 7 Ring, 8 Cloak (the UI calls it Amulet), 9 Banner. WARNING: schemas 7-8 documented a DIFFERENT and incorrect order (1 Weapon, 2 Helmet, 3 Shield, 4 Gauntlets, 5 Chestplate); a consumer that hard-coded those labels is mislabelling slots. The order above is the enum's own, corroborated by which primary stat each slot always rolls. Names: artifact-enums.json.",
           "examples": [5] },
-        "setKindId": { "type": "integer", "minimum": 0, "description": "The set (game enum ArtifactSetKindId). 0 means NO SET - it is a real value, not 'unknown'. Names: artifact-enums.json." },
+        "setKindId": { "type": "integer", "minimum": 0, "description": "TWO ID SPACES IN ONE FIELD. 0-66 are artifact SETS, where 0 means NO SET - a real value, not 'unknown'. 1000-1004 are ACCESSORY EFFECTS: one item's own effect, with no piece count and no set bonus, occurring on ~2.6% of accessories and on no gear. Grouping 'by set' across the 1000s invents five sets that do not exist. Join on the id, never the name - Cleansing, Bloodshield, Reaction and Revenge occur in both spaces. Both tables: artifact-enums.json (`sets` and `accessoryEffects`). The set names published before 2026-08-02 were wrong from id 4 onward; re-derive any stored labels." },
         "rankId": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Stars, 1-6." },
         "rarityId": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Quality tier, 1-6." },
         "level": { "type": "integer", "minimum": 0, "maximum": 16, "description": "Upgrade level. 0 is a real, common value (an un-upgraded drop)." },

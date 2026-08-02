@@ -58,27 +58,37 @@
     ]
   },
   "sets": {
-    "$comment": "`setKindId`. 0 means NO SET - a real value, not 'unknown'. PROVENANCE: these names are the uploader's table, corroborated against the live vault by their gap pattern - the ids this table skips (42, 55, 56) are exactly the ids absent from 5,780 real artifacts, which a fabricated list would not reproduce. It is NOT derived from the game's `ArtifactSetKindId` enum: that enum's 72 members carry explicit values rather than running 0..71 (its five accessory sets are 1000-1004), so reading the Nth member as id N mislabels everything from id 4 onward - a trap worth stating, because the enum is otherwise the obvious source. Ids 1000-1004 are OBSERVED in live data but NOT NAMED here, and they are probably not sets at all: the game has far more than five accessory sets and only three accessory slots, so five ids can be neither. They occur on 76 of 2,969 accessories and on no gear, across all three slots, while accessories otherwise use the same 0-66 id space as gear - consistent with an effect class (the enum's tail members read IgnoreCooldown, RemoveDebuff, ShieldAccessory, ChangeHitType, CounterattackAccessory) sharing the field with real sets. Unresolved; do not group them as sets without checking. Analysis plan: the extraction engine's TODO.md. Authoritative set metadata (names, bonuses, piece counts, including 1000-1004) belongs in the RslCompanionMetadata artifact-set catalog, joined on this id; this table is a convenience for the common sets.",
-    "source": "uploader table; gap-pattern corroborated against 5,780 live artifacts",
+    "$comment": "`setKindId` for ids 0-66 - the artifact SET. 0 means NO SET, a real value and a common one (905 of 2,969 accessories carry it). Resolved from the game's own localized strings (key `l10n:artifact-set/name?id=N#static` -> the localized String beside it), and every name is paired with a description that agrees with it (1 Life <-> '2 Set: HP +15%'), which is what makes this trustworthy rather than merely plausible. NOTE `setKindId` is OVERLOADED: ids 1000-1004 in the same field are not sets at all - see accessoryEffects below. CORRECTION: everything published before 2026-08-02 was wrong from id 4 onward (it read 4 Critical Rate / 5 Accuracy / 6 Speed where the game says 4 Speed / 5 Critical Rate / 6 Crit Damage, and 47 Stone Skin where the game says 47 Protection with Stone Skin at 48). It had looked corroborated because the ids it skipped were absent from a 5,780-piece vault - a coincidence of one account's holdings, not evidence, and the lesson is that absence from one inventory says nothing about whether an id exists. Two entries are qualified: 9's own name string does not resolve, so `Lifesteal` is inferred from its description ('4 Set: Heals by 30% of damage dealt') and its position between Resistance and Fury - the only inferred entry here; 55 and 56 exist but this client build ships untranslated placeholder text for them, so they are omitted rather than named from a placeholder. Set BONUSES and piece counts are not here - that catalog belongs in RslCompanionMetadata, joined on this id.",
+    "source": "game l10n table (BlessingProbe --setnames), 11.67.0",
     "values": {
       "0": "None",
-      "1": "Life", "2": "Offense", "3": "Defense", "4": "Critical Rate",
-      "5": "Accuracy", "6": "Speed", "7": "Resistance", "8": "Lifesteal",
-      "9": "Fury", "10": "Daze", "11": "Cursed", "12": "Toxic", "13": "Frost",
+      "1": "Life", "2": "Offense", "3": "Defense", "4": "Speed",
+      "5": "Critical Rate", "6": "Crit Damage", "7": "Accuracy", "8": "Resistance",
+      "9": "Lifesteal", "10": "Fury", "11": "Daze", "12": "Cursed", "13": "Frost",
       "14": "Frenzy", "15": "Regeneration", "16": "Immunity", "17": "Shield",
       "18": "Relentless", "19": "Savage", "20": "Destroy", "21": "Stun",
-      "22": "Cruel", "23": "Immortal", "24": "Divine Offense", "25": "Divine Critical Rate",
-      "26": "Divine Life", "27": "Divine Speed", "28": "Swift Parry", "29": "Deflection",
-      "30": "Resilience", "31": "Reflex", "32": "Curing", "33": "Revenge",
-      "34": "Stalwart", "35": "Avenging", "36": "Taunting", "37": "Perception",
-      "38": "Lethal", "39": "Guardian", "40": "Untouchable", "41": "Affinitybreaker",
-      "43": "Bloodthirst", "44": "Retaliation", "45": "Protection",
-      "46": "Reaction", "47": "Stone Skin", "48": "Bolster",
-      "49": "Instinct", "50": "Renewal", "51": "Frostbite", "52": "Cleansing",
-      "53": "Fortitude", "54": "Mighty Endurance", "57": "Rapid Response",
-      "58": "Critical Damage", "59": "Polymorph", "60": "Bloodshield",
-      "61": "Clan Boss", "62": "Debuffer", "63": "Resilient Shield", "64": "Faith",
-      "65": "Provoke", "66": "Soulbound"
+      "22": "Toxic", "23": "Provoke", "24": "Retaliation", "25": "Avenging",
+      "26": "Stalwart", "27": "Reflex", "28": "Curing", "29": "Cruel",
+      "30": "Immortal", "31": "Divine Offense", "32": "Divine Critical Rate", "33": "Divine Life",
+      "34": "Divine Speed", "35": "Swift Parry", "36": "Deflection", "37": "Resilience",
+      "38": "Perception", "39": "Affinitybreaker", "40": "Untouchable", "41": "Fatal",
+      "42": "Frostbite", "43": "Bloodthirst", "44": "Guardian", "45": "Fortitude",
+      "46": "Lethal", "47": "Protection", "48": "Stone Skin", "49": "Killstroke",
+      "50": "Instinct", "51": "Bolster", "52": "Defiant", "53": "Impulse",
+      "54": "Zeal", "57": "Righteous", "58": "Supersonic", "59": "Merciless",
+      "60": "Slayer", "61": "Feral", "62": "Pinpoint", "63": "Stonecleaver",
+      "64": "Rebirth", "65": "Chronophage", "66": "Mercurial"
     }
+  },
+  "accessoryEffects": {
+    "$comment": "`setKindId` 1000-1004 - NOT sets, despite sharing the field. Their l10n descriptions carry no piece count and no 'N Set:' prefix; each describes what one item does on its own. They occur on 76 of 2,969 accessories and on NO gear, across all three accessory slots, while accessories otherwise use the same 0-66 set ids gear uses. So a record's setKindId is either a set id or an accessory-effect id, and a consumer grouping 'by set' must exclude this range or it will invent five sets that do not exist. JOIN ON THE ID, NEVER THE NAME: Cleansing, Bloodshield, Reaction and Revenge all collide with names that have appeared in set tables elsewhere, including this repo's own previous (incorrect) one.",
+    "source": "game l10n table (BlessingProbe --setnames), 11.67.0",
+    "values": [
+      { "id": 1000, "name": "Refresh", "effect": "5% chance to prevent a Skill going on cooldown after use" },
+      { "id": 1001, "name": "Cleansing", "effect": "8% chance to remove 1 random debuff from the wearer each turn" },
+      { "id": 1002, "name": "Bloodshield", "effect": "Gives wearer Shield worth 5% of damage dealt after attacking" },
+      { "id": 1003, "name": "Reaction", "effect": "25% chance to change critical hit into normal hit when attacked before the first turn each round" },
+      { "id": 1004, "name": "Revenge", "effect": "5% chance to Counterattack when hit" }
+    ]
   }
 }
