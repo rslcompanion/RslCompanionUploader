@@ -42,7 +42,7 @@ record because artifact stats were thought to be unreadable.
 Now:
 
 - **`artifacts[]` is gear only** — `kindId` 1–6 — and lists everything the account **owns**, equipped
-  or vaulted. ~2,811 records on a mature account.
+  or vaulted. ~2,850 records on a mature account.
 - **`accessories[]` is new** — `kindId` 7–9 (ring, cloak, banner), same record shape. ~2,969 records.
 - **Stats are real.** `setKindId`, `rankId`, `rarityId`, `level`, `ascendLevel` plus `primaryBonus`,
   `secondaryBonuses[]` (0–4) and `ascendBonus`.
@@ -142,8 +142,9 @@ build:
    ids and nothing else.
 4. Storage + indexes, then the read endpoints.
 5. Verify against a real payload: totals and the unequipped split must both reconcile against the
-   account's in-game counters. On the reference account: gear 2,811 total / 1,922 unequipped,
-   accessories 2,969 / 2,000. Matching the totals alone is a weak test — the previous export matched
+   account's in-game counters. On the reference account: gear 2,851 total / 1,963 unequipped,
+   accessories 2,969 / 2,000 (a snapshot from 2026-08-02 — these move with play, so compare against
+   counters read at the same moment, not against these literals). Matching the totals alone is a weak test — the previous export matched
    a plausible count while missing two-thirds of the data.
 6. Spot-check one set label end to end against the game UI (e.g. a piece with `setKindId: 47` should
    read **Protection**, not Stone Skin). That single check catches a stale copy of the old table

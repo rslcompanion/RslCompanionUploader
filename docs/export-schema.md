@@ -379,8 +379,8 @@ and nothing in it says what they mean.
 > ⚠️ **This table changed in schema 9 and the old one was wrong.** Up to schema 8 this file listed
 > 1 = Weapon, 2 = Helmet, 3 = Shield, 4 = Gauntlets, 5 = Chestplate. The correct order is the game's
 > own `ArtifactKindId` enum, above, confirmed independently by which primary stat each slot always
-> rolls (slot 1 is Health on all 411 records → helmet; slot 5 Attack on all 482 → weapon; slot 6
-> Defence on all 508 → shield; slot 4 Speed on 385 of 508 → boots). A consumer that hard-coded the
+> rolls (slot 1 is Health on all 420 records → helmet; slot 5 Attack on all 485 → weapon; slot 6
+> Defence on all 517 → shield; slot 4 Speed on 388 of 516 → boots). A consumer that hard-coded the
 > old names is mislabelling slots today.
 
 **`setKindId` carries two id spaces in one field.** `0`–`66` are artifact **sets** (`0` = no set — a
@@ -397,18 +397,24 @@ Both tables, with the effect text, are in `artifact-enums.json`.
 
 ### Reconciling against the in-game counters
 
-Each array reconciles exactly against what the player sees, both in total and unequipped. Verified
+Each array reconciles exactly against what the player sees, both in total and unequipped. Measured
 live 2026-08-02 (account Magikwolf, game 11.67.0):
 
 | | in game | payload |
 |---|---:|---:|
-| Gear total | 2,811 | `artifacts.length` = **2,811** |
-| Gear unequipped | 1,922 | `equippedByHeroId == null` → **1,922** |
+| Gear total | 2,851 | `artifacts.length` = **2,851** |
+| Gear unequipped | 1,963 | `equippedByHeroId == null` → **1,963** |
 | Accessories total | 2,969 | `accessories.length` = **2,969** |
 | Accessories unequipped | 2,000 | `equippedByHeroId == null` → **2,000** |
 
 **Use this as the acceptance test** — matching the totals *and* the unequipped splits is a far
 stronger signal than a record count that merely looks plausible.
+
+> **These are a snapshot, not constants.** They move whenever the player farms, sells or equips
+> anything — the same account read eight hours earlier that day gave 2,811 / 1,922 gear. What holds
+> is the *relationship*: each array's length equals the in-game total for that category **at the
+> moment of the snapshot**, and the null-`equippedByHeroId` count equals the unequipped total. Test
+> against counters read at the same time, never against the literals above.
 
 > **One category is still absent: the mailbox.** Unclaimed items (a couple of hundred accessories on
 > the reference account) belong to no inventory until the player collects them, and appear in neither
@@ -434,7 +440,7 @@ gear and accessories as two collections keyed by `(accountId, artifactId)`, and 
 
 Two properties of the data worth exploiting: `artifactId` is stable for the lifetime of the piece
 (it survives upgrades and re-equips), and `revision` changes when the game changes the record — so a
-sync can diff on `revision` instead of rewriting a 5,780-row vault every time.
+sync can diff on `revision` instead of rewriting a ~5,800-row vault every time.
 
 Because a snapshot is a **full replace**, a piece the player sold is gone by absence, not by a
 tombstone: reconcile by replacing the account's set, or deletes will never land.
