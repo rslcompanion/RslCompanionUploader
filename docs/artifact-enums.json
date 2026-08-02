@@ -1,0 +1,84 @@
+{
+  "$comment": "Artifact id -> name tables for artifacts[] / accessories[] in export-schema.json. Static game metadata, not account data: these ids mean the same thing on every account. Published here because the payload carries opaque ints and nothing in it says what they mean - the same reason role-names.json exists. Read live off game build 11.67.0 (RslCompanionExtraction, `BlessingProbe --vaultenums`), and every table records how it was corroborated, because two of them replace tables that were WRONG until 2026-08-02.",
+  "generatedAt": "2026-08-02T00:00:00Z",
+  "gameVersion": "11.67.0",
+  "kinds": {
+    "$comment": "The SLOT, from the game's IL2CPP `ArtifactKindId` enum. Decides which array a record lands in: 1-6 are gear (artifacts[]), 7-9 accessories (accessories[]). CORRECTION: schemas 7-8 of export-schema.md published a different and incorrect order (1 Weapon, 2 Helmet, 3 Shield, 4 Gauntlets, 5 Chestplate) - a consumer that hard-coded those labels is mislabelling slots. Corroborated independently of the enum by which primary stat each slot always rolls across a 5,780-piece vault: slot 1 is Health on all 411, slot 5 Attack on all 482, slot 6 Defence on all 508, slot 4 Speed on 385 of 508. Those are the game's fixed helmet/weapon/shield/boots primaries.",
+    "source": "IL2CPP enum ArtifactKindId + per-slot primary-stat histogram",
+    "values": [
+      { "id": 1, "name": "Helmet", "category": "gear" },
+      { "id": 2, "name": "Chest", "category": "gear" },
+      { "id": 3, "name": "Gloves", "category": "gear" },
+      { "id": 4, "name": "Boots", "category": "gear" },
+      { "id": 5, "name": "Weapon", "category": "gear" },
+      { "id": 6, "name": "Shield", "category": "gear" },
+      { "id": 7, "name": "Ring", "category": "accessory" },
+      { "id": 8, "name": "Cloak", "displayName": "Amulet", "category": "accessory", "note": "The enum calls it Cloak; the UI labels it Amulet." },
+      { "id": 9, "name": "Banner", "category": "accessory" }
+    ]
+  },
+  "statKinds": {
+    "$comment": "`primaryBonus.statKindId` and `secondaryBonuses[].statKindId`, from the IL2CPP `StatKindId` enum. NOTE there is no separate id for the percentage form of a stat - one stat kind, and the bonus record's `isAbsolute` says whether its `value` is a flat amount or a fraction. (An older table in the extraction engine encoded 1 Health / 4 Health% / 7 Speed / 8 Critical Rate as distinct ids; that scheme is not what the game uses and was removed.) Corroborated by the same per-slot histogram as `kinds`.",
+    "source": "IL2CPP enum StatKindId",
+    "values": [
+      { "id": 1, "name": "Health", "displayName": "HP" },
+      { "id": 2, "name": "Attack", "displayName": "ATK" },
+      { "id": 3, "name": "Defence", "displayName": "DEF" },
+      { "id": 4, "name": "Speed", "displayName": "SPD" },
+      { "id": 5, "name": "Resistance", "displayName": "RES" },
+      { "id": 6, "name": "Accuracy", "displayName": "ACC" },
+      { "id": 7, "name": "CriticalChance", "displayName": "C.RATE" },
+      { "id": 8, "name": "CriticalDamage", "displayName": "C.DMG" },
+      { "id": 9, "name": "CriticalHeal", "displayName": "C.HEAL", "note": "Declared by the enum; never observed on an artifact (champion-only stat). Ids 1-8 are what artifacts roll." },
+      { "id": 10, "name": "IgnoreDefence", "note": "Same caveat as CriticalHeal." }
+    ]
+  },
+  "ranks": {
+    "$comment": "`rankId` - the piece's stars, from the IL2CPP `ArtifactRankId` enum (One..Six). 0 = Unknown is declared but never observed.",
+    "source": "IL2CPP enum ArtifactRankId",
+    "values": [
+      { "id": 1, "name": "One", "stars": 1 },
+      { "id": 2, "name": "Two", "stars": 2 },
+      { "id": 3, "name": "Three", "stars": 3 },
+      { "id": 4, "name": "Four", "stars": 4 },
+      { "id": 5, "name": "Five", "stars": 5 },
+      { "id": 6, "name": "Six", "stars": 6 }
+    ]
+  },
+  "rarities": {
+    "$comment": "`rarityId`. WEAKER PROVENANCE than the tables above, stated plainly: no IL2CPP enum was found under any of the names probed (ArtifactRarityId, ArtifactRarity, RarityId, Rarity, ItemRarityId), so these are the uploader's long-standing labels, supported only by the observed value range (1-6 across 5,780 pieces) matching the game's six quality tiers in order. Treat the ids as authoritative and the names as a convenience.",
+    "source": "uploader table; range-corroborated only",
+    "values": [
+      { "id": 1, "name": "Common" },
+      { "id": 2, "name": "Uncommon" },
+      { "id": 3, "name": "Rare" },
+      { "id": 4, "name": "Epic" },
+      { "id": 5, "name": "Legendary" },
+      { "id": 6, "name": "Mythical" }
+    ]
+  },
+  "sets": {
+    "$comment": "`setKindId`. 0 means NO SET - a real value, not 'unknown'. PROVENANCE: these names are the uploader's table, corroborated against the live vault by their gap pattern - the ids this table skips (42, 55, 56) are exactly the ids absent from 5,780 real artifacts, which a fabricated list would not reproduce. It is NOT derived from the game's `ArtifactSetKindId` enum: that enum's 72 members carry explicit values rather than running 0..71 (its five accessory sets are 1000-1004), so reading the Nth member as id N mislabels everything from id 4 onward - a trap worth stating, because the enum is otherwise the obvious source. The five accessory sets 1000-1004 are OBSERVED in live data but NOT NAMED here for that reason. Authoritative set metadata (names, bonuses, piece counts, including 1000-1004) belongs in the RslCompanionMetadata artifact-set catalog, joined on this id; this table is a convenience for the common sets.",
+    "source": "uploader table; gap-pattern corroborated against 5,780 live artifacts",
+    "values": {
+      "0": "None",
+      "1": "Life", "2": "Offense", "3": "Defense", "4": "Critical Rate",
+      "5": "Accuracy", "6": "Speed", "7": "Resistance", "8": "Lifesteal",
+      "9": "Fury", "10": "Daze", "11": "Cursed", "12": "Toxic", "13": "Frost",
+      "14": "Frenzy", "15": "Regeneration", "16": "Immunity", "17": "Shield",
+      "18": "Relentless", "19": "Savage", "20": "Destroy", "21": "Stun",
+      "22": "Cruel", "23": "Immortal", "24": "Divine Offense", "25": "Divine Critical Rate",
+      "26": "Divine Life", "27": "Divine Speed", "28": "Swift Parry", "29": "Deflection",
+      "30": "Resilience", "31": "Reflex", "32": "Curing", "33": "Revenge",
+      "34": "Stalwart", "35": "Avenging", "36": "Taunting", "37": "Perception",
+      "38": "Lethal", "39": "Guardian", "40": "Untouchable", "41": "Affinitybreaker",
+      "43": "Bloodthirst", "44": "Retaliation", "45": "Protection",
+      "46": "Reaction", "47": "Stone Skin", "48": "Bolster",
+      "49": "Instinct", "50": "Renewal", "51": "Frostbite", "52": "Cleansing",
+      "53": "Fortitude", "54": "Mighty Endurance", "57": "Rapid Response",
+      "58": "Critical Damage", "59": "Polymorph", "60": "Bloodshield",
+      "61": "Clan Boss", "62": "Debuffer", "63": "Resilient Shield", "64": "Faith",
+      "65": "Provoke", "66": "Soulbound"
+    }
+  }
+}

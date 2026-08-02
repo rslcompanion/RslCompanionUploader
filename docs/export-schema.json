@@ -3,17 +3,18 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 8,
-  "x-uploaderVersion": "1.5.9",
-  "x-lastUpdated": "2026-08-01",
+  "schemaVersion": 9,
+  "x-uploaderVersion": "1.6.0",
+  "x-lastUpdated": "2026-08-02",
   "x-relatedSchemas": {
     "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
   },
   "x-relatedCatalogs": {
-    "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it."
+    "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
+    "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums)."
   },
   "type": "object",
-  "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "factionGuardians"],
+  "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "accessories", "factionGuardians"],
   "additionalProperties": true,
   "properties": {
     "accountId": {
@@ -174,21 +175,13 @@
     },
     "artifacts": {
       "type": "array",
-      "description": "The EQUIPPED-ARTIFACT MAP: which champion wears which artifact in which slot. Populated since schema 7 (~1.9k records on a mature account); before that it always arrived empty. CRITICAL: every stat field (setKindId, rankId, rarityId, primaryStatId, level) is 0 on EVERY record for EVERY account, because artifact stats live in Unity ECS component storage the extraction engine cannot decode. A 0 there means UNKNOWN, not a real value - rendering it as one shows an entire vault as rank-0/level-0 junk, and it must never overwrite previously-known-good stat data. Only artifactId, kindId and heroInstanceId carry real information. Covers EQUIPPED artifacts only: unequipped inventory is absent entirely, so never infer 'artifacts owned' from this array's length. May legitimately be empty for a brand-new account that has equipped nothing. RECONCILING WITH THE GAME: kindId 1-6 (Gear) and 7-9 (Accessories) are two separate in-game inventory categories and the game's own Artifacts counter covers GEAR ONLY, so this array's length matches no single on-screen number. Verified live 2026-07-31: 892 equipped gear + 1852 unequipped gear = the 2744 the game reported, while this array held 892 gear + 969 accessories = 1861 (that account separately held ~2000 accessories in inventory plus a few hundred unclaimed in the mailbox). Filter to kindId <= 6 to compare, and expect equipped gear only. NO 'total owned' figure is derivable from this payload even by adding an inventory count, because the mailbox holds unclaimed items counted in neither place - take any owned total from the game's own screens.",
-      "items": {
-        "type": "object",
-        "additionalProperties": true,
-        "properties": {
-          "artifactId": { "type": "integer", "description": "REAL. The equipped artifact's instance id; unique across the array (no artifact is worn twice)." },
-          "kindId": { "type": "integer", "minimum": 1, "maximum": 9, "description": "REAL. The SLOT worn in: 1 Weapon, 2 Helmet, 3 Shield, 4 Gauntlets, 5 Chestplate, 6 Boots, 7 Ring, 8 Amulet, 9 Banner." },
-          "heroInstanceId": { "type": "integer", "description": "REAL. Joins to heroes[].instanceId. Omitted when 0." },
-          "setKindId": { "type": "integer", "description": "ALWAYS 0 - unknown, not 'no set'. See the array description." },
-          "rankId": { "type": "integer", "description": "ALWAYS 0 - unknown, not rank 0. See the array description." },
-          "rarityId": { "type": "integer", "description": "ALWAYS 0 - unknown, not a rarity. See the array description." },
-          "primaryStatId": { "type": "integer", "description": "ALWAYS 0 - unknown, not a stat id. See the array description." },
-          "level": { "type": "integer", "description": "ALWAYS 0 - unknown, not level 0. See the array description." }
-        }
-      }
+      "description": "GEAR the account owns - helmet, chest, gloves, boots, weapon, shield (kindId 1-6) - equipped AND vaulted, with real stats. Rings/cloaks/banners are NOT here; they are in accessories[]. BREAKING CHANGE IN SCHEMA 9: through schema 8 this array was the equipped-artifact MAP across all nine slots with every stat field hard-zero, and consumers were told a 0 meant 'unknown'. Both of those are now false - the array is an OWNED list (2811 gear on the reference account, 1922 of them unequipped), accessories have moved out, and a 0 is a real 0. Three migration traps: reading this array for accessories now silently finds none; array length is an owned count, not an equipped count (test equippedByHeroId != null for that); and code that gates writes on 'stat != 0' will now drop legitimate zeroes. RECONCILING WITH THE GAME: length equals the in-game gear total exactly, and the count with equippedByHeroId == null equals the in-game unequipped total exactly - verified live 2026-08-02 at 2811 / 1922. The one category still absent is the MAILBOX: unclaimed items belong to no inventory until collected and are counted in neither this array nor the in-game counter it reconciles against. May legitimately be empty on a brand-new account.",
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "accessories": {
+      "type": "array",
+      "description": "Rings, cloaks and banners (kindId 7-9) the account owns, equipped AND vaulted. Identical record shape to artifacts[]; new in schema 9, where these records were previously mixed into artifacts[] as ids without stats. Kept separate because the game keeps them separate (their own inventory and their own counter), because a consumer rarely needs gear and accessories in the same request, and so the server can store and serve the two independently. Note accessories are faction-locked: requiredFactionId is non-zero on all of them (2969 of 2969 on the reference account), where gear is unrestricted. Reconciles exactly against the in-game accessory counters - verified live 2026-08-02: 2969 total, 2000 with equippedByHeroId == null.",
+      "items": { "$ref": "#/$defs/artifact" }
     },
     "clanId": {
       "type": ["integer", "null"],
@@ -197,6 +190,46 @@
     }
   },
   "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["artifactId", "kindId", "primaryBonus"],
+      "description": "One owned artifact. The same shape backs artifacts[] (gear) and accessories[]; kindId decides which array it lands in. Every field is read from the game's own record, so a 0 is a real 0 - unlike schemas 7-8, nothing here is a placeholder.",
+      "properties": {
+        "artifactId": { "type": "integer", "description": "Instance id, unique across BOTH arrays, and stable for the life of the piece (it survives upgrades and re-equips) - so it is the join key for change detection." },
+        "kindId": { "type": "integer", "minimum": 1, "maximum": 9, "description": "Slot, from the game's ArtifactKindId enum: 1 Helmet, 2 Chest, 3 Gloves, 4 Boots, 5 Weapon, 6 Shield, 7 Ring, 8 Cloak (the UI calls it Amulet), 9 Banner. WARNING: schemas 7-8 documented a DIFFERENT and incorrect order (1 Weapon, 2 Helmet, 3 Shield, 4 Gauntlets, 5 Chestplate); a consumer that hard-coded those labels is mislabelling slots. The order above is the enum's own, corroborated by which primary stat each slot always rolls. Names: artifact-enums.json.",
+          "examples": [5] },
+        "setKindId": { "type": "integer", "minimum": 0, "description": "The set (game enum ArtifactSetKindId). 0 means NO SET - it is a real value, not 'unknown'. Names: artifact-enums.json." },
+        "rankId": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Stars, 1-6." },
+        "rarityId": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Quality tier, 1-6." },
+        "level": { "type": "integer", "minimum": 0, "maximum": 16, "description": "Upgrade level. 0 is a real, common value (an un-upgraded drop)." },
+        "ascendLevel": { "type": "integer", "minimum": 0, "maximum": 6, "description": "Ascension level. ascendBonus is non-null exactly when this is > 0." },
+        "requiredFactionId": { "type": "integer", "minimum": 0, "description": "Faction the piece is locked to; 0 = unrestricted. Same id space as heroes[].factionId. Non-zero on every accessory, zero on gear." },
+        "isActivated": { "type": "boolean" },
+        "equippedByHeroId": { "type": ["integer", "null"], "description": "int64. The hero instance id wearing this piece, joining to heroes[].instanceId - or NULL when it sits in the vault, which is the majority of records. Null means 'not equipped', never 'wearer unknown'. This replaces schema 8's heroInstanceId, which was non-null on every record because only equipped artifacts were exported." },
+        "sellPrice": { "type": "integer", "description": "Silver received for selling it." },
+        "price": { "type": "integer", "description": "Silver cost of the next upgrade." },
+        "failedUpgrades": { "type": "integer", "description": "Failed upgrade attempts since the last success - the game's pity counter." },
+        "rerollsCount": { "type": "integer" },
+        "ascendRerollsCount": { "type": "integer" },
+        "revision": { "type": "integer", "description": "Server-side revision of this record, bumped when the game changes it. Lets a sync diff instead of rewriting the whole vault." },
+        "primaryBonus": { "$ref": "#/$defs/artifactBonus", "description": "Always present. Replaces schema 8's primaryStatId, which was always 0 and carried no value alongside it." },
+        "secondaryBonuses": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/artifactBonus" }, "description": "0-4 substat lines." },
+        "ascendBonus": { "oneOf": [ { "$ref": "#/$defs/artifactBonus" }, { "type": "null" } ], "description": "The bonus granted by ascension; null unless ascendLevel > 0." }
+      }
+    },
+    "artifactBonus": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["statKindId", "value", "isAbsolute"],
+      "description": "One stat line. isAbsolute decides how value reads: true = a flat amount (+240 ATK), false = a FRACTION of the champion's base stat (0.18 = +18%, NOT 0.18%). The value comes from the game's 64-bit fixed-point storage divided by 2^31 and rounded to 6 decimals, so a relative value may exceed 1.0 (1.6 = +160% critical damage on a maxed banner) - do not validate it as a 0-1 probability. NOT exported: the game's _powerUpValue / _rarityBasedPowerUpValue / _powerUpRarityId, which are the upgrade screen's preview of the next roll and are null on every record of a snapshot taken with that screen closed.",
+      "properties": {
+        "statKindId": { "type": "integer", "minimum": 1, "description": "Game enum StatKindId: 1 Health, 2 Attack, 3 Defence, 4 Speed, 5 Resistance, 6 Accuracy, 7 CriticalChance, 8 CriticalDamage, 9 CriticalHeal, 10 IgnoreDefence. Only 1-8 occur on artifacts. Names: artifact-enums.json." },
+        "value": { "type": "number", "description": "Flat amount when isAbsolute, otherwise a fraction (0.18 = 18%)." },
+        "isAbsolute": { "type": "boolean" },
+        "level": { "type": "integer", "minimum": 0, "description": "How many times this substat has been rolled up. 0 is a real value (never upgraded), not 'missing'." }
+      }
+    },
     "scrollBalance": {
       "type": "object",
       "description": "Mastery-scroll balance. ALWAYS carries all three rarities, defaulting to 0.",

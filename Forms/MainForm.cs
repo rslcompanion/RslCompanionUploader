@@ -743,7 +743,7 @@ public sealed class MainForm : Form
             var gameName = string.IsNullOrWhiteSpace(profile.Account.Name) ? $"account {gameId}" : profile.Account.Name;
             Log($"Extracted {gameName} (game ID {gameId}): {profile.Resources.Count} resources and {profile.Heroes.Count} champions" +
                 (ExportArtifacts
-                    ? $" and {profile.Artifacts.Count} artifacts."
+                    ? $", {profile.Artifacts.Count} artifacts and {profile.Accessories.Count} accessories."
                     : ". (Artifacts: not yet available from the game — will be included in a future update.)"));
 
             // The server derives an account's numeric UserId from this game accountId (parsed as a
@@ -866,18 +866,16 @@ public sealed class MainForm : Form
         return ex.Message;
     }
 
-    // Artifacts are only partially recoverable in the current game build: equipped artifact IDs
-    // export fine, but every stat field (set/rank/rarity/primaryStat/level) is 0 because artifact
-    // stats moved to Unity ECS storage the engine can't decode yet (see extraction/CLAUDE.md and
-    // extraction/docs/artifact-findings.md).
+    // The export carries the account's ENTIRE artifact vault with real stats since 2026-08-02 —
+    // gear in `artifacts[]`, rings/cloaks/banners in `accessories[]`, equipped and vaulted alike.
     //
-    // Enabled 2026-07-31: the id map is genuinely useful on its own (it says which champion wears
-    // which artifact) and now costs ~34ms for ~1.9k records. It previously returned *zero* records
-    // for ~2.5s, because the extractor hunted stat-bearing Artifact objects that no longer exist
-    // instead of reading HeroArtifactData.ArtifactIdByKind.
+    // It used to carry equipped ids with every stat field 0, on the belief that artifact stats had
+    // moved to Unity ECS. They never did: the scan that "proved" the CachedArtifacts singleton was
+    // gone tested one address per 4 KB page. See extraction/docs/artifact-findings.md.
     //
-    // Consumers must treat a 0 stat as "unknown", never as a real value — docs/export-schema.md
-    // (schema version 6) spells this out.
+    // The cost of that vault is why this flag still exists: the first export in a game session
+    // spends ~5 s locating the vault (~15 s the very first time a game build is seen), against ~4 s
+    // for the rest of the snapshot. Later exports in the same session reuse the cached address.
     private const bool ExportArtifacts = true;
 
     /// <summary>

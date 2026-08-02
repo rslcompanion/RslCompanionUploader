@@ -17,13 +17,20 @@ for the full rationale:
 
 | Action | Payload | Endpoint | Cost |
 | --- | --- | --- | --- |
-| **Update user data** | consolidated profile (resources, champions, guardians, `clanId`) | `/api/sync/consolidated/raw` | ~4 s |
+| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, `clanId`) | `/api/sync/consolidated/raw` | ~5 s first run of a game session, ~1 s after |
 | **Export clan** | clan record + roster with member names | `/api/sync/clan/raw` | 18–31 s cold, ~7 s warm |
 
 The split exists because nothing clan-related except the *id* hangs off the game's account object:
 the clan record and the player-name cache are only findable by scanning the whole process. Folding
 that into the routine export made it seven times slower. **Do not move clan name/roster work back
 onto the consolidated path.**
+
+**Artifacts are a deliberate exception to that reasoning.** The vault is also found by scanning
+(nothing under the account object reaches it), but it stays on the consolidated path: it is the
+account's own data, it costs ~3 s rather than ~25, and the cost is a one-off per game session — the
+instance address is cached for the session and the class RVA ships in the offset catalog. Gear and
+accessories are kept apart in the *payload* (`artifacts[]` / `accessories[]`) rather than in separate
+uploads, so one call still snapshots the account while a consumer can load either alone.
 
 ## UI: native shell + WebView2 page
 
@@ -105,11 +112,13 @@ Two doc pairs, one per endpoint, each prose + JSON Schema 2020-12:
 - [docs/clan-export-schema.md](docs/clan-export-schema.md) / [.json](docs/clan-export-schema.json) —
   what `POST /api/sync/clan/raw` receives. They join on `clanId` ↔ `clan.id`.
 
-Alongside them, [docs/role-names.json](docs/role-names.json) names the champion-role ids that
-`heroes[].roleId` carries. It is **static game metadata, not a payload** — a champion's role never
-changes and every account sees the same table — but it ships here because `roleId` is an opaque int
-without it. Same rule applies: if the role enum ever gains a member, that file and the schema pair
-change together.
+Alongside them, two **static game metadata** files — not payloads, since every account sees the same
+tables, but they ship here because the payload's ids are opaque without them:
+[docs/role-names.json](docs/role-names.json) for `heroes[].roleId`, and
+[docs/artifact-enums.json](docs/artifact-enums.json) for the artifact `kindId` (slot), `statKindId`,
+`rankId`, `rarityId` and `setKindId`. Same rule applies: if one of those enums gains a member, that
+file and the schema pair change together. Each table in the artifact file states how it was
+corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
 They live in this repo precisely because it is public, so consumers can reference them without access
 to the private engine. The clan pair also carries a **privacy note**: it is the only payload

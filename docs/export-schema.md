@@ -6,11 +6,12 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 8** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 9** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - The account's **clan roster** is a separate payload with its own contract:
   [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
-- Champion **role** ids are named in [`role-names.json`](role-names.json) — static game metadata, not
-  account data (see `heroes[].roleId` below).
+- Champion **role** ids are named in [`role-names.json`](role-names.json), and artifact slot / stat /
+  rank / set ids in [`artifact-enums.json`](artifact-enums.json) — static game metadata, not account
+  data (see `heroes[].roleId` and `artifacts[]` below).
 
 > **Maintenance rule:** any change to the emitted JSON — a new field, a renamed field, a changed type,
 > a new resource id, a changed resource *name* — must update this file **and** `export-schema.json`
@@ -42,7 +43,8 @@ there is no partial/patch mode.
   "timestamp":  "2026-07-29T07:44:24.990Z", // string — ISO-8601 UTC, when the snapshot was taken
   "resources":  [ … ],                      // array — always the full allowlist, see below
   "heroes":     [ … ],                      // array
-  "artifacts":  [ … ],                      // array — equipped ids only; all stat fields 0, see caveat
+  "artifacts":  [ … ],                      // array — ALL gear owned (kindId 1-6), with stats
+  "accessories": [ … ],                     // array — ALL rings/cloaks/banners (kindId 7-9)
   "factionGuardians": [ … ],                // array
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
@@ -306,69 +308,127 @@ distinguish "no clan" from "unreadable", and it carries no membership list to di
 
 ---
 
-## `artifacts[]` — ids only; **every stat field is `0` and means "unknown"**
+## `artifacts[]` and `accessories[]` — the complete vault, with stats
+
+**Two arrays, one record shape.** `artifacts[]` holds **gear** (`kindId` 1–6: helmet, chest, gloves,
+boots, weapon, shield); `accessories[]` holds **rings, cloaks and banners** (`kindId` 7–9). Both carry
+every piece the account owns — equipped *and* sitting in the vault.
+
+They are split because the game splits them: gear and accessories are separate inventories with
+separate counters, a consumer almost never needs both in the same request, and keeping them apart
+lets each be stored and served on its own (see [Storage and read APIs](#storage-and-read-apis)).
 
 ```jsonc
 {
-  "artifactId": 81887,   // int32 — the equipped artifact's instance id. Real.
-  "kindId": 7,           // int32 1..9 — the SLOT it is worn in. Real. See table below.
-  "heroInstanceId": 9526,// int64 — joins to heroes[].instanceId. Real. Omitted when 0.
+  "artifactId": 854,          // int32 — instance id, unique across BOTH arrays. The join key.
+  "kindId": 5,                // int32 1..9 — slot. Decides which array the record is in.
+  "setKindId": 3,             // int32 — the set; 0 = no set. Names: artifact-enums.json
+  "rankId": 4,                // int32 1..6 — stars
+  "rarityId": 4,              // int32 1..6 — quality tier
+  "level": 12,                // int32 0..16 — upgrade level
+  "ascendLevel": 0,           // int32 0..6 — ascension
+  "requiredFactionId": 0,     // int32 — faction lock; 0 = none. Same ids as heroes[].factionId
+  "isActivated": true,        // bool
+  "equippedByHeroId": 48444,  // int64|null — joins heroes[].instanceId; null = in the vault
+  "sellPrice": 8550,          // int32 — silver from selling
+  "price": 136800,            // int32 — silver cost of the next upgrade
+  "failedUpgrades": 0,        // int32 — failures since the last success (the game's pity counter)
+  "rerollsCount": 0,          // int32
+  "ascendRerollsCount": 0,    // int32
+  "revision": 215316,         // int32 — server-side revision of this record; useful for diffing
 
-  "setKindId": 0, "rankId": 0, "rarityId": 0,   // ALWAYS 0 — not readable, NOT "no set"/"rank 0"
-  "primaryStatId": 0, "level": 0                // ALWAYS 0 — not readable, NOT "level 0"
+  "primaryBonus":   { "statKindId": 2, "value": 240,  "isAbsolute": true,  "level": 0 },
+  "secondaryBonuses": [
+    { "statKindId": 2, "value": 0.18, "isAbsolute": false, "level": 1 },
+    { "statKindId": 7, "value": 0.28, "isAbsolute": false, "level": 2 },
+    { "statKindId": 1, "value": 0.1,  "isAbsolute": false, "level": 0 }
+  ],
+  "ascendBonus": null         // object|null — present exactly when ascendLevel > 0
 }
 ```
 
-Since schema 6 this array is **populated** (~1.9k records on a mature account) where it used to
-arrive empty. What it carries is the **equipped-artifact map**: which champion is wearing which
-artifact in which slot. That is the whole of it.
+### Bonus records — `isAbsolute` decides how `value` reads
 
-> ⚠️ **`0` in a stat field is a null, not a value.** Artifact *stats* live in Unity ECS component
-> storage that the extraction engine cannot decode, so `setKindId`, `rankId`, `rarityId`,
-> `primaryStatId` and `level` are emitted as `0` for **every** record on **every** account. A
-> consumer that renders these as real values will show an entire vault as rank-0/level-0 grey junk.
-> Treat them as absent; do not persist them over previously-known-good stat data.
+| `isAbsolute` | Meaning | Example |
+|---|---|---|
+| `true` | Flat amount | `{"statKindId": 2, "value": 240}` = **+240 ATK** |
+| `false` | Fraction of the champion's base stat | `{"statKindId": 2, "value": 0.18}` = **+18% ATK** |
 
-`kindId` is the slot, and its meaning is stable:
+**`value` is a number, not a percentage — `0.18` means 18%, not 0.18%.** It is derived from the
+game's own 64-bit fixed-point storage (raw ÷ 2³¹) and rounded to 6 decimals, so a relative value can
+legitimately exceed 1.0 (`1.6` = +160% C.DMG on a maxed banner). `level` is how many times that
+substat has been rolled up — `0` on an un-upgraded line, not "missing".
+
+`primaryBonus` is present on every record. `secondaryBonuses` holds 0–4 entries. `ascendBonus` is
+non-null exactly when `ascendLevel > 0` (1,213 of 1,213 on the reference account).
+
+### Id tables
+
+`kindId`, `statKindId` and `rankId` are named in [`artifact-enums.json`](artifact-enums.json) — static
+game metadata, shipped here for the same reason as `role-names.json`: the payload carries opaque ints
+and nothing in it says what they mean.
 
 | `kindId` | Slot | | `kindId` | Slot |
 | --- | --- | --- | --- | --- |
-| 1 | Weapon | | 6 | Boots |
-| 2 | Helmet | | 7 | Ring |
-| 3 | Shield | | 8 | Amulet |
-| 4 | Gauntlets | | 9 | Banner |
-| 5 | Chestplate | | | |
+| 1 | Helmet | | 6 | Shield |
+| 2 | Chest | | 7 | Ring |
+| 3 | Gloves | | 8 | Cloak (the UI's "Amulet") |
+| 4 | Boots | | 9 | Banner |
+| 5 | Weapon | | | |
 
-Two consumer notes: `artifactId` is unique per record (no artifact is worn twice), and only
-*equipped* artifacts appear — **an account's unequipped inventory is not in this payload at all**, so
-never infer "artifacts owned" from this array's length.
+> ⚠️ **This table changed in schema 9 and the old one was wrong.** Up to schema 8 this file listed
+> 1 = Weapon, 2 = Helmet, 3 = Shield, 4 = Gauntlets, 5 = Chestplate. The correct order is the game's
+> own `ArtifactKindId` enum, above, confirmed independently by which primary stat each slot always
+> rolls (slot 1 is Health on all 411 records → helmet; slot 5 Attack on all 482 → weapon; slot 6
+> Defence on all 508 → shield; slot 4 Speed on 385 of 508 → boots). A consumer that hard-coded the
+> old names is mislabelling slots today.
 
-### Reconciling against the in-game counter
+`setKindId` names come from the same file; it is the game's `ArtifactSetKindId`, and **`0` means no
+set**, not "unknown".
 
-`kindId` 1–6 (**Gear**) and 7–9 (**Accessories**) are two *separate* inventory categories in-game,
-and the count the game shows on its Artifacts screen covers **Gear only**. So this array's length
-matches no single number on screen. Verified against a live account (2026-07-31):
+### Reconciling against the in-game counters
 
-| | |
-|---|---:|
-| Gear equipped — `kindId` 1–6 | 892 |
-| Gear unequipped — *not in this payload* | 1,852 |
-| **Gear total — matches the in-game Artifacts counter** | **2,744** |
-| Accessories equipped — `kindId` 7–9 | 969 |
-| Accessories in inventory / unclaimed in mailbox — *not in this payload* | ~2,000 / a few hundred |
-| **`artifacts[]` length** (892 + 969) | **1,861** |
+Each array reconciles exactly against what the player sees, both in total and unequipped. Verified
+live 2026-08-02 (account Magikwolf, game 11.67.0):
 
-To compare against the game, filter to `kindId <= 6` and expect *equipped gear only*.
+| | in game | payload |
+|---|---:|---:|
+| Gear total | 2,811 | `artifacts.length` = **2,811** |
+| Gear unequipped | 1,922 | `equippedByHeroId == null` → **1,922** |
+| Accessories total | 2,969 | `accessories.length` = **2,969** |
+| Accessories unequipped | 2,000 | `equippedByHeroId == null` → **2,000** |
 
-> **There is no "total owned" figure derivable from this payload — not even by adding an inventory
-> count to it.** Beyond the unequipped inventory, the game's **mailbox holds unclaimed items** that
-> the player owns in no meaningful sense yet and that appear in neither the equipped map nor the
-> inventory counter. Any "artifacts owned" number must come from the game's own screens, never from
-> arithmetic on this array.
+**Use this as the acceptance test** — matching the totals *and* the unequipped splits is a far
+stronger signal than a record count that merely looks plausible.
 
-A useful sanity check does fall out of the slot shape: slots 1–6 should each land near the count of
-fully-geared champions (146–150 apiece here), while 7/8/9 typically run much higher, since
-accessories get parked on farm champions that wear no gear.
+> **One category is still absent: the mailbox.** Unclaimed items (a couple of hundred accessories on
+> the reference account) belong to no inventory until the player collects them, and appear in neither
+> these arrays nor the in-game counters they reconcile against. "Owned" here means "in the vault or
+> equipped".
+
+---
+
+## Storage and read APIs
+
+Not part of the wire contract — this is the shape the payload is built for, recorded so the server
+side and the uploader stay deliberately aligned.
+
+The upload is **one call** carrying the whole account; the split matters on the *read* side. Store
+gear and accessories as two collections keyed by `(accountId, artifactId)`, and serve at minimum:
+
+| Read | Why |
+|---|---|
+| `GET /accounts/{id}/artifacts` and `…/accessories` | The common case: one category at a time, never both. |
+| `…?equipped=true|false` | The equipped/vault split is the axis every UI filters on first. |
+| `GET /accounts/{id}/artifacts/{artifactId}` | Single-piece lookup. Ids are unique across **both** categories, so a not-found in one is worth retrying in the other — or route on `kindId`. |
+| `GET /accounts/{id}/heroes/{instanceId}/artifacts` | A champion's loadout: index on `equippedByHeroId`, which is the only field linking the two. |
+
+Two properties of the data worth exploiting: `artifactId` is stable for the lifetime of the piece
+(it survives upgrades and re-equips), and `revision` changes when the game changes the record — so a
+sync can diff on `revision` instead of rewriting a 5,780-row vault every time.
+
+Because a snapshot is a **full replace**, a piece the player sold is gone by absence, not by a
+tombstone: reconcile by replacing the account's set, or deletes will never land.
 
 ---
 
@@ -379,9 +439,10 @@ accessories get parked on farm champions that wear no gear.
    missing id means the allowlist changed.
 3. **Additive changes are expected.** New resource ids and new hero fields get added without a major
    version bump — ignore unknown keys rather than failing.
-4. **`artifacts[]` carries equipped ids with all stats `0`** (see above) — a `0` stat is "unknown",
-   never a real value, and the array covers equipped artifacts only, not inventory. It may also be
-   empty (a brand-new account equips nothing). `gameVersion` may be `null`.
+4. **`artifacts[]` is gear, `accessories[]` is rings/cloaks/banners** — same record shape, split by
+   `kindId`, both covering the whole vault. `equippedByHeroId` is `null` for a vaulted piece, so
+   never treat `null` as "unknown wearer". Both may be empty on a brand-new account, and
+   `gameVersion` may be `null`. Unlike schema 7–8, a `0` in a stat field is now a **real** `0`.
 5. **`account.accountId` == top-level `accountId`.** Route on the top-level one.
 5b. **`heroes[].roleId` is nullable and `0` is a real value** (Attack). Never coalesce `null → 0`.
     Roles and skill metadata are *game* data joined by id — `role-names.json` here, a skill catalog
@@ -410,6 +471,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 9 | v1.6.0 | 2026-08-02 | **BREAKING — artifacts are now the complete vault with real stats, and split into `artifacts[]` (gear) + a new `accessories[]`.** `artifacts[]` changes meaning: it was ~1.9k equipped ids across all nine slots with every stat `0`; it is now **every gear piece the account owns** (2,811 on the reference account, 1,922 of them unequipped) with real `setKindId` / `rankId` / `rarityId` / `level` / `ascendLevel`, plus `primaryBonus`, `secondaryBonuses[]` and `ascendBonus` — the actual stat lines. Rings, cloaks and banners moved out to **`accessories[]`** (2,969 / 2,000 unequipped), same record shape. `heroInstanceId` is renamed **`equippedByHeroId`** and is now nullable: `null` means the piece is in the vault, which is most of them. `primaryStatId` is **gone** — the primary stat is `primaryBonus.statKindId` with its value. **Consumer impact, in order of how badly it bites:** (1) a consumer reading `artifacts[]` for accessories now silently sees none — read both arrays; (2) `artifacts.length` is no longer an equipped count, it is an owned count, so anything treating a record's presence as "equipped" must switch to `equippedByHeroId != null`; (3) the schema 7 rule "a `0` stat means unknown" is **reversed** — `0` is now a real value, and code gating writes on non-zero will drop legitimate zeroes; (4) **`kindId`'s slot names were wrong in schemas 7–8** — the correct order is the game's `ArtifactKindId` (1 Helmet, 2 Chest, 3 Gloves, 4 Boots, 5 Weapon, 6 Shield), not the 1 Weapon / 2 Helmet / 3 Shield this file used to claim, so a consumer that hard-coded labels is mislabelling slots today. New static-metadata file [`artifact-enums.json`](artifact-enums.json) names slot / stat / rank / set ids. Why now: the "artifact stats live in Unity ECS and are unreachable" conclusion behind schema 7 was false. It rested on a full-memory scan that reported the game's `CachedArtifacts` object no longer existed — that scan stepped one address per 4 KB page, testing 1 candidate in 512. The object was there all along, holding a `Dictionary<int, Artifact>` of the entire vault. Cost: +3 s on the first export of a game session (+5 s more the first time a game build is unknown), ~0.3 s on later exports in the same session. |
 | 8 | v1.5.9 | 2026-08-01 | **New `heroes[].skills[]` and `heroes[].roleId`; `heroes[].factionId` silently gets more accurate.** `skills[]` is one `{typeId, level}` per skill on that copy, sorted by `typeId`, always present (3,082 records across 957 heroes on the mapping account). `level` is **1-based** — books applied is `level - 1` — and the per-skill **cap is not here**, so `"level": 5` cannot be read as maxed without a skill catalog joined on `typeId` (the engine cannot read the cap either: the static `SkillType` is null on the account graph). **`typeId` is opaque**: it is usually `baseTypeId*10 + slot`, but a champion with a second form also carries that form's block at `800000 + own id`, and some skills sit in another champion's block entirely, so deriving it instead of joining drops data. `roleId` is the game's `HeroRole` enum — `0` Attack, `1` Defense, `2` Health/"HP", `3` Support, `4` Evolve, `5` Xp — named in the new [`role-names.json`](role-names.json). **Consumer impact: `roleId` is nullable and `null` ≠ `0`**, because `0` is Attack; expect ~19% null on a mature roster (the client hydrates a champion's shared type lazily) and prefer a champion metadata catalog keyed on `baseTypeId` as authoritative — role is champion-constant game data, and this field is a denormalized convenience. Same root cause fixed a pre-existing silent bug: `factionId` came off that same lazily-hydrated object and had been exporting `0` for 340 of 957 heroes; both fields are now backfilled from another copy of the same `baseTypeId`, recovering 156. `factionId` keeps `0`-as-unknown for compatibility. |
 | 7 | v1.5.8 | 2026-07-31 | **`artifacts[]` is now populated — equipped ids only, all stats `0`.** Previously it always arrived empty and consumers were told to expect that; it now carries one record per equipped artifact (~1.9k on a mature account) with **real** `artifactId`, `kindId` (slot 1–9) and `heroInstanceId`, and **`setKindId` / `rankId` / `rarityId` / `primaryStatId` / `level` hard-zero on every record** because artifact stats live in Unity ECS storage the engine still cannot decode. **Consumer impact: a `0` stat is "unknown", not a value.** A consumer that renders them literally will show every artifact as rank-0/level-0, and one that persists them will overwrite known-good stat data with nulls — gate writes on the field being non-zero. The array covers **equipped artifacts only**; unequipped inventory is absent, so it is not an "artifacts owned" count. Why now: the id map was always readable, but the extractor was looking for stat-bearing objects that no longer exist, so enabling it used to yield 0 records for ~2.5 s of scanning; reading `HeroArtifactData.ArtifactIdByKind` instead gives 1,861 records in ~34 ms. |
 | 6 | v1.5.6 | 2026-07-30 | **`heroes` and `resources` now declare their "cannot occur" states.** No wire change — both document invariants that always held. `heroes` gets `minItems: 1`: every account has at least a starter champion, so a zero-length array is a failed read, never an empty roster. `resources` gets `minItems: 1` **plus a `contains` requiring at least one `quantity >= 1`** — because every allowlisted id is emitted unconditionally, a failed resource read returns a full-length array of zeroes rather than an empty one, so length proves nothing and all-zero is the real signal. Both were silently postable and would have wiped a roster or an inventory server-side; the uploader now fails extraction instead of sending either, and consumers should treat a payload failing these constraints as "discard, keep what you have". |
