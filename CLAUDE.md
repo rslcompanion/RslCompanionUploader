@@ -120,6 +120,11 @@ tables, but they ship here because the payload's ids are opaque without them:
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
+[docs/raidtools-schema10-migration.md](docs/raidtools-schema10-migration.md) is the consumer-side
+migration guide for the schema 9 + 10 artifact changes, written to be handed straight to an agent
+working on RaidTools. It is a **summary of the contract, not part of it** — if it ever disagrees with
+the schema pair, the schema pair wins and the guide is what needs fixing.
+
 They live in this repo precisely because it is public, so consumers can reference them without access
 to the private engine. The clan pair also carries a **privacy note**: it is the only payload
 describing people other than the uploading user (clanmates' ids and display names).
