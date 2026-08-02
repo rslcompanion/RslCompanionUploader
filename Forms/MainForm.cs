@@ -116,8 +116,9 @@ public sealed class MainForm : Form
 
         _shell.RefreshRequested += async () => { if (!_busy) await LoadAccountsAsync(); };
         _shell.OpenUrlRequested += OpenUrl;
-        // Backs the page's "Open RSL Helper" button, which posts back openUrl with this value.
-        _shell.SetFrontendUrl(_config.FrontendUrl);
+        // Backs the page's "Open RSL Helper" button, which posts back openUrl with this value. Not a
+        // constant: it names the account being played, so it is re-pushed whenever that changes.
+        RefreshHelperUrl();
         // Defer to the message loop: SignInRequested is raised from inside a WebView2 message handler,
         // and opening a modal dialog (a nested message loop) directly inside that callback crashes the
         // WebView2 host. BeginInvoke lets the handler return first, then shows the dialog.
@@ -530,10 +531,8 @@ public sealed class MainForm : Form
         {
             _shell.SetDetectedAccount(null, null);
             _shell.SetIdentified(null);
-            return;
         }
-
-        if (_loadedAccounts.Any(a => a.UserId == uid))
+        else if (_loadedAccounts.Any(a => a.UserId == uid))
         {
             _shell.SetDetectedAccount(null, null);
             _shell.SetIdentified(uid);
@@ -543,8 +542,35 @@ public sealed class MainForm : Form
             _shell.SetIdentified(null);
             _shell.SetDetectedAccount(uid, _liveName);
         }
+
+        // Which account the site should open on is exactly what this just decided.
+        RefreshHelperUrl();
     }
 #endif
+
+    /// <summary>
+    /// The site URL behind the page's "Open RSL Helper" button and Help → Open rslcompanion.com.
+    ///
+    /// When the running game is on an account this profile has already imported, that account is
+    /// named in the URL (<c>?account=&lt;in-game id&gt;</c>) so the site opens on the account being
+    /// played rather than on whatever that browser last looked at. The site's accounts endpoint
+    /// reports this same number as both an account's <c>id</c> and its <c>userId</c>, so the in-game
+    /// id needs no translation — it is what its dropdown selects by.
+    ///
+    /// Nothing is appended when the game is closed, unreadable, or on an account that isn't imported
+    /// yet: there would be no entry in the site's dropdown to select, and naming a missing account
+    /// would only make the site fall back to its first one anyway.
+    /// </summary>
+    private string HelperUrl()
+    {
+#if EXTRACTION
+        if (_liveUserId is int uid && _loadedAccounts.Any(a => a.UserId == uid))
+            return $"{_config.FrontendUrl}/?account={uid}";
+#endif
+        return _config.FrontendUrl;
+    }
+
+    private void RefreshHelperUrl() => _shell.SetFrontendUrl(HelperUrl());
 
     private void BuildLayout()
     {
@@ -582,8 +608,9 @@ public sealed class MainForm : Form
                     force: true);
             }));
 #endif
+        // Evaluated per click, not once at build time: the account being played changes underneath it.
         help.DropDownItems.Add(new ToolStripMenuItem("Open rslcompanion.com", null,
-            (_, _) => OpenUrl(_config.FrontendUrl)));
+            (_, _) => OpenUrl(HelperUrl())));
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add(new ToolStripMenuItem("&About", null, (_, _) =>
         {
@@ -925,6 +952,9 @@ public sealed class MainForm : Form
         // Drop straight to the signed-out UI in place rather than restarting the process; the
         // game-status poll keeps running, and the top bar shows the "Sign In" button again.
         _shell.SetSignedOut();
+        // The tiles are gone, so nothing is "imported" any more — stop naming an account on the
+        // helper link, which would otherwise select it for whoever signs in next in that browser.
+        RefreshHelperUrl();
     }
 
     /// <summary>

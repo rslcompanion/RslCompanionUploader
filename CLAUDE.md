@@ -44,8 +44,17 @@ and, on success, `MainForm.EnterSignedInAsync` loads accounts and enables export
 the signed-out state in place (no process restart).
 
 The page is a top bar (brand + connection pill + Sign In button / identity), optional banners, the
-accounts grid, an "Open RSL Helper" bar (opens `AppConfig.FrontendUrl` via `openUrl`), and a
-collapsible activity console. "Raid not running" is stated once, by the top-bar pill — the accounts
+accounts grid, an "Open RSL Helper" bar (opens `MainForm.HelperUrl()` via `openUrl`), and a
+collapsible activity console.
+
+`HelperUrl()` is `AppConfig.FrontendUrl` plus **`?account=<in-game id>`** whenever the running game is
+on an account the profile has already imported, so the site opens on the account being played rather
+than on whatever that browser last selected. The id needs no translation: `GET /api/accounts` reports
+the in-game id as both `id` and `userId`. The site consumes it in `ActiveAccountService` (RaidTools
+frontend), which reads the param at *module load* — the auth guards redirect without preserving query
+params, so anything later is too late — writes it to its `raidtools.activeAccountId` storage, and
+strips it from the address bar. Clearing the stored sync method alongside it is deliberate: it makes
+the navbar re-pin the preferred (Extractor) snapshot for that account. "Raid not running" is stated once, by the top-bar pill — the accounts
 grid never repeats it as a tile. A running-but-unimported account shows a "new account detected"
 tile, and the profile matching the running game turns green (all others keep a black border).
 

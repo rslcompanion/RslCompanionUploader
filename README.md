@@ -31,7 +31,9 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    roster, POSTed to `/api/sync/clan/raw`. Its own button because it is its own cost: the clan
    roster is not reachable from the game's account data and has to be found by scanning the whole
    process, which takes up to a minute rather than a few seconds.
-5. **Open RSL Helper** — opens rslcompanion.com in the default browser.
+5. **Open RSL Helper** — opens rslcompanion.com in the default browser. When Raid is running on an
+   account that is already imported, the link carries that account (`?account=<in-game id>`) and the
+   site opens with it selected in its account dropdown instead of whatever the browser last used.
 
 File-based JSON import (resources/champions) previously lived here; it has moved to the
 rslcompanion.com metadata tooling.
