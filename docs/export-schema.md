@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 11** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 12** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - The account's **clan roster** is a separate payload with its own contract:
   [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -353,11 +353,11 @@ lets each be stored and served on its own (see [Storage and read APIs](#storage-
   "ascendRerollsCount": 0,    // int32
   "revision": 215316,         // int32 — server-side revision of this record; useful for diffing
 
-  "primaryBonus":   { "statKindId": 2, "value": 240,  "isAbsolute": true,  "level": 0 },
+  "primaryBonus":   { "statKindId": 2, "value": 120,  "isAbsolute": true,  "level": 0 },
   "secondaryBonuses": [
-    { "statKindId": 2, "value": 0.18, "isAbsolute": false, "level": 1 },
-    { "statKindId": 7, "value": 0.28, "isAbsolute": false, "level": 2 },
-    { "statKindId": 1, "value": 0.1,  "isAbsolute": false, "level": 0 }
+    { "statKindId": 2, "value": 0.09, "isAbsolute": false, "level": 1 },
+    { "statKindId": 7, "value": 0.14, "isAbsolute": false, "level": 2 },
+    { "statKindId": 1, "value": 0.05, "isAbsolute": false, "level": 0 }
   ],
   "ascendBonus": null         // object|null — present exactly when ascendLevel > 0
 }
@@ -367,13 +367,21 @@ lets each be stored and served on its own (see [Storage and read APIs](#storage-
 
 | `isAbsolute` | Meaning | Example |
 |---|---|---|
-| `true` | Flat amount | `{"statKindId": 2, "value": 240}` = **+240 ATK** |
+| `true` | Flat amount | `{"statKindId": 2, "value": 120}` = **+120 ATK** |
 | `false` | Fraction of the champion's base stat | `{"statKindId": 2, "value": 0.18}` = **+18% ATK** |
 
 **`value` is a number, not a percentage — `0.18` means 18%, not 0.18%.** It is derived from the
-game's own 64-bit fixed-point storage (raw ÷ 2³¹) and rounded to 6 decimals, so a relative value can
-legitimately exceed 1.0 (`1.6` = +160% C.DMG on a maxed banner). `level` is how many times that
+game's own Q32.32 fixed-point storage (raw ÷ 2³²) and rounded to 6 decimals, so a relative value can
+legitimately exceed 1.0 (`0.8` = +80% C.DMG on a maxed glove). `level` is how many times that
 substat has been rolled up — `0` on an un-upgraded line, not "missing".
+
+> ⚠️ **Schemas 9, 10 and 11 emitted every one of these values at exactly double the game's.** The
+> divisor was 2³¹. A 6★ +16 speed boot reported `90` where the game shows 45, `1.2` where the game
+> shows 60%. This affects `primaryBonus`, `secondaryBonuses[]` **and** `ascendBonus`, on gear and
+> accessories alike, and nothing on the record distinguishes an old row from a corrected one — so
+> **re-sync affected accounts rather than halving stored values in place.** Sanity check for a
+> consumer: no artifact main stat may exceed the game's 6★ +16 table (SPD 45, HP 4080, ATK/DEF 265,
+> ACC/RES 96, HP%/ATK%/DEF%/C.RATE 60%, C.DMG 80%; banner HP 6120, ATK/DEF 398).
 
 `primaryBonus` is present on every record. `secondaryBonuses` holds 0–4 entries. `ascendBonus` is
 non-null exactly when `ascendLevel > 0` (1,213 of 1,213 on the reference account).
@@ -586,6 +594,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 12 | v1.6.2 | 2026-08-03 | **Every artifact and accessory stat value was DOUBLE the game's in schemas 9–11; this halves them to the truth.** No field changes shape, name or type — only the numbers in `artifacts[]` and `accessories[]` `primaryBonus.value`, `secondaryBonuses[].value` and `ascendBonus.value` change, and they change for every record. The engine read the game's `BonusValue._value` as fixed point scaled by 2³¹; it is **Q32.32**, so the divisor is 2³². The error was uniform, which is why nothing downstream flagged it: a 6★ +16 speed boot exported `90` (game: 45), a maxed glove `1.6` C.DMG (game: 80%), the strongest C.RATE substat 64% (real cap 32%), the largest ascension SPD bonus 24 (real cap 12). Corrected, all thirteen 6★ +16 main-stat maxima reproduce the game's table exactly. **Consumer impact: every artifact stat stored from schemas 9–11 is wrong and must be re-synced, not patched in place** — the payload carries nothing that distinguishes a doubled row from a corrected one, so a consumer cannot tell which of its stored rows to halve. Any derived figure computed off those stats — champion totals, gear scores, build rankings, "best piece" sorts — is invalid for the same window. The bug ran from schema 9 (2026-08-02), i.e. from the first release that shipped artifact stats at all; no correct artifact stat has ever been published before this. Reported by a user who recognised 90 SPD as physically impossible. |
 | 11 | v1.6.1 | 2026-08-03 | **New `relics[]` and `gemstones[]`; six new resource ids that were previously being DROPPED.** Two changes, both additive — nothing existing changes shape, and a consumer that ignores the new arrays is exactly as correct as it was on schema 10. (1) **The relic system is exported for the first time.** `relics[]` is every relic the account owns, equipped and stored, each with its gemstone sockets (377 total / 240 unequipped on the reference account); `gemstones[]` is every gemstone, socketed or not (543 / 303 unsocketed). Two arrays rather than one because the game counts them as two inventories and **56% of gemstones sit in no relic** — nesting them would have hidden all 303. Both `typeId`s are join keys into a relic catalog, not data: name, rarity, group and stat bonuses live on shared type objects the client hydrates lazily, so exporting them per record would produce holes that look like values. The socket join is verified in both directions (240 socketed, zero dangling refs). `sockets[].shapeKindId`'s **names are provisional** — the enum has five members and the data five values, but the member-to-value binding is inferred from declaration order, the same assumption that made the artifact set table wrong from id 4 onward; join on the id. New static-metadata file [`relic-enums.json`](relic-enums.json). (2) **`resources[]` 49 → 55 entries, and this half is a data-loss fix, not a feature.** `4000` Starstone and `19001`–`19005` Rank 1–5 Basalt are the relic upgrade currencies. None was on the engine's *exclusive* resource allowlist, so **every export ever made discarded all six regardless of how many the account held** — the third time this has happened, after Rank 1/2 Chickens (2026-07-28) and the Immortal/Eternal Soul Essences (2026-07-29). Ids were read from a live dump and matched against in-game balances rather than inferred from a numbering pattern: the five Basalt ranks matched 10/17/10/5/1 *in rank order*, Starstone matched 19,466. **Consumer impact: an account's Basalt and Starstone history begins at this schema** — their absence before now was never evidence the player had none. |
 | 10 | v1.6.0 | 2026-08-02 | **No wire change — `setKindId`'s meaning is corrected and split.** Same payload, same fields, same uploader binary; what changes is what the ids mean, so a consumer storing set *labels* must re-derive them. Two parts. (1) **The set names were wrong from id 4 onward** in everything published before this: the table read 4 Critical Rate / 5 Accuracy / 6 Speed where the game says 4 Speed / 5 Critical Rate / 6 Crit Damage, and 47 Stone Skin where the game says 47 Protection with Stone Skin at 48; the tail (60 Bloodshield, 61 Clan Boss, 62 Debuffer, 65 Provoke, 66 Soulbound) was not set names at all. [`artifact-enums.json`](artifact-enums.json) now carries the game's own localized strings, each confirmed against a matching description (`1 Life` ↔ "2 Set: HP +15%"). (2) **`setKindId` carries two id spaces**: 0–66 are sets, **1000–1004 are accessory effects** — one item's own effect, no piece count, no set bonus — occurring on 76 of 2,969 accessories and on no gear. Group "by set" over the 1000s and you invent five sets that do not exist. Join on the id, never the name: Cleansing, Bloodshield, Reaction and Revenge appear in both spaces. |
 | 9 | v1.6.0 | 2026-08-02 | **BREAKING — artifacts are now the complete vault with real stats, and split into `artifacts[]` (gear) + a new `accessories[]`.** `artifacts[]` changes meaning: it was ~1.9k equipped ids across all nine slots with every stat `0`; it is now **every gear piece the account owns** (2,811 on the reference account, 1,922 of them unequipped) with real `setKindId` / `rankId` / `rarityId` / `level` / `ascendLevel`, plus `primaryBonus`, `secondaryBonuses[]` and `ascendBonus` — the actual stat lines. Rings, cloaks and banners moved out to **`accessories[]`** (2,969 / 2,000 unequipped), same record shape. `heroInstanceId` is renamed **`equippedByHeroId`** and is now nullable: `null` means the piece is in the vault, which is most of them. `primaryStatId` is **gone** — the primary stat is `primaryBonus.statKindId` with its value. **Consumer impact, in order of how badly it bites:** (1) a consumer reading `artifacts[]` for accessories now silently sees none — read both arrays; (2) `artifacts.length` is no longer an equipped count, it is an owned count, so anything treating a record's presence as "equipped" must switch to `equippedByHeroId != null`; (3) the schema 7 rule "a `0` stat means unknown" is **reversed** — `0` is now a real value, and code gating writes on non-zero will drop legitimate zeroes; (4) **`kindId`'s slot names were wrong in schemas 7–8** — the correct order is the game's `ArtifactKindId` (1 Helmet, 2 Chest, 3 Gloves, 4 Boots, 5 Weapon, 6 Shield), not the 1 Weapon / 2 Helmet / 3 Shield this file used to claim, so a consumer that hard-coded labels is mislabelling slots today. New static-metadata file [`artifact-enums.json`](artifact-enums.json) names slot / stat / rank / set ids. Why now: the "artifact stats live in Unity ECS and are unreachable" conclusion behind schema 7 was false. It rested on a full-memory scan that reported the game's `CachedArtifacts` object no longer existed — that scan stepped one address per 4 KB page, testing 1 candidate in 512. The object was there all along, holding a `Dictionary<int, Artifact>` of the entire vault. Cost: +3 s on the first export of a game session (+5 s more the first time a game build is unknown), ~0.3 s on later exports in the same session. |

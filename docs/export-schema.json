@@ -3,8 +3,8 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 11,
-  "x-uploaderVersion": "1.6.1",
+  "schemaVersion": 12,
+  "x-uploaderVersion": "1.6.2",
   "x-lastUpdated": "2026-08-03",
   "x-relatedSchemas": {
     "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
@@ -274,7 +274,7 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["statKindId", "value", "isAbsolute"],
-      "description": "One stat line. isAbsolute decides how value reads: true = a flat amount (+240 ATK), false = a FRACTION of the champion's base stat (0.18 = +18%, NOT 0.18%). The value comes from the game's 64-bit fixed-point storage divided by 2^31 and rounded to 6 decimals, so a relative value may exceed 1.0 (1.6 = +160% critical damage on a maxed banner) - do not validate it as a 0-1 probability. NOT exported: the game's _powerUpValue / _rarityBasedPowerUpValue / _powerUpRarityId, which are the upgrade screen's preview of the next roll and are null on every record of a snapshot taken with that screen closed.",
+      "description": "One stat line. isAbsolute decides how value reads: true = a flat amount (+120 ATK), false = a FRACTION of the champion's base stat (0.18 = +18%, NOT 0.18%). The value comes from the game's Q32.32 fixed-point storage divided by 2^32 and rounded to 6 decimals, so a relative value may exceed 1.0 (1.0 = +100% on an ascended piece) - do not validate it as a 0-1 probability. WARNING for consumers holding older data: schemas 9-11 used a 2^31 divisor and so emitted EVERY value here at exactly double the game's - a 6-star +16 speed boot reported 90 against a real cap of 45. Fixed in schema 12. Nothing on the record distinguishes a doubled row from a corrected one, so affected accounts must be re-synced rather than halved in place; a stored main stat above the game's 6-star +16 table (SPD 45, HP 4080, ATK/DEF 265, ACC/RES 96, HP%/ATK%/DEF%/C.RATE 0.6, C.DMG 0.8, banner HP 6120 and ATK/DEF 398) is doubled data. NOT exported: the game's _powerUpValue / _rarityBasedPowerUpValue / _powerUpRarityId, which are the upgrade screen's preview of the next roll and are null on every record of a snapshot taken with that screen closed.",
       "properties": {
         "statKindId": { "type": "integer", "minimum": 1, "description": "Game enum StatKindId: 1 Health, 2 Attack, 3 Defence, 4 Speed, 5 Resistance, 6 Accuracy, 7 CriticalChance, 8 CriticalDamage, 9 CriticalHeal, 10 IgnoreDefence. Only 1-8 occur on artifacts. Names: artifact-enums.json." },
         "value": { "type": "number", "description": "Flat amount when isAbsolute, otherwise a fraction (0.18 = 18%)." },

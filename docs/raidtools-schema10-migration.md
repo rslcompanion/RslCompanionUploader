@@ -67,10 +67,20 @@ Now:
    the codebase for any hard-coded slot labels or slot-ordering constants and fix them** — they are
    mislabelling slots against production data today, independent of this migration.
 5. **Bonus values: `isAbsolute` decides how `value` reads.** `true` → a flat amount
-   (`{statKindId: 2, value: 240}` = +240 ATK). `false` → a **fraction**
+   (`{statKindId: 2, value: 120}` = +120 ATK). `false` → a **fraction**
    (`{statKindId: 2, value: 0.18}` = +18%, *not* 0.18%). A relative value can legitimately exceed
-   `1.0` — `1.6` = +160% C.DMG on a maxed banner — so do not validate it as a 0–1 probability, and do
-   not multiply by 100 twice.
+   `1.0` (an ascended piece reaches +100%), so do not validate it as a 0–1 probability, and do not
+   multiply by 100 twice.
+
+   ⚠️ **Schemas 9–11 emitted every one of these at exactly double the game's value** — the uploader
+   divided the game's fixed-point storage by 2³¹ where the format is Q32.32 (2³²). A 6★ +16 speed
+   boot arrived as `90` against the game's cap of 45. Fixed in **schema 12**; it applies to
+   `primaryBonus`, `secondaryBonuses[]` and `ascendBonus`, on gear and accessories alike. Nothing on
+   the record says which reading a stored row came from, so **re-sync affected accounts rather than
+   halving in place**, and treat any stat-derived figure (gear scores, champion totals, rankings)
+   computed from schema 9–11 data as invalid. Cheap ingest assertion: no main stat may exceed the
+   game's 6★ +16 table — SPD 45, HP 4080, ATK/DEF 265, ACC/RES 96, HP%/ATK%/DEF%/C.RATE `0.6`,
+   C.DMG `0.8`; banner HP 6120, ATK/DEF 398.
 6. **`setKindId` is two id spaces in one field, and the old set names were wrong** (schema 10).
    `0`–`66` are **sets** (`0` = no set, a real and common value). `1000`–`1004` are **accessory
    effects** — one item's own effect, no piece count, no set bonus — on ~2.6% of accessories and on
