@@ -3,18 +3,19 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 10,
-  "x-uploaderVersion": "1.6.0",
-  "x-lastUpdated": "2026-08-02",
+  "schemaVersion": 11,
+  "x-uploaderVersion": "1.6.1",
+  "x-lastUpdated": "2026-08-03",
   "x-relatedSchemas": {
     "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
   },
   "x-relatedCatalogs": {
     "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
-    "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums)."
+    "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
+    "relics": "relic-enums.json — relics[].sockets[].shapeKindId to socket shape. Relic and gemstone typeId are NOT named there: they are a catalog of the game (name, rarity, group, skill, stat bonuses) and belong in a champion-metadata-style catalog keyed on typeId."
   },
   "type": "object",
-  "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "accessories", "factionGuardians"],
+  "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "accessories", "relics", "gemstones", "factionGuardians"],
   "additionalProperties": true,
   "properties": {
     "accountId": {
@@ -183,6 +184,16 @@
       "description": "Rings, cloaks and banners (kindId 7-9) the account owns, equipped AND vaulted. Identical record shape to artifacts[]; new in schema 9, where these records were previously mixed into artifacts[] as ids without stats. Kept separate because the game keeps them separate (their own inventory and their own counter), because a consumer rarely needs gear and accessories in the same request, and so the server can store and serve the two independently. Note accessories are faction-locked: requiredFactionId is non-zero on all of them (2969 of 2969 on the reference account), where gear is unrestricted. Reconciles exactly against the in-game accessory counters - measured live 2026-08-02: 2969 total, 2000 with equippedByHeroId == null. Those numbers are a snapshot of one account at one moment, not constants - see the note on artifacts[].",
       "items": { "$ref": "#/$defs/artifact" }
     },
+    "relics": {
+      "type": "array",
+      "description": "Every RELIC the account owns, equipped AND in storage, each with its gemstone sockets. New in schema 11; nothing resembling it existed before, so there is no migration - a consumer that ignores the array is exactly as correct as it was in schema 10. Its own array rather than part of artifacts[] because relics are a separate inventory in game, with their own counters, their own id space and their own upgrade currencies (Basalt and Starstone, both new resource ids in this schema). RECONCILING WITH THE GAME: length equals the in-game relic total and the count with equippedByHeroId == null equals the in-game unequipped total - measured live 2026-08-03 at 377 total / 240 unequipped / 137 equipped. A SNAPSHOT, not constants: check the relationship against counters read at the same moment, never the literals. One relic per champion is what this account shows (137 relics across 137 heroes, none with two), but that is an observation about the game's current rules, not a guarantee the payload enforces - the field is a per-relic hero reference, so handle a hero appearing twice.",
+      "items": { "$ref": "#/$defs/relic" }
+    },
+    "gemstones": {
+      "type": "array",
+      "description": "Every GEMSTONE the account owns, socketed AND in storage. The game class is RelicStone; the UI calls them gemstones. Separate from relics[] for the reason accessories[] is separate from artifacts[]: the game counts them as their own inventory, and MOST OF THEM ARE IN NO RELIC AT ALL - 303 of 543 on the reference account. Nesting them under the relic holding them would have hidden 56% of the inventory, which is the same shape of loss that made schema 8's equipped-only artifacts[] look plausible while missing two thirds of the data. Joins to relics[] both ways: a socket's stoneId is a gemstones[].id, and that gemstone's socketedInRelicId points back at the relic. Measured live 2026-08-03: 543 total, 240 socketed, 303 free; both directions of the join agreed on all 240 with no dangling reference.",
+      "items": { "$ref": "#/$defs/gemstone" }
+    },
     "clanId": {
       "type": ["integer", "null"],
       "description": "int64 id of the clan this account belongs to (the game calls a clan an Alliance). Null when the account is in no clan AND when the value could not be validated — this payload cannot distinguish the two, so never infer 'left the clan' from null. Stable and usable as a join key on its own: two accounts in the same clan report the same clanId. It is the ONLY clan field here because it is the only free one — a two-pointer read off the account data — whereas the clan's name and roster need a full-memory scan of the game (18-31s on a ~4s export) and are therefore a separate export: see clan-export-schema.json, which joins to this on clan.id.",
@@ -216,6 +227,47 @@
         "primaryBonus": { "$ref": "#/$defs/artifactBonus", "description": "Always present. Replaces schema 8's primaryStatId, which was always 0 and carried no value alongside it." },
         "secondaryBonuses": { "type": "array", "maxItems": 4, "items": { "$ref": "#/$defs/artifactBonus" }, "description": "0-4 substat lines." },
         "ascendBonus": { "oneOf": [ { "$ref": "#/$defs/artifactBonus" }, { "type": "null" } ], "description": "The bonus granted by ascension; null unless ascendLevel > 0." }
+      }
+    },
+    "relic": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "typeId", "rank", "level", "sockets"],
+      "description": "One owned relic. ACCOUNT STATE ONLY: a relic's name, rarity, group, skill and stat bonuses live on the shared RelicType, which is a catalog of the game rather than anything about this player - the same split that keeps skill names and mastery-node metadata out of heroes[]. Join those on typeId.",
+      "properties": {
+        "id": { "type": "integer", "description": "Instance id, unique within the account and stable across upgrades and re-equips - the join key for change detection, and what a socket's stoneId is NOT (that is a gemstone id, a different space)." },
+        "typeId": { "type": "integer", "description": "The shared RelicType this is a copy of; the join key into a relic catalog. Opaque - 57 distinct values in range 1-86 on the reference account. NOT named in relic-enums.json: the game ships l10n:relic/name?id=N keys but this client build has no localized strings behind them and falls back to placeholder text ('Relic 12 name'), so no honest name table can be built from memory today. Gemstone type names DO resolve." },
+        "rank": { "type": "integer", "minimum": 1, "description": "1-5 observed. Raising a relic from rank N to N+1 is paid for in Rank N Basalt, resource id 19000+N - which is why there are exactly five Basalt ranks. Rank 6 exists as an upgrade target ('Used to upgrade a Rank 5 Relic to Rank 6') but no rank-6 relic occurred on the reference account, so the upper bound is deliberately not constrained here." },
+        "level": { "type": "integer", "minimum": 0, "description": "Upgrade level, paid for in Starstone (resource id 4000). Observed 0, 3, 6, 9, 12, 15 - it steps by 3, and 0 is a real and common value (213 of 377). Do not assume every integer in the range occurs." },
+        "isActivated": { "type": "boolean" },
+        "equippedByHeroId": { "type": ["integer", "null"], "description": "int64. Hero instance id wearing this relic, joining to heroes[].instanceId - or NULL when it is in storage, which is most of them. Null means 'not equipped', never 'wearer unknown'." },
+        "sockets": {
+          "type": "array",
+          "description": "The relic's gemstone sockets in the game's own order. 1-4 per relic (170/149/55/3 on the reference account). Count and shapes are fixed by the relic's type; what varies per copy is which are filled.",
+          "items": { "$ref": "#/$defs/relicSocket" }
+        }
+      }
+    },
+    "relicSocket": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["shapeKindId", "stoneId"],
+      "description": "One gemstone socket. A gemstone only fits a socket of its own shape, so shapeKindId is what decides what can go in.",
+      "properties": {
+        "shapeKindId": { "type": "integer", "minimum": 1, "maximum": 5, "description": "Socket shape, the game's RelicStoneShapeKindId enum. Names in relic-enums.json - but read the provenance note there before using them: the enum's five members are Circle, Triangle, Square, Diamond, Pentagon and the observed values are exactly 1-5, yet the member-to-value binding is inferred from DECLARATION ORDER and is not independently confirmed. Treat the id as authoritative and the label as provisional." },
+        "stoneId": { "type": ["integer", "null"], "description": "The gemstones[].id socketed here, or NULL when the socket is empty. Null is the common case (405 of 645 sockets). This is a gemstone instance id and does NOT join to relics[].id." }
+      }
+    },
+    "gemstone": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "typeId"],
+      "description": "One owned gemstone (game class RelicStone). ACCOUNT STATE ONLY, same split as relics[]: name, rarity, shape and skill hang off the shared RelicStoneType and are joined on typeId.",
+      "properties": {
+        "id": { "type": "integer", "description": "Instance id - what relics[].sockets[].stoneId points at." },
+        "typeId": { "type": "integer", "description": "The shared RelicStoneType; the join key into a gemstone catalog. 68 distinct values on the reference account. Unlike relic type names, these DO resolve from the game's l10n table (l10n:relic-stone/name?id=N, 120 ids) - they are still catalog data and so are not shipped in the payload." },
+        "isActivated": { "type": "boolean" },
+        "socketedInRelicId": { "type": ["integer", "null"], "description": "The relics[].id this gemstone sits in, or NULL when it is in storage. Derived by inverting the sockets, so it is exactly consistent with them by construction - it is a convenience for consumers that index gemstones directly, not a second source of truth." }
       }
     },
     "artifactBonus": {

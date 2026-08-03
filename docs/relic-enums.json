@@ -1,0 +1,52 @@
+{
+  "$comment": "Relic id -> name tables for relics[] / gemstones[] in export-schema.json. Static game metadata, not account data. Read live off game build 11.67.0 (RslCompanionExtraction, `BlessingProbe --relics` and `--l10n`). Deliberately SMALL: the only opaque id in the relic payload that this file can honestly name is the socket shape. Relic and gemstone typeId are a catalog of the game - name, rarity, group, skill, stat bonuses - and belong in a champion-index-style catalog keyed on typeId, not in a name table here. Each table below states how it was derived AND how strong that derivation is.",
+  "generatedAt": "2026-08-03T00:00:00Z",
+  "gameVersion": "11.67.0",
+
+  "socketShapes": {
+    "$comment": "relics[].sockets[].shapeKindId, from the game's IL2CPP `RelicStoneShapeKindId` enum. A gemstone only fits a socket of its own shape, so this is the field that decides what can be socketed where.",
+    "source": "IL2CPP enum RelicStoneShapeKindId (member list), plus the observed value set across 645 live sockets",
+    "confidence": "PARTIAL - ids are certain, labels are inferred. READ THIS BEFORE USING THE NAMES.",
+    "provenance": [
+      "The enum declares exactly five members, in this order: Circle, Triangle, Square, Diamond, Pentagon.",
+      "The live data carries exactly five distinct values, 1-5, across 645 sockets on 377 relics (1x313, 2x92, 3x67, 4x91, 5x82). Five members and five contiguous values from 1 means the mapping is a bijection onto 1..5.",
+      "WHAT IS NOT ESTABLISHED: which member is 1. The binding below assumes declaration order starting at 1, and nothing independent confirms it. IL2CPP enum members can carry explicit values - ArtifactSetKindId's do, which is exactly how the artifact set table came to be wrong from id 4 onward before 2026-08-02 - and ListFields reports member names without their values.",
+      "An independent check is available to anyone with the game open: 313 of 645 sockets are shapeKindId 1, so if the most common socket shape on screen is not a circle, this table is wrong. It has not been performed.",
+      "Consumers: treat shapeKindId as the authoritative value and these names as provisional labels. Join on the id. Do not persist the label as if it were data from the game."
+    ],
+    "values": [
+      { "id": 1, "name": "Circle", "count": 313 },
+      { "id": 2, "name": "Triangle", "count": 92 },
+      { "id": 3, "name": "Square", "count": 67 },
+      { "id": 4, "name": "Diamond", "count": 91 },
+      { "id": 5, "name": "Pentagon", "count": 82 }
+    ]
+  },
+
+  "upgradeCurrencies": {
+    "$comment": "The resource ids that upgrade a relic. They appear in resources[] like any other resource; listed here because the relationship between them and relics[].rank / relics[].level is the part a consumer cannot see from the payload alone.",
+    "source": "live resources/items dicts, cross-checked against the in-game balances and against the game's own description strings",
+    "confidence": "HIGH - ids matched live balances exactly and the names are the game's own strings",
+    "provenance": [
+      "The five Basalt ids sit in the ITEMS dict and matched the in-game balances 10/17/10/5/1 in rank order on 2026-08-03 - five values in sequence, so not a coincidence of one number.",
+      "Starstone sits in the RESOURCES dict and matched 19466.",
+      "Names are quoted from the game's own strings, not from a wiki: 'Rank 1 Basalt. Used to upgrade a Rank 1 Relic to Rank 2.' and 'You'll need to use a new resource - Starstones - to level up your Relics.'",
+      "All six were absent from the extraction engine's exclusive resource allowlist and were therefore DROPPED from every export before schema 11, however many the account held."
+    ],
+    "values": [
+      { "id": 4000, "name": "Starstone", "upgrades": "level", "note": "Levels a relic up. relics[].level steps by 3 (0, 3, 6, 9, 12, 15 observed)." },
+      { "id": 19001, "name": "Rank 1 Basalt", "upgrades": "rank", "note": "Raises a Rank 1 relic to Rank 2." },
+      { "id": 19002, "name": "Rank 2 Basalt", "upgrades": "rank", "note": "Raises a Rank 2 relic to Rank 3." },
+      { "id": 19003, "name": "Rank 3 Basalt", "upgrades": "rank", "note": "Raises a Rank 3 relic to Rank 4." },
+      { "id": 19004, "name": "Rank 4 Basalt", "upgrades": "rank", "note": "Raises a Rank 4 relic to Rank 5." },
+      { "id": 19005, "name": "Rank 5 Basalt", "upgrades": "rank", "note": "Raises a Rank 5 relic to Rank 6. No rank-6 relic was present on the reference account, but the currency for reaching one exists." }
+    ]
+  },
+
+  "notNamedHere": {
+    "$comment": "Ids the payload carries that this file deliberately does NOT name, and why. Stated explicitly so nobody concludes the tables are simply missing.",
+    "relicTypeId": "relics[].typeId. The game ships l10n:relic/name?id=N#static keys for 88 ids, but this client build has no localized strings behind them - all three candidate sibling offsets return the same SharedLTextKey.DefaultValue placeholder ('Relic 12 name'). Shipping those would be shipping placeholder text as if it were a name. It may be lazily loaded like other client-side tables, so re-check with `BlessingProbe --l10n \"l10n:relic/\"` after opening the relic screen. Belongs in a relic catalog either way, alongside rarity, group and stat bonuses.",
+    "gemstoneTypeId": "gemstones[].typeId. These DO resolve - 120 names and 120 descriptions from l10n:relic-stone/name?id=N#static, e.g. 1 Shieldbreaker, 17 Unstoppable, 20 Quickstrike. Not shipped here because they are catalog data describing the game, not the account, and belong with the rest of the relic catalog rather than split across two files.",
+    "relicRarity": "Not on the account record at all. RelicType.Rarity and RelicStoneType.Rarity are catalog fields reached through a shared type object, which the client hydrates lazily - the same trap that silently zeroed heroes[].factionId for 340 of 957 champions. Reading them per record would produce holes that look like data."
+  }
+}

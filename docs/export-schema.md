@@ -6,12 +6,13 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 10** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 11** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - The account's **clan roster** is a separate payload with its own contract:
   [`clan-export-schema.md`](clan-export-schema.md) / [`.json`](clan-export-schema.json).
-- Champion **role** ids are named in [`role-names.json`](role-names.json), and artifact slot / stat /
-  rank / set ids in [`artifact-enums.json`](artifact-enums.json) — static game metadata, not account
-  data (see `heroes[].roleId` and `artifacts[]` below).
+- Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
+  rank / set ids in [`artifact-enums.json`](artifact-enums.json), and relic socket shapes plus the
+  relic upgrade currencies in [`relic-enums.json`](relic-enums.json) — static game metadata, not
+  account data (see `heroes[].roleId`, `artifacts[]` and `relics[]` below).
 
 > **Maintenance rule:** any change to the emitted JSON — a new field, a renamed field, a changed type,
 > a new resource id, a changed resource *name* — must update this file **and** `export-schema.json`
@@ -45,6 +46,8 @@ there is no partial/patch mode.
   "heroes":     [ … ],                      // array
   "artifacts":  [ … ],                      // array — ALL gear owned (kindId 1-6), with stats
   "accessories": [ … ],                     // array — ALL rings/cloaks/banners (kindId 7-9)
+  "relics":     [ … ],                      // array — ALL relics owned, with their gemstone sockets
+  "gemstones":  [ … ],                      // array — ALL gemstones owned, socketed or not
   "factionGuardians": [ … ],                // array
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
@@ -84,8 +87,21 @@ of them changed in v1.5.4 alone. `id` is stable.
 
 **The array always contains every allowlisted id**, including ones the account holds none of, which
 are emitted with `quantity: 0`. So a missing id means "not in the allowlist", never "zero owned" —
-and the array length only changes when the allowlist itself changes. Current allowlist: **49 ids**
+and the array length only changes when the allowlist itself changes. Current allowlist: **55 ids**
 (see `extraction/resource-allowlist.json` / `.md` in the engine for the full annotated table).
+
+### Relic economy (new in schema 11 — previously dropped entirely)
+
+| id | name | notes |
+|---:|---|---|
+| 4000 | Starstone | levels a relic up; `relics[].level` steps by 3 |
+| 19001–19005 | Rank 1–5 Basalt | Rank N Basalt raises a rank-N relic to rank N+1 |
+
+**These six were never exported before schema 11**, not because accounts held none but because the
+allowlist is *exclusive* and none of them was on it. **An account's history for these ids therefore
+begins at schema 11** — do not read their absence in an older snapshot as a zero balance. This is
+the third occurrence of the same defect (Rank 1/2 Chickens, then the Immortal/Eternal Soul Essences),
+which is why the allowlist file now records how each addition was verified.
 
 ### Soul economy (corrected in v1.5.4 — read this if you consume these)
 
@@ -423,6 +439,90 @@ stronger signal than a record count that merely looks plausible.
 
 ---
 
+## `relics[]` and `gemstones[]` — the relic system, complete
+
+New in **schema 11**. Nothing resembling these arrays existed before, so there is nothing to migrate:
+a consumer that ignores both is exactly as correct as it was on schema 10.
+
+Two arrays, for the same reason gear and accessories are two arrays — the game counts them as two
+inventories with two counters, and **most gemstones are in no relic at all** (303 of 543 on the
+reference account). Nesting gemstones under the relic holding them would have hidden 56% of that
+inventory, which is precisely the failure that made schema 8's equipped-only `artifacts[]` look
+plausible while missing two thirds of the data.
+
+```jsonc
+"relics": [
+  {
+    "id": 5,                    // instance id, stable across upgrades and re-equips
+    "typeId": 12,               // the shared RelicType — join key into a relic catalog
+    "rank": 4,                  // 1-5 observed; Rank N Basalt (19000+N) raises N to N+1
+    "level": 12,                // Starstone (4000) levels it; steps by 3 — 0,3,6,9,12,15
+    "isActivated": true,
+    "equippedByHeroId": 52004,  // int64 → heroes[].instanceId, or null when in storage
+    "sockets": [
+      { "shapeKindId": 5, "stoneId": 202 },   // stoneId → gemstones[].id
+      { "shapeKindId": 1, "stoneId": 23  }
+    ]
+  }
+],
+"gemstones": [
+  {
+    "id": 202,
+    "typeId": 17,               // the shared RelicStoneType — join key into a gemstone catalog
+    "isActivated": true,
+    "socketedInRelicId": 5      // → relics[].id, or null when in storage
+  }
+]
+```
+
+### What is deliberately *not* here
+
+`typeId` on both arrays is a **join key, not data**. A relic's name, rarity, group, skill and stat
+bonuses hang off the shared `RelicType`, and a gemstone's off `RelicStoneType` — those describe the
+game, not the account, exactly like champion skill names and mastery-node metadata. They belong in a
+catalog keyed on `typeId`. Reading them per record would also be unsafe: the client hydrates shared
+type objects **lazily**, the same trap that silently exported `heroes[].factionId` as `0` for 340 of
+957 champions before 2026-08-01.
+
+### The two ends of the socket join agree by construction
+
+`relics[].sockets[].stoneId` and `gemstones[].socketedInRelicId` are the same fact from both
+directions; the second is derived by inverting the first, so it is a convenience for consumers that
+index gemstones directly, not a second source of truth. Verified live: 240 socketed gemstones, zero
+dangling references, zero disagreements between the two directions.
+
+Watch the id spaces — `sockets[].stoneId` is a **gemstone** id and does **not** join to `relics[].id`.
+
+### `shapeKindId` — the id is solid, the label is not
+
+A gemstone only fits a socket of its own shape, so `shapeKindId` decides what can go where. The
+game's `RelicStoneShapeKindId` enum declares five members (Circle, Triangle, Square, Diamond,
+Pentagon) and the live data carries exactly five values, 1–5 — but **which member is 1 is inferred
+from declaration order and is not independently confirmed.** IL2CPP enum members can carry explicit
+values, which is exactly how the artifact set table came to be wrong from id 4 onward. Join on the
+id; treat the names in [`relic-enums.json`](relic-enums.json) as provisional, and read the
+provenance block there before persisting a label.
+
+### Reconciling against the in-game counters
+
+Measured live 2026-08-03 (account Magikwolf, game 11.67.0):
+
+| | in game | payload |
+|---|---:|---:|
+| Relics total | 377 | `relics.length` = **377** |
+| Relics unequipped | 240 | `equippedByHeroId == null` → **240** |
+| Gemstones total | 543 | `gemstones.length` = **543** |
+| Gemstones unsocketed | 303 | `socketedInRelicId == null` → **303** |
+
+Same caveat as the artifact counters above: **a snapshot, not constants.** Test the relationship
+against counters read at the same moment.
+
+One relic per champion is what this account shows — 137 relics across 137 heroes, none with two —
+but that is an observation about the game's current rules, not something the payload enforces. The
+field is a per-relic hero reference, so handle a hero appearing more than once.
+
+---
+
 ## Storage and read APIs
 
 Not part of the wire contract — this is the shape the payload is built for, recorded so the server
@@ -486,6 +586,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 11 | v1.6.1 | 2026-08-03 | **New `relics[]` and `gemstones[]`; six new resource ids that were previously being DROPPED.** Two changes, both additive — nothing existing changes shape, and a consumer that ignores the new arrays is exactly as correct as it was on schema 10. (1) **The relic system is exported for the first time.** `relics[]` is every relic the account owns, equipped and stored, each with its gemstone sockets (377 total / 240 unequipped on the reference account); `gemstones[]` is every gemstone, socketed or not (543 / 303 unsocketed). Two arrays rather than one because the game counts them as two inventories and **56% of gemstones sit in no relic** — nesting them would have hidden all 303. Both `typeId`s are join keys into a relic catalog, not data: name, rarity, group and stat bonuses live on shared type objects the client hydrates lazily, so exporting them per record would produce holes that look like values. The socket join is verified in both directions (240 socketed, zero dangling refs). `sockets[].shapeKindId`'s **names are provisional** — the enum has five members and the data five values, but the member-to-value binding is inferred from declaration order, the same assumption that made the artifact set table wrong from id 4 onward; join on the id. New static-metadata file [`relic-enums.json`](relic-enums.json). (2) **`resources[]` 49 → 55 entries, and this half is a data-loss fix, not a feature.** `4000` Starstone and `19001`–`19005` Rank 1–5 Basalt are the relic upgrade currencies. None was on the engine's *exclusive* resource allowlist, so **every export ever made discarded all six regardless of how many the account held** — the third time this has happened, after Rank 1/2 Chickens (2026-07-28) and the Immortal/Eternal Soul Essences (2026-07-29). Ids were read from a live dump and matched against in-game balances rather than inferred from a numbering pattern: the five Basalt ranks matched 10/17/10/5/1 *in rank order*, Starstone matched 19,466. **Consumer impact: an account's Basalt and Starstone history begins at this schema** — their absence before now was never evidence the player had none. |
 | 10 | v1.6.0 | 2026-08-02 | **No wire change — `setKindId`'s meaning is corrected and split.** Same payload, same fields, same uploader binary; what changes is what the ids mean, so a consumer storing set *labels* must re-derive them. Two parts. (1) **The set names were wrong from id 4 onward** in everything published before this: the table read 4 Critical Rate / 5 Accuracy / 6 Speed where the game says 4 Speed / 5 Critical Rate / 6 Crit Damage, and 47 Stone Skin where the game says 47 Protection with Stone Skin at 48; the tail (60 Bloodshield, 61 Clan Boss, 62 Debuffer, 65 Provoke, 66 Soulbound) was not set names at all. [`artifact-enums.json`](artifact-enums.json) now carries the game's own localized strings, each confirmed against a matching description (`1 Life` ↔ "2 Set: HP +15%"). (2) **`setKindId` carries two id spaces**: 0–66 are sets, **1000–1004 are accessory effects** — one item's own effect, no piece count, no set bonus — occurring on 76 of 2,969 accessories and on no gear. Group "by set" over the 1000s and you invent five sets that do not exist. Join on the id, never the name: Cleansing, Bloodshield, Reaction and Revenge appear in both spaces. |
 | 9 | v1.6.0 | 2026-08-02 | **BREAKING — artifacts are now the complete vault with real stats, and split into `artifacts[]` (gear) + a new `accessories[]`.** `artifacts[]` changes meaning: it was ~1.9k equipped ids across all nine slots with every stat `0`; it is now **every gear piece the account owns** (2,811 on the reference account, 1,922 of them unequipped) with real `setKindId` / `rankId` / `rarityId` / `level` / `ascendLevel`, plus `primaryBonus`, `secondaryBonuses[]` and `ascendBonus` — the actual stat lines. Rings, cloaks and banners moved out to **`accessories[]`** (2,969 / 2,000 unequipped), same record shape. `heroInstanceId` is renamed **`equippedByHeroId`** and is now nullable: `null` means the piece is in the vault, which is most of them. `primaryStatId` is **gone** — the primary stat is `primaryBonus.statKindId` with its value. **Consumer impact, in order of how badly it bites:** (1) a consumer reading `artifacts[]` for accessories now silently sees none — read both arrays; (2) `artifacts.length` is no longer an equipped count, it is an owned count, so anything treating a record's presence as "equipped" must switch to `equippedByHeroId != null`; (3) the schema 7 rule "a `0` stat means unknown" is **reversed** — `0` is now a real value, and code gating writes on non-zero will drop legitimate zeroes; (4) **`kindId`'s slot names were wrong in schemas 7–8** — the correct order is the game's `ArtifactKindId` (1 Helmet, 2 Chest, 3 Gloves, 4 Boots, 5 Weapon, 6 Shield), not the 1 Weapon / 2 Helmet / 3 Shield this file used to claim, so a consumer that hard-coded labels is mislabelling slots today. New static-metadata file [`artifact-enums.json`](artifact-enums.json) names slot / stat / rank / set ids. Why now: the "artifact stats live in Unity ECS and are unreachable" conclusion behind schema 7 was false. It rested on a full-memory scan that reported the game's `CachedArtifacts` object no longer existed — that scan stepped one address per 4 KB page, testing 1 candidate in 512. The object was there all along, holding a `Dictionary<int, Artifact>` of the entire vault. Cost: +3 s on the first export of a game session (+5 s more the first time a game build is unknown), ~0.3 s on later exports in the same session. |
 | 8 | v1.5.9 | 2026-08-01 | **New `heroes[].skills[]` and `heroes[].roleId`; `heroes[].factionId` silently gets more accurate.** `skills[]` is one `{typeId, level}` per skill on that copy, sorted by `typeId`, always present (3,082 records across 957 heroes on the mapping account). `level` is **1-based** — books applied is `level - 1` — and the per-skill **cap is not here**, so `"level": 5` cannot be read as maxed without a skill catalog joined on `typeId` (the engine cannot read the cap either: the static `SkillType` is null on the account graph). **`typeId` is opaque**: it is usually `baseTypeId*10 + slot`, but a champion with a second form also carries that form's block at `800000 + own id`, and some skills sit in another champion's block entirely, so deriving it instead of joining drops data. `roleId` is the game's `HeroRole` enum — `0` Attack, `1` Defense, `2` Health/"HP", `3` Support, `4` Evolve, `5` Xp — named in the new [`role-names.json`](role-names.json). **Consumer impact: `roleId` is nullable and `null` ≠ `0`**, because `0` is Attack; expect ~19% null on a mature roster (the client hydrates a champion's shared type lazily) and prefer a champion metadata catalog keyed on `baseTypeId` as authoritative — role is champion-constant game data, and this field is a denormalized convenience. Same root cause fixed a pre-existing silent bug: `factionId` came off that same lazily-hydrated object and had been exporting `0` for 340 of 957 heroes; both fields are now backfilled from another copy of the same `baseTypeId`, recovering 156. `factionId` keeps `0`-as-unknown for compatibility. |
