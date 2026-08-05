@@ -80,6 +80,16 @@ is indistinguishable from a hang; don't regress it to one.
 Because the whole UI is WebView2, the runtime (preinstalled on Win11) is now load-bearing; if it's
 missing, `AppShell` shows a plain fallback label instead of the page.
 
+**An uncovered game build resolves itself; it no longer asks the user to file a report.** When Raid
+updates ahead of a release, the app asks RSL Companion for a published memory map
+(`Endpoints.BuildCertification`) and installs it into the user's own
+`calibrated-offsets.json`, and only falls back to the ~35–50 s local calibration scan when the server
+has none. The lookup is **opt-in** — a TaskDialog with a "Check automatically from now on"
+verification box, one offer per build per session, the tick persisted to
+`settings.json`. The `reportBuild` bridge action kept its name but now drives that flow (the old
+GitHub-issue prompt is gone), and the banner clears once *any* local map exists, certified or
+self-calibrated — `CoveredByShippedCatalog` alone would keep nagging a user who already fixed it.
+
 File-based JSON import (`resources` / `champions`) used to live here but was moved to the
 rslcompanion.com metadata tooling — do not reintroduce it in this app.
 
@@ -120,6 +130,11 @@ tables, but they ship here because the payload's ids are opaque without them:
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
+A third pair runs the **other way** — it is what the uploader *receives*:
+[docs/build-certification-schema.md](docs/build-certification-schema.md) / [.json](docs/build-certification-schema.json)
+is the response to `GET /api/extractor/offsets/{gameAssemblyHash}`, the memory map for a game build
+this release predates. Same maintenance rule.
+
 [docs/raidtools-schema10-migration.md](docs/raidtools-schema10-migration.md) is the consumer-side
 migration guide for the schema 9 + 10 artifact changes, written to be handed straight to an agent
 working on RaidTools. It is a **summary of the contract, not part of it** — if it ever disagrees with
@@ -149,6 +164,11 @@ them optional for that reason).
 | `ApiBaseUrl` | RSL Companion API origin | `https://api.rslcompanion.com` |
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
 | `Endpoints.SyncClan` | Clan sync path for "Export clan" | `/api/sync/clan/raw` |
+| `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
+
+User preferences the app writes back live in `%LOCALAPPDATA%\RslCompanion\settings.json`
+([UserSettings.cs](UserSettings.cs)) — *not* in `appsettings.json`, which is install-time config next
+to the exe and part of the installer's signed file set.
 
 ## Build & release
 

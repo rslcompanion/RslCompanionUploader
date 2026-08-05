@@ -29,6 +29,14 @@ public sealed class AppConfig
     public string SyncClanEndpoint { get; init; } = "/api/sync/clan/raw";
 
     /// <summary>
+    /// Server-relative path the build-certification lookup GETs, with the GameAssembly SHA-256
+    /// appended as a path segment. Returns a memory map for a game build this release predates, so a
+    /// user who updated Raid first can skip the ~35 s calibration scan. Contract:
+    /// <c>docs/build-certification-schema.md</c> / <c>.json</c>.
+    /// </summary>
+    public string BuildCertificationEndpoint { get; init; } = "/api/extractor/offsets";
+
+    /// <summary>
     /// Server-relative page the app opens in the user's browser to sign in. When a session is already
     /// active there, that page should launch <c>rslcompanion-extractor://sync?rt=...</c> to hand the
     /// refresh token back to the app.
@@ -65,6 +73,7 @@ public sealed class AppConfig
                 FirebaseProjectId = fb.ValueKind == JsonValueKind.Object ? Str(fb, "ProjectId", def.FirebaseProjectId) : def.FirebaseProjectId,
                 SyncConsolidatedEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncConsolidated", def.SyncConsolidatedEndpoint) : def.SyncConsolidatedEndpoint,
                 SyncClanEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncClan", def.SyncClanEndpoint) : def.SyncClanEndpoint,
+                BuildCertificationEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "BuildCertification", def.BuildCertificationEndpoint) : def.BuildCertificationEndpoint,
                 ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };
         }

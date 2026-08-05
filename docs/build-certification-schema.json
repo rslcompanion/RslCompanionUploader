@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/build-certification-schema.json",
+  "title": "RSL Companion build certification response",
+  "description": "Body of a 200 from GET {ApiBaseUrl}/api/extractor/offsets/{gameAssemblyHash}. Unlike the export schemas in this folder, this contract runs server -> client: it is what the uploader RECEIVES. It carries the memory map for one Raid build, keyed by SHA-256(GameAssembly.dll), so a user who updated the game before a matching uploader release skips the ~35-50s local calibration scan. A 404 means no map is published for that build yet and is the normal answer for a new game version, not an error. Human-readable contract and changelog: build-certification-schema.md (keep both in sync, same commit).",
+  "certificationVersion": 1,
+  "x-uploaderVersion": "1.7.0",
+  "x-lastUpdated": "2026-08-05",
+  "x-request": {
+    "method": "GET",
+    "path": "/api/extractor/offsets/{gameAssemblyHash}",
+    "query": {
+      "uploaderVersion": "required - the running app's version, so the server can decide whether the map is usable by it",
+      "gameVersion": "optional - display label such as 11.70.0; never used to select a map"
+    },
+    "auth": "Authorization: Bearer <Firebase ID token>",
+    "privacy": "Build identifiers only. No account data, no game state, nothing that distinguishes one player on a build from another. The check is opt-in; the preference lives in %LOCALAPPDATA%/RslCompanion/settings.json."
+  },
+  "x-relatedSchemas": {
+    "account": "export-schema.json - the account snapshot the uploader POSTs once a map exists.",
+    "clan": "clan-export-schema.json - the separate clan payload."
+  },
+  "type": "object",
+  "required": ["certificationVersion", "gameAssemblyHash", "offsets"],
+  "additionalProperties": true,
+  "properties": {
+    "certificationVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Version of THIS contract. Bumped on every wire change so the client can reject a response it was not written against.",
+      "examples": [1]
+    },
+    "gameAssemblyHash": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{64}$",
+      "description": "Echoes the requested hash: lowercase hex SHA-256 of the game's GameAssembly.dll. The client RE-CHECKS this and discards a response that does not match what it asked about. The hash is the key rather than the version string because the game can ship different binaries under one version label, and a map applied to the wrong binary produces silently wrong reads instead of a clean failure.",
+      "examples": ["9f2c1b7e4a0d6c58e3b1f0a2d9c4e6b8a1f3d5c7e9b2a4d6c8e0f1a3b5d7c9e1"]
+    },
+    "gameVersion": {
+      "type": ["string", "null"],
+      "description": "Raid version as players know it, for display only (log lines, prompts). Never used to select a map.",
+      "examples": ["11.70.0"]
+    },
+    "minUploaderVersion": {
+      "type": ["string", "null"],
+      "description": "Oldest uploader version that can use this map. Omit when any released version can. A map can exist and still not be usable: a newer engine can add offsets an older one has no code to read. When the running app is behind this, the client installs NOTHING and tells the user to update. An unparseable version on either side is treated as compatible - refusing to certify over a malformed string would strand the user on a scan for no gain.",
+      "examples": ["1.6.2"]
+    },
+    "publishedAt": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO-8601 UTC instant the map was published. Informational; the client does not order by it.",
+      "examples": ["2026-08-05T11:02:19Z"]
+    },
+    "offsets": {
+      "type": "object",
+      "description": "The memory map: one entry of the extraction engine's build catalog, exactly as calibrated-offsets.json and the shipped known-offsets.json store it under this hash. DELIBERATELY NOT ENUMERATED HERE - its field set is defined by the private engine and grows as the engine learns new offsets, so pinning it in this schema would create a second definition free to drift from the one that matters. The API stores and serves it verbatim; the natural source is the matching entry from a user's own calibrated-offsets.json. MUST NOT contain session-local addresses (userContext_DirectAddress, cachedArtifacts_DirectAddress, resources_EntriesDirectAddress, items_DictDirectAddress, heroType_KlassAddress, allianceNote_KlassAddress, userNote_KlassAddress) - those are live heap pointers that die on game restart, and a stale one does not read as dead. The engine strips them when writing a catalog file, so an entry copied from one is already clean.",
+      "minProperties": 1,
+      "additionalProperties": true,
+      "examples": [
+        {
+          "gameVersion": "11.70.0",
+          "resolvedAt": "2026-08-05T09:41:00Z",
+          "user_AccountIdOffset": 24,
+          "ugd_HeroesDictOffset": 64
+        }
+      ]
+    }
+  },
+  "x-statusCodes": {
+    "200": "A map for this build is published; body validates against this schema.",
+    "404": "No map for this build yet. The NORMAL answer for a game update we have not mapped - the client falls back to a local calibration scan. Do not return 500 for it and do not log it as an error.",
+    "401/403": "Session invalid. Reported to the user, then the client falls back to local calibration.",
+    "5xx": "Lookup failed. Reported, then the client falls back to local calibration."
+  },
+  "x-clientBehaviour": [
+    "Rejects a gameAssemblyHash that is not the one it asked about.",
+    "Rejects the response when minUploaderVersion is newer than the running app, and tells the user to update instead.",
+    "Writes offsets into %LOCALAPPDATA%/RslCompanion/calibrated-offsets.json under the build hash - the same catalog a local calibration writes - REPLACING any existing entry for that hash, since a published map is authoritative for every field it carries.",
+    "Re-probes the running game. No app restart."
+  ],
+  "x-changelog": [
+    {
+      "certificationVersion": 1,
+      "date": "2026-08-05",
+      "change": "Initial contract."
+    }
+  ]
+}

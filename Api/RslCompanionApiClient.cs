@@ -86,6 +86,35 @@ public sealed class RslCompanionApiClient
         => PostSyncAsync(_config.SyncClanEndpoint, clanJson, ct);
 
     /// <summary>
+    /// Asks the server whether it has a memory map for <paramref name="gameAssemblyHash"/> — the game
+    /// build the user is running, which this release predates. A 404 is the normal "not published
+    /// yet" answer, not a failure, so it is a distinct outcome rather than an exception.
+    ///
+    /// Returns the response body verbatim; parsing it is the caller's job, because the offsets blob
+    /// inside is the extraction engine's catalog entry and only the engine defines its shape.
+    /// Contract: <c>docs/build-certification-schema.md</c> / <c>.json</c>.
+    /// </summary>
+    public async Task<CertificationResult> GetCertifiedBuildAsync(
+        string gameAssemblyHash, string? gameVersion, string uploaderVersion, CancellationToken ct = default)
+    {
+        var path = $"{_config.BuildCertificationEndpoint}/{Uri.EscapeDataString(gameAssemblyHash)}" +
+                   $"?uploaderVersion={Uri.EscapeDataString(uploaderVersion)}" +
+                   (string.IsNullOrWhiteSpace(gameVersion) ? "" : $"&gameVersion={Uri.EscapeDataString(gameVersion)}");
+
+        using var req = await BuildRequestAsync(HttpMethod.Get, path, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+
+        if (resp.StatusCode == HttpStatusCode.NotFound)
+            return CertificationResult.NotPublished();
+
+        if (!resp.IsSuccessStatusCode)
+            return CertificationResult.Fail($"Compatibility check failed ({(int)resp.StatusCode} {resp.ReasonPhrase}). {Trim(body)}");
+
+        return CertificationResult.Found(body);
+    }
+
+    /// <summary>
     /// The shared POST for both sync payloads. A 404 is called out separately because it means
     /// something different from a failure: the endpoint isn't deployed yet, which is a server-side
     /// state the user can do nothing about and must not read as "your export is broken".
@@ -114,4 +143,21 @@ public readonly record struct UploadResult(bool Success, string Message)
 {
     public static UploadResult Ok(string message) => new(true, message);
     public static UploadResult Fail(string message) => new(false, message);
+}
+
+public enum CertificationStatus
+{
+    /// <summary>The server published a mapping for this build.</summary>
+    Found,
+    /// <summary>No mapping yet — the expected answer for a game update we haven't mapped.</summary>
+    NotPublished,
+    /// <summary>The lookup itself failed (offline, server error).</summary>
+    Failed,
+}
+
+public readonly record struct CertificationResult(CertificationStatus Status, string? Body, string? Error)
+{
+    public static CertificationResult Found(string body) => new(CertificationStatus.Found, body, null);
+    public static CertificationResult NotPublished() => new(CertificationStatus.NotPublished, null, null);
+    public static CertificationResult Fail(string error) => new(CertificationStatus.Failed, null, error);
 }
