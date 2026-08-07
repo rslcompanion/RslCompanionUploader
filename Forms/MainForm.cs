@@ -32,7 +32,7 @@ public sealed class MainForm : Form
     private const string UploaderSyncMethod = "ConsolidatedJson";
 
     private readonly AppConfig _config;
-    private readonly FirebaseAuthClient _auth;
+    private readonly ExtractorHandoff _handoff;
     private readonly RslCompanionApiClient _api;
 
     private readonly AppShell _shell = new() { Dock = DockStyle.Fill };
@@ -99,10 +99,10 @@ public sealed class MainForm : Form
     private readonly CancellationTokenSource _statusCts = new();
 #endif
 
-    public MainForm(AppConfig config, FirebaseAuthClient auth, RslCompanionApiClient api)
+    public MainForm(AppConfig config, ExtractorHandoff handoff, RslCompanionApiClient api)
     {
         _config = config;
-        _auth = auth;
+        _handoff = handoff;
         _api = api;
 
         // The running version is in the title bar as well as Help → About: "which build am I on?"
@@ -132,10 +132,9 @@ public sealed class MainForm : Form
         _shell.SignInRequested += () => BeginInvoke(new Action(SignIn));
         _shell.SignOutRequested += () => BeginInvoke(new Action(SignOut));
 #if EXTRACTION
-        // Both export actions live on the shell's live tile; each reads the running game and routes
-        // by the in-game id it finds there, regardless of which tile drove the label.
+        // The export action lives on the shell's live tile; it reads the running game and routes by
+        // the in-game id it finds there, regardless of which tile drove the label.
         _shell.ExportRequested += async () => await ExportAccountAsync();
-        _shell.ExportClanRequested += async () => await ExportClanAsync();
         // Deferred for the same reason as SignIn below: this path can open a modal TaskDialog, and
         // doing that inside the WebView2 message handler crashes the host.
         _shell.ReportBuildRequested += () => BeginInvoke(new Action(ReportUncoveredBuild));
@@ -166,7 +165,7 @@ public sealed class MainForm : Form
     /// </summary>
     private async void SignIn()
     {
-        using var dlg = new BrowserSignInForm(_config, _auth);
+        using var dlg = new BrowserSignInForm(_config, _handoff);
         if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Session is null)
             return;
 
@@ -909,58 +908,6 @@ public sealed class MainForm : Form
         }
     }
 
-    /// <summary>
-    /// Exports the running account's clan — the record, and the roster with each member's display
-    /// name — to the separate clan sync endpoint. Self-identifying in the same way as the account
-    /// export: the payload carries the in-game <c>accountId</c> and the server routes by it.
-    ///
-    /// <para>Its own action because it is its own cost. Neither object it needs is reachable from
-    /// the game's account data, so the engine finds both by scanning the whole process: 18–31 s the
-    /// first time in a game session, ~7 s after, against ~4 s for the entire account snapshot.
-    /// Folding that into "Update user data" would have made the routine export seven times slower
-    /// for data most users want occasionally.</para>
-    /// </summary>
-    private async Task ExportClanAsync()
-    {
-        SetBusy(true, "clan");
-        Log("Reading your clan from the running game. This searches the game's memory and can take "
-          + "up to a minute — the game keeps no direct route to the clan roster.");
-        try
-        {
-            var profile = await ExtractClanProfileAsync();
-
-            if (profile.Clan is null)
-            {
-                // Not a failure: an account in no clan, or a client that hasn't cached the record,
-                // both land here. Posting an empty roster would be worse than posting nothing.
-                Log("No clan found for this account. If you are in one, open the in-game Clan screen "
-                  + "so the game loads it, then try again.");
-                return;
-            }
-
-            var clan = profile.Clan;
-            int named = clan.Members.Count(m => !string.IsNullOrEmpty(m.Name));
-            Log($"Found {clan.Name} (clan ID {clan.Id}) — {clan.Members.Count} members, {named} with names.");
-
-            Log("Exporting the clan to RSL Companion…");
-            var gameVersion = (_buildInfo ?? ExtractionService.TryGetGameBuild())?.GameVersion;
-            var result = await _api.UploadClanAsync(SerializeWithProvenance(profile, gameVersion));
-            Log(result.Message);
-
-            // The clan name is shown on the tiles, so a successful export can change what they say.
-            if (result.Success)
-                await LoadAccountsAsync();
-        }
-        catch (Exception ex)
-        {
-            Log($"Clan export failed: {DescribeExtractionFailure(ex)}");
-        }
-        finally
-        {
-            SetBusy(false);
-        }
-    }
-
     // Mirrors the RaidTools API (ConsolidatedJsonSyncAdapter): an account's numeric UserId is the
     // in-game accountId parsed as a uint. Lets us match the running game account to a registered tile.
     private static int? GameUserId(string? accountId)
@@ -1006,9 +953,8 @@ public sealed class MainForm : Form
     /// <paramref name="gameVersion"/> is the live Raid build ("11.67.0"); null when it couldn't be
     /// read. <c>uploaderVersion</c> is this app's own build (the value shown in About).
     ///
-    /// Both sync payloads (consolidated and clan) carry the same two provenance fields, which is why
-    /// this takes an object: when a payload turns out to be wrong, the first question is always which
-    /// uploader against which game build produced it.
+    /// Kept because when a payload turns out to be wrong, the first question is always which uploader
+    /// against which game build produced it — and the server's own triage log keys off both.
     /// </summary>
     private static string SerializeWithProvenance(object payload, string? gameVersion)
     {
@@ -1022,23 +968,12 @@ public sealed class MainForm : Form
     /// Runs the private extraction engine against the live Raid process on a background thread,
     /// mirroring its console diagnostics into the activity log. Backs "Update user data"; always
     /// pulls resources + champions, and artifacts when <see cref="ExportArtifacts"/> is enabled.
+    ///
+    /// <para>The <c>Console</c> redirect is process-wide, so it is restored in a finally. It is what
+    /// makes the engine's own phase lines visible while a cold vault lookup runs for several
+    /// seconds.</para>
     /// </summary>
-    private Task<ConsolidatedProfile> ExtractProfileAsync() =>
-        RunEngineAsync(cachePath =>
-            ExtractionService.ExtractConsolidatedAsync(cachePath: cachePath, includeArtifacts: ExportArtifacts)
-                             .GetAwaiter().GetResult());
-
-    /// <summary>Backs "Export clan" — the slow, scan-based clan export. See <see cref="ExportClanAsync"/>.</summary>
-    private Task<ClanProfile> ExtractClanProfileAsync() =>
-        RunEngineAsync(cachePath =>
-            ExtractionService.ExtractClanAsync(cachePath: cachePath).GetAwaiter().GetResult());
-
-    /// <summary>
-    /// Runs one engine entry point off the UI thread with its <c>Console</c> output redirected into
-    /// the activity log. The redirect is process-wide, so it is restored in a finally — and it is
-    /// what makes the clan export's progress lines visible while it scans.
-    /// </summary>
-    private Task<T> RunEngineAsync<T>(Func<string, T> extract)
+    private Task<ConsolidatedProfile> ExtractProfileAsync()
     {
         string cachePath = Path.Combine(AppContext.BaseDirectory, "offsets_cache.json");
         return Task.Run(() =>
@@ -1050,7 +985,8 @@ public sealed class MainForm : Form
             Console.SetError(writer);
             try
             {
-                return extract(cachePath);
+                return ExtractionService.ExtractConsolidatedAsync(cachePath: cachePath, includeArtifacts: ExportArtifacts)
+                                        .GetAwaiter().GetResult();
             }
             finally
             {
@@ -1078,9 +1014,9 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Marks the app busy. <paramref name="kind"/> ("export" / "clan") tells the page which button
-    /// is the one running, so it can show progress there instead of only greying everything out —
-    /// which matters for the clan export, where nothing visibly happens for up to a minute.
+    /// Marks the app busy. <paramref name="kind"/> ("export", or null for background work like an
+    /// account reload) tells the page which button is the one running, so it can show progress on it
+    /// instead of only greying everything out.
     /// </summary>
     private void SetBusy(bool busy, string? kind = null)
     {

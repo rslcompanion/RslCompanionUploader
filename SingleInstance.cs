@@ -9,7 +9,7 @@ namespace RslCompanionUploader;
 /// arguments to the already-running instance instead of opening a second window.
 ///
 /// This is what makes browser sign-in work: the app opens the user's browser and keeps waiting; when
-/// the website fires <c>rslcompanion-extractor://sync?rt=...</c>, Windows starts a *second* copy of
+/// the website fires <c>rslcompanion-extractor://sync?code=...</c>, Windows starts a *second* copy of
 /// the exe with that URI. The second copy fails to take the mutex, forwards its args over a named
 /// pipe to the primary, and exits. The primary raises <see cref="SecondInstanceLaunched"/> so the
 /// waiting sign-in window can complete the handoff.

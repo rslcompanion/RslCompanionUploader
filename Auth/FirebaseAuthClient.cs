@@ -7,10 +7,12 @@ namespace RslCompanionUploader.Auth;
 /// Talks to Google's Firebase Auth REST API using the same project/apiKey the RaidTools web app
 /// uses, so the ID tokens it mints are accepted by <c>api.rslcompanion.com</c> unchanged.
 ///
-/// Sign-in is browser-based (the website hands over a refresh token via the protocol launch), so
-/// only the token endpoints are used:
+/// Sign-in is browser-based: the website mints a one-time handoff code, this app redeems it at the
+/// RSL Companion API for a Firebase <b>custom token</b> (see <see cref="ExtractorHandoff"/>), and
+/// that is what gets exchanged here for a session of the app's own. So only three endpoints are used:
+///   • custom token      → identitytoolkit  accounts:signInWithCustomToken
 ///   • refresh           → securetoken      /v1/token (grant_type=refresh_token)
-///   • lookup (identity)  → identitytoolkit  accounts:lookup
+///   • lookup (identity) → identitytoolkit  accounts:lookup
 /// </summary>
 public sealed class FirebaseAuthClient
 {
@@ -27,18 +29,24 @@ public sealed class FirebaseAuthClient
     private const string SecureTokenBase = "https://securetoken.googleapis.com/v1";
 
     /// <summary>
-    /// Signs in from a bare refresh token (handed over by the website's protocol launch):
-    /// exchanges it for an ID token, then looks up who it belongs to.
+    /// Signs in with a Firebase custom token minted by the RSL Companion API for a redeemed handoff
+    /// code, then looks up who it belongs to.
+    ///
+    /// <para>The tokens that come back are this app's <b>own</b> ID and refresh tokens — the
+    /// browser's credentials are never shared, which is the point of the custom-token handshake.</para>
     /// </summary>
-    public async Task<AuthSession> SignInWithRefreshTokenAsync(string refreshToken, CancellationToken ct = default)
+    public async Task<AuthSession> SignInWithCustomTokenAsync(string customToken, CancellationToken ct = default)
     {
-        var seed = new AuthSession
+        var url = $"{IdentityBase}/accounts:signInWithCustomToken?key={_apiKey}";
+        using var resp = await _http.PostAsJsonAsync(url, new { token = customToken, returnSecureToken = true }, ct);
+        var json = await ReadOrThrowAsync(resp, ct);
+
+        var session = new AuthSession
         {
-            IdToken = string.Empty,
-            RefreshToken = refreshToken,
-            ExpiresAtUtc = DateTime.MinValue,
+            IdToken = json.GetProperty("idToken").GetString()!,
+            RefreshToken = json.GetProperty("refreshToken").GetString()!,
+            ExpiresAtUtc = DateTime.UtcNow.AddSeconds(int.Parse(json.GetProperty("expiresIn").GetString()!)),
         };
-        var session = await RefreshAsync(seed, ct);
         return await EnrichIdentityAsync(session, ct);
     }
 
@@ -126,6 +134,10 @@ public sealed class FirebaseAuthClient
         "EMAIL_NOT_FOUND" or "INVALID_PASSWORD" or "INVALID_LOGIN_CREDENTIALS"
             => "Incorrect email or password.",
         "USER_DISABLED" => "This account has been disabled.",
+        // The custom-token leg: the API minted a token this Firebase project won't accept, which is a
+        // server/config fault rather than anything the user got wrong — say so instead of "sign-in failed".
+        "INVALID_CUSTOM_TOKEN" or "CREDENTIAL_MISMATCH" or "TOKEN_EXPIRED"
+            => "Sign-in was rejected by Firebase. Launch the Extractor from rslcompanion.com again.",
         "TOO_MANY_ATTEMPTS_TRY_LATER" => "Too many attempts. Please try again later.",
         "MISSING_PASSWORD" => "Please enter your password.",
         "INVALID_EMAIL" => "That email address is not valid.",

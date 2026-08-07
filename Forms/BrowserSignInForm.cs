@@ -6,10 +6,11 @@ namespace RslCompanionUploader.Forms;
 /// <summary>
 /// Browser-based sign-in, shown as a lightweight splash. Instead of collecting credentials in-app,
 /// this opens the user's real default browser to rslcompanion.com. If they already have an active
-/// session there, the site immediately hands a Firebase refresh token back via the
+/// session there, the site immediately hands a one-time handoff code back via the
 /// <c>rslcompanion-extractor://</c> protocol; otherwise the user signs in on the website once and the
 /// same handoff happens. The forwarded launch reaches this window through
-/// <see cref="SingleInstance.SecondInstanceLaunched"/>.
+/// <see cref="SingleInstance.SecondInstanceLaunched"/>, and <see cref="ExtractorHandoff"/> redeems
+/// the code for a session of this app's own.
 ///
 /// The window is deliberately bare — it is a transient "waiting for the browser" state, not a form the
 /// user fills in. The only affordances are a "remember me" checkbox (<see cref="RememberMe"/>, read by
@@ -19,7 +20,7 @@ namespace RslCompanionUploader.Forms;
 public sealed class BrowserSignInForm : Form
 {
     private readonly AppConfig _config;
-    private readonly FirebaseAuthClient _auth;
+    private readonly ExtractorHandoff _handoff;
 
     private readonly Label _status = new()
     {
@@ -70,10 +71,10 @@ public sealed class BrowserSignInForm : Form
     /// </summary>
     public bool RememberMe => _rememberMe.Checked;
 
-    public BrowserSignInForm(AppConfig config, FirebaseAuthClient auth)
+    public BrowserSignInForm(AppConfig config, ExtractorHandoff handoff)
     {
         _config = config;
-        _auth = auth;
+        _handoff = handoff;
 
         Text = "RSL Companion";
         Icon = AppIcon.Value;
@@ -94,7 +95,7 @@ public sealed class BrowserSignInForm : Form
         KeyPreview = true;
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) { DialogResult = DialogResult.Cancel; Close(); } };
 
-        // The browser-launched instance forwards the token here through the single-instance pipe.
+        // The browser-launched instance forwards the handoff code here through the single-instance pipe.
         SingleInstance.SecondInstanceLaunched += OnSecondInstance;
         FormClosed += (_, _) => SingleInstance.SecondInstanceLaunched -= OnSecondInstance;
 
@@ -223,16 +224,25 @@ public sealed class BrowserSignInForm : Form
     {
         if (_completing) return;
 
-        var refreshToken = ProtocolHandler.TryGetRefreshToken(args);
-        if (string.IsNullOrEmpty(refreshToken)) return; // some other launch arg — keep waiting
+        var code = ProtocolHandler.TryGetHandoffCode(args);
+        if (string.IsNullOrEmpty(code)) return; // some other launch arg (e.g. ping) — keep waiting
 
         _completing = true;
         SetBusy("Signing you in…");
         try
         {
-            Session = await _auth.SignInWithRefreshTokenAsync(refreshToken);
+            Session = await _handoff.SignInAsync(code);
             DialogResult = DialogResult.OK;
             Close();
+        }
+        catch (HandoffException ex)
+        {
+            // Already phrased for the user, and already says what to do — appending our own "try
+            // again" would tell them twice. The retry link below mints a fresh code, which is exactly
+            // what a used or expired one needs.
+            _completing = false;
+            _retry.Enabled = true;
+            SetStatus(ex.Message, isError: true);
         }
         catch (Exception ex)
         {

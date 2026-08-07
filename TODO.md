@@ -9,7 +9,7 @@ If we commit to a fully web UI, the natural next step is to fold File/Help into 
 (the user chip in the design mockup) and drop the `MenuStrip` from [Forms/MainForm.cs](Forms/MainForm.cs).
 That means routing the remaining menu actions through the shell bridge instead of native handlers:
 Check for updates, Recalibrate (EXTRACTION-only), and About. Everything else already goes through
-the bridge — export, export-clan, refresh, sign out, report-build, open-url — so the pattern is set.
+the bridge — export, refresh, sign out, report-build, open-url — so the pattern is set.
 Help ▸ "Open rslcompanion.com" is now a duplicate of the page's "Open RSL Helper" button and can
 simply be dropped with the menu.
 

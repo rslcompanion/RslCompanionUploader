@@ -9,29 +9,29 @@ exports the live Raid: Shadow Legends account to RSL Companion.
 0. **Browser launch (protocol handler)** — on every startup the app registers the
    `rslcompanion-extractor://` URI scheme under HKCU (no admin needed). rslcompanion.com's
    "Launch Account Data Extractor" button opens
-   `rslcompanion-extractor://sync?rt=<firebase refresh token>`; the app exchanges the refresh
-   token for a session and skips the login screen entirely.
-1. **Sign in** — reuses RaidTools' auth (Firebase project `raid-account-manager`):
-   - **Email / password** — native form, via the Firebase REST API (`accounts:signInWithPassword`).
-   - **Google / Microsoft / Discord** — a "Sign in with browser" button opens the live
-     rslcompanion.com login in an embedded WebView2. All three providers work exactly as on the
-     website; the app then reads the resulting Firebase ID token + refresh token out of the page's
-     IndexedDB. No extra OAuth client IDs/secrets are needed.
+   `rslcompanion-extractor://sync?code=<one-time handoff code>`; the app redeems that code at
+   `POST /api/extractor/handoff/exchange` for a Firebase custom token, signs in with it, and skips
+   the login screen entirely. The code is single-use and lives about a minute — Windows puts a
+   protocol URI on the handler's command line, where anything longer-lived would be a real
+   credential sitting somewhere every local process can read.
+1. **Sign in** — reuses RaidTools' auth (Firebase project `raid-account-manager`). There is no
+   in-app credential form: the **Sign In** button opens the user's real default browser to
+   rslcompanion.com, and whichever provider they use there (email/password, Google, Microsoft,
+   Discord) the site hands back a handoff code over the protocol scheme above. The app then holds
+   its own Firebase ID and refresh tokens; the browser's are never shared.
 2. **View your accounts** — the UI (a single full-window WebView2 page styled like the site) lists
    accounts from `GET /api/accounts` (Bearer = Firebase ID token) as status tiles: Raid closed shows
    a red "open Raid" prompt, an unimported running account shows a "new account detected" tile, and
    the profile matching the running game turns green. Only that last tile is interactive — it
-   carries the export buttons below, since both read the running game and so can target no other
+   carries the export button below, since that reads the running game and so can target no other
    account.
 3. **Update user data** *(builds with the private engine only)* — reads the **live Raid: Shadow
    Legends process** in memory via the private extraction engine (submodule at `extraction/`),
-   builds a consolidated profile (resources + champions + clan id), and POSTs it to
-   `/api/sync/consolidated/raw`. Requires the game to be running. Takes a few seconds.
-4. **Export clan** *(same)* — a separate action for the account's clan record and full member
-   roster, POSTed to `/api/sync/clan/raw`. Its own button because it is its own cost: the clan
-   roster is not reachable from the game's account data and has to be found by scanning the whole
-   process, which takes up to a minute rather than a few seconds.
-5. **Open RSL Helper** — opens rslcompanion.com in the default browser. When Raid is running on an
+   builds a consolidated profile (resources, champions, faction guardians, the artifact vault,
+   relics/gemstones and the account's clan id), and POSTs it to `/api/sync/consolidated/raw`.
+   Requires the game to be running. Takes a few seconds. This is the app's **only** upload —
+   nothing it sends describes anyone but the signed-in user.
+4. **Open RSL Helper** — opens rslcompanion.com in the default browser. When Raid is running on an
    account that is already imported, the link carries that account (`?account=<in-game id>`) and the
    site opens with it selected in its account dropdown instead of whatever the browser last used.
 
@@ -62,6 +62,8 @@ dotnet build RslCompanionUploader.csproj   # now builds with EXTRACTION enabled
 | `FrontendUrl` | Site loaded for browser sign-in | `https://rslcompanion.com` |
 | `Firebase.ApiKey` / `Firebase.ProjectId` | Firebase web config | `raid-account-manager` |
 | `Endpoints.SyncConsolidated` | Export-account sync path | `/api/sync/consolidated/raw` |
+| `Endpoints.BuildCertification` | Memory-map lookup for a game build this release predates | `/api/extractor/offsets` |
+| `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
 
 ## Build & run
 
@@ -70,7 +72,7 @@ dotnet build RslCompanionUploader.csproj
 dotnet run --project RslCompanionUploader.csproj
 ```
 
-Requires the WebView2 runtime (preinstalled on Windows 11) for the social-login button only.
+Requires the WebView2 runtime (preinstalled on Windows 11): the whole UI is one WebView2 page.
 
 ## Installer
 

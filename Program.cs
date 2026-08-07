@@ -21,7 +21,7 @@ internal static class Program
             ProtocolHandler.RegisterCurrentUser();
 
         // Single-instance: when the app is already running and the browser fires
-        // rslcompanion-extractor://sync?rt=..., that second launch forwards its args to the running
+        // rslcompanion-extractor://sync?code=..., that second launch forwards its args to the running
         // instance (so BrowserSignInForm can complete the handoff) instead of opening a new window.
         if (!SingleInstance.TryBecomePrimary(args))
             return;
@@ -29,33 +29,36 @@ internal static class Program
         var config = AppConfig.Load();
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
         var auth = new FirebaseAuthClient(http, config.FirebaseApiKey);
+        var handoff = new ExtractorHandoff(http, config, auth);
 
         // Try to restore a session up front, but never block startup on it: the main window always
         // opens. If there is no session, it opens signed-out and the user signs in from its top bar
         // (see MainForm.SignIn), mirroring how Postman opens before you log in.
-        AuthSession? session = TrySignInFromLaunchUri(auth, args) ?? TrySilentSignIn(auth);
+        AuthSession? session = TrySignInFromLaunchUri(handoff, args) ?? TrySilentSignIn(auth);
 
         var api = new RslCompanionApiClient(http, config, auth, session);
-        Application.Run(new MainForm(config, auth, api));
+        Application.Run(new MainForm(config, handoff, api));
     }
 
-    // When launched from rslcompanion.com via rslcompanion-extractor://, the site passes the
-    // browser session's Firebase refresh token so the user is signed in without logging in again.
-    private static AuthSession? TrySignInFromLaunchUri(FirebaseAuthClient auth, string[] args)
+    // When launched from rslcompanion.com via rslcompanion-extractor://, the site passes a one-time
+    // handoff code; redeeming it signs the user in without logging in again. Silent by design: the
+    // code lives ~60s, so a launch that sat in a queue behind a slow start legitimately arrives dead,
+    // and the window simply opens signed-out with the Sign In button.
+    private static AuthSession? TrySignInFromLaunchUri(ExtractorHandoff handoff, string[] args)
     {
-        var refreshToken = ProtocolHandler.TryGetRefreshToken(args);
-        if (string.IsNullOrEmpty(refreshToken))
+        var code = ProtocolHandler.TryGetHandoffCode(args);
+        if (string.IsNullOrEmpty(code))
             return null;
 
         try
         {
-            var session = auth.SignInWithRefreshTokenAsync(refreshToken).GetAwaiter().GetResult();
+            var session = handoff.SignInAsync(code).GetAwaiter().GetResult();
             Persist(session);
             return session;
         }
         catch
         {
-            return null; // token expired/revoked — fall back to the normal sign-in flow
+            return null; // code used/expired, or the API is unreachable — fall back to normal sign-in
         }
     }
 

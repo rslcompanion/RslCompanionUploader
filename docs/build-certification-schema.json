@@ -17,8 +17,7 @@
     "privacy": "Build identifiers only. No account data, no game state, nothing that distinguishes one player on a build from another. The check is opt-in; the preference lives in %LOCALAPPDATA%/RslCompanion/settings.json."
   },
   "x-relatedSchemas": {
-    "account": "export-schema.json - the account snapshot the uploader POSTs once a map exists.",
-    "clan": "clan-export-schema.json - the separate clan payload."
+    "account": "export-schema.json - the account snapshot the uploader POSTs once a map exists, and the only payload it sends."
   },
   "type": "object",
   "required": ["certificationVersion", "gameAssemblyHash", "offsets"],

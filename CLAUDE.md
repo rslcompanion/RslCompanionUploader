@@ -8,27 +8,29 @@ Account Data Extractor"). It authenticates against the site's Firebase project
 Raid: Shadow Legends account data to the RSL Companion API.
 
 The app's job is to read the live Raid process memory via the **private extraction engine** (git
-submodule at `extraction/`, repo `RslCompanionExtraction`) and POST what it finds. Both payloads are
-self-identifying (each carries the in-game `accountId`); the server routes by that id. Extraction
+submodule at `extraction/`, repo `RslCompanionExtraction`) and POST what it finds. The payload is
+self-identifying (it carries the in-game `accountId`); the server routes by that id. Extraction
 runs off the UI thread; engine console output is redirected into the activity log.
 
-There are **two exports, split by cost** — see [docs/clan-export-schema.md](docs/clan-export-schema.md)
-for the full rationale:
+There is **one export**:
 
 | Action | Payload | Endpoint | Cost |
 | --- | --- | --- | --- |
-| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, `clanId`) | `/api/sync/consolidated/raw` | ~5 s first run of a game session, ~1 s after |
-| **Export clan** | clan record + roster with member names | `/api/sync/clan/raw` | 18–31 s cold, ~7 s warm |
+| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, relics, gemstones, `clanId`) | `/api/sync/consolidated/raw` | ~5 s first run of a game session, ~1 s after |
 
-The split exists because nothing clan-related except the *id* hangs off the game's account object:
-the clan record and the player-name cache are only findable by scanning the whole process. Folding
-that into the routine export made it seven times slower. **Do not move clan name/roster work back
-onto the consolidated path.**
+**There used to be a second one — "Export clan" → `/api/sync/clan/raw` — and it is gone. Do not
+bring it back.** It posted the clan record plus a roster of every clanmate's id and display name,
+read out of the exporting player's client. RSL Companion stopped ingesting rosters: those people
+never installed this app and never agreed to anything, so clan membership is now built from each
+member importing their *own* account, and the server endpoint no longer exists. The account's
+`clanId` still rides on the consolidated payload (a two-pointer read off `UserGameData`, free) and is
+what puts an account in its clan; the clan's **name** is deliberately not emitted, because unlike the
+id it needs a full-memory scan. The engine still has `ExtractClanAsync` — nothing calls it.
 
-**Artifacts are a deliberate exception to that reasoning.** The vault is also found by scanning
-(nothing under the account object reaches it), but it stays on the consolidated path: it is the
-account's own data, it costs ~3 s rather than ~25, and the cost is a one-off per game session — the
-instance address is cached for the session and the class RVA ships in the offset catalog. Gear and
+**Artifacts are the one thing that pays a scan on this path, deliberately.** The vault is not
+reachable from the account object either, but it stays on the consolidated path: it is the account's
+own data, it costs ~3 s rather than ~25, and the cost is a one-off per game session — the instance
+address is cached for the session and the class RVA ships in the offset catalog. Gear and
 accessories are kept apart in the *payload* (`artifacts[]` / `accessories[]`) rather than in separate
 uploads, so one call still snapshots the account while a consumer can load either alone.
 
@@ -39,8 +41,8 @@ match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native 
 File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update/uncovered-build banners, accounts, busy + which action is
-busy, frontend URL). The page posts back seven actions: `export`, `exportClan`, `signIn`, `signOut`,
-`refresh`, `reportBuild`, `openUrl`. Check for updates, recalibrate and about stay native menu items
+busy, frontend URL). The page posts back six actions: `export`, `signIn`, `signOut`, `refresh`,
+`reportBuild`, `openUrl`. Check for updates, recalibrate and about stay native menu items
 calling straight into `MainForm` — no bridge needed.
 
 The app opens its main window **before authenticating** (like Postman): [Program.cs](Program.cs) tries
@@ -66,16 +68,15 @@ grid never repeats it as a tile. A running-but-unimported account shows a "new a
 tile, and the profile matching the running game turns green (all others keep a black border).
 
 **Tiles are status and cannot be selected — except the one tile the running game is on, which carries
-the two game-reading actions.** Their target is never chosen by the user: both read the live process,
-so the only account they could ever act on is the one being played. A new (unimported) account's tile
-offers "Add this game account" only; a matched existing one offers "Update user data" **and** "Export
-clan". When no game is reachable, no tile carries buttons at all. Clan export is withheld until the
-account is imported so the clan payload is always filed against an account the server knows.
+the game-reading action.** Its target is never chosen by the user: it reads the live process, so the
+only account it could ever act on is the one being played. A new (unimported) account's tile offers
+"Add this game account"; a matched existing one offers "Update user data". Both post the same
+`export` action — the server create-or-updates by the in-game id in the payload. When no game is
+reachable, no tile carries buttons at all.
 
-Because the clan export runs for up to a minute, `SetBusy` takes a *kind* (`"export"` / `"clan"`) and
-the page shows progress on the button that is running — an elapsed-seconds count and an indeterminate
-bar, plus the engine's own phase lines in the activity log. A shared spinner on a 30-second operation
-is indistinguishable from a hang; don't regress it to one.
+`SetBusy` takes a *kind* (`"export"`, or null for background work like an account reload) so the page
+can show progress on the button that is running rather than only greying everything out, with the
+engine's own phase lines in the activity log alongside.
 
 Because the whole UI is WebView2, the runtime (preinstalled on Win11) is now load-bearing; if it's
 missing, `AppShell` shows a plain fallback label instead of the page.
@@ -98,7 +99,7 @@ rslcompanion.com metadata tooling — do not reintroduce it in this app.
 This repo is **public**; the extraction engine is **private** and optional at build time:
 
 - With the submodule present (`git submodule update --init`, needs access to the private repo),
-  the build defines `EXTRACTION` and the "Update user data" / "Export clan" buttons work.
+  the build defines `EXTRACTION` and the "Update user data" button works.
 - Without it, the project still builds and runs — extraction code paths are `#if EXTRACTION`
   and the button is hidden. With no engine there is nothing left to do but sign in and view the
   (empty) accounts pane.
@@ -110,17 +111,30 @@ This repo is **public**; the extraction engine is **private** and optional at bu
 
 The app registers `rslcompanion-extractor://` under HKCU on every startup ([ProtocolHandler.cs](ProtocolHandler.cs));
 the installer also registers it at install time. rslcompanion.com launches
-`rslcompanion-extractor://sync?rt=<firebase refresh token>`; the app exchanges the refresh token
-for a session ([Program.cs](Program.cs) `TrySignInFromLaunchUri`) and skips the login screen.
+`rslcompanion-extractor://sync?code=<one-time handoff code>`; [Auth/ExtractorHandoff.cs](Auth/ExtractorHandoff.cs)
+redeems it at `POST /api/extractor/handoff/exchange` for a Firebase **custom token**, signs in with
+`accounts:signInWithCustomToken`, and the app holds its own ID/refresh tokens
+([Program.cs](Program.cs) `TrySignInFromLaunchUri`, or `BrowserSignInForm` when the app is already up).
 
-## Export payload contracts — keep them in sync
+**It used to be `?rt=<firebase refresh token>`, and that is a protocol break, not a refactor.** Windows
+hands a protocol URI to its handler as *process arguments* — readable by any local process and
+routinely logged by EDR agents, Sysmon and crash reporters — so a refresh token there was a
+credential that mints ID tokens indefinitely, sitting on a command line. The code is worth one
+sign-in for ~60 s, is single-use, and only the SHA-256 of it is stored server-side. `rt` is
+deliberately **not** still accepted: the site no longer sends it, and reading it would keep the old
+credential path alive on the one surface it was removed from. Server contract:
+`docs/extractor-handoff.md` in the RaidTools repo. **An uploader older than this cannot sign in from
+the website at all** — the launch URI carries a parameter it does not read.
 
-Two doc pairs, one per endpoint, each prose + JSON Schema 2020-12:
+## Export payload contract — keep the pair in sync
+
+One doc pair, prose + JSON Schema 2020-12:
 
 - [docs/export-schema.md](docs/export-schema.md) / [.json](docs/export-schema.json) — what
   `POST /api/sync/consolidated/raw` receives. Read by RaidTools' `ConsolidatedJsonSyncAdapter`.
-- [docs/clan-export-schema.md](docs/clan-export-schema.md) / [.json](docs/clan-export-schema.json) —
-  what `POST /api/sync/clan/raw` receives. They join on `clanId` ↔ `clan.id`.
+
+`docs/clan-export-schema.md` / `.json` are **deleted** (schema 13), with the clan export they
+described. Old links to them in the changelog rows are left unlinked on purpose.
 
 Alongside them, two **static game metadata** files — not payloads, since every account sees the same
 tables, but they ship here because the payload's ids are opaque without them:
@@ -141,8 +155,8 @@ working on RaidTools. It is a **summary of the contract, not part of it** — if
 the schema pair, the schema pair wins and the guide is what needs fixing.
 
 They live in this repo precisely because it is public, so consumers can reference them without access
-to the private engine. The clan pair also carries a **privacy note**: it is the only payload
-describing people other than the uploading user (clanmates' ids and display names).
+to the private engine. **Nothing the uploader sends now describes anyone but the signed-in user** —
+that became true when the clan roster export was withdrawn, and it is a property worth keeping.
 
 **Any change to an emitted JSON must update that pair's two files in the same commit as the code
 change** — a new/renamed/retyped field, a new resource id, or even a changed resource *name*. Bump
@@ -150,9 +164,9 @@ change** — a new/renamed/retyped field, a new resource id, or even a changed r
 and state the consumer impact in the commit message and release tag. The contract is only useful if
 it is never behind the code.
 
-Note both payloads have two fields the engine's own `ConsolidatedProfile` / `ClanProfile` models do
-not: `uploaderVersion` and `gameVersion` are stamped on at serialize time by
-`MainForm.SerializeWithProvenance`, so engine-level dumps legitimately lack them (the schemas mark
+Note the payload has two fields the engine's own `ConsolidatedProfile` model does not:
+`uploaderVersion` and `gameVersion` are stamped on at serialize time by
+`MainForm.SerializeWithProvenance`, so engine-level dumps legitimately lack them (the schema marks
 them optional for that reason).
 
 ## Config
@@ -163,8 +177,8 @@ them optional for that reason).
 | --- | --- | --- |
 | `ApiBaseUrl` | RSL Companion API origin | `https://api.rslcompanion.com` |
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
-| `Endpoints.SyncClan` | Clan sync path for "Export clan" | `/api/sync/clan/raw` |
 | `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
+| `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
 
 User preferences the app writes back live in `%LOCALAPPDATA%\RslCompanion\settings.json`
 ([UserSettings.cs](UserSettings.cs)) — *not* in `appsettings.json`, which is install-time config next

@@ -2,13 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
-  "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 12,
+  "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
+  "schemaVersion": 13,
   "x-uploaderVersion": "1.6.2",
-  "x-lastUpdated": "2026-08-03",
-  "x-relatedSchemas": {
-    "clan": "clan-export-schema.json — the account's clan record and roster; a SEPARATE payload to a separate endpoint, joined to this one on clanId."
-  },
+  "x-lastUpdated": "2026-08-07",
   "x-relatedCatalogs": {
     "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -196,7 +193,7 @@
     },
     "clanId": {
       "type": ["integer", "null"],
-      "description": "int64 id of the clan this account belongs to (the game calls a clan an Alliance). Null when the account is in no clan AND when the value could not be validated — this payload cannot distinguish the two, so never infer 'left the clan' from null. Stable and usable as a join key on its own: two accounts in the same clan report the same clanId. It is the ONLY clan field here because it is the only free one — a two-pointer read off the account data — whereas the clan's name and roster need a full-memory scan of the game (18-31s on a ~4s export) and are therefore a separate export: see clan-export-schema.json, which joins to this on clan.id.",
+      "description": "int64 id of the clan this account belongs to (the game calls a clan an Alliance). Null when the account is in no clan AND when the value could not be validated — this payload cannot distinguish the two, so never infer 'left the clan' from null. Stable and usable as a join key on its own: two accounts in the same clan report the same clanId. Since schema 13 it is the ONLY clan data the uploader emits anywhere: the clan record and member roster used to be a separate export, and that export was withdrawn because it described clanmates who never used RSL Companion — clan membership is now built from each member importing their own account, i.e. from accounts reporting this same clanId. The clan's NAME is not emitted either; it needs a full-memory scan of the game (18-31s on a ~4s export) whereas this id is a two-pointer read off the account data.",
       "examples": [20000001, null]
     }
   },

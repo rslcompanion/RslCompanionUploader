@@ -21,12 +21,11 @@ public sealed class AppConfig
     public string SyncConsolidatedEndpoint { get; init; } = "/api/sync/consolidated/raw";
 
     /// <summary>
-    /// Server-relative path the "Export clan" flow posts the extracted ClanProfile to. A separate
-    /// endpoint from <see cref="SyncConsolidatedEndpoint"/> because it is a separate payload with a
-    /// separate contract (<c>docs/clan-export-schema.md</c>) — and a separate cost: it is the slow,
-    /// user-initiated export, not part of the routine account snapshot.
+    /// Server-relative path that redeems the one-time handoff code the website puts on the
+    /// <c>rslcompanion-extractor://sync?code=…</c> launch URI, returning a Firebase custom token this
+    /// app signs in with. Unauthenticated by necessity — it is what establishes the session.
     /// </summary>
-    public string SyncClanEndpoint { get; init; } = "/api/sync/clan/raw";
+    public string HandoffExchangeEndpoint { get; init; } = "/api/extractor/handoff/exchange";
 
     /// <summary>
     /// Server-relative path the build-certification lookup GETs, with the GameAssembly SHA-256
@@ -38,8 +37,9 @@ public sealed class AppConfig
 
     /// <summary>
     /// Server-relative page the app opens in the user's browser to sign in. When a session is already
-    /// active there, that page should launch <c>rslcompanion-extractor://sync?rt=...</c> to hand the
-    /// refresh token back to the app.
+    /// active there, that page mints a one-time handoff code and launches
+    /// <c>rslcompanion-extractor://sync?code=...</c> with it, which this app redeems at
+    /// <see cref="HandoffExchangeEndpoint"/>.
     /// </summary>
     public string ConnectExtractorPath { get; init; } = "/connect-extractor";
 
@@ -72,7 +72,7 @@ public sealed class AppConfig
                 FirebaseApiKey = fb.ValueKind == JsonValueKind.Object ? Str(fb, "ApiKey", def.FirebaseApiKey) : def.FirebaseApiKey,
                 FirebaseProjectId = fb.ValueKind == JsonValueKind.Object ? Str(fb, "ProjectId", def.FirebaseProjectId) : def.FirebaseProjectId,
                 SyncConsolidatedEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncConsolidated", def.SyncConsolidatedEndpoint) : def.SyncConsolidatedEndpoint,
-                SyncClanEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncClan", def.SyncClanEndpoint) : def.SyncClanEndpoint,
+                HandoffExchangeEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "HandoffExchange", def.HandoffExchangeEndpoint) : def.HandoffExchangeEndpoint,
                 BuildCertificationEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "BuildCertification", def.BuildCertificationEndpoint) : def.BuildCertificationEndpoint,
                 ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };
