@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 13** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 14** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -296,12 +296,13 @@ silently matches only unascended champions. Both are published so consumers don'
 
 ---
 
-## `clanId` — int64 or `null`
+## `clanId` — int64 or `null`, and `clanName` — string or `null`
 
-The id of the clan this account belongs to (the game calls a clan an *Alliance*).
+The clan this account belongs to (the game calls a clan an *Alliance*).
 
 ```jsonc
-"clanId": 20000001
+"clanId":   20000001,
+"clanName": "Unimatrix Zero One"
 ```
 
 - **`null` means "no clan is being reported"** — the account is in none, *or* the value could not be
@@ -309,25 +310,25 @@ The id of the clan this account belongs to (the game calls a clan an *Alliance*)
   previously known clan association on a `null` (see below).
 - **`clanId` is stable and is the join key.** Two accounts that share a clan report the same
   `clanId`, so clan grouping works from this payload alone — no roster required.
-
-**This is the only clan field the uploader emits anywhere, and as of schema 13 it is the only one
-that exists.** Two reasons, and the second is the one that settles it:
-
-1. **Cost.** The clan's name and roster are not reachable from the account data at all — getting them
-   needs a full-memory scan of the game process, 18–31 s against the ~4 s this entire snapshot takes.
-   `clanId` sits two pointers off the account and is free.
-2. **Consent.** A roster read out of one player's game client describes *other people* — clanmates
-   who never installed this app and never agreed to anything. RSL Companion stopped ingesting it, and
-   builds clan membership from each member importing their own account instead. So the uploader
-   stopped collecting it: the roster export and its endpoint are gone, not merely unused.
+- **`clanName` is a label, never a key.** Clan names are not unique and a leader can change one at
+  any time. `null` means "this export says nothing about the name" — the account may be in no clan,
+  or the name simply wasn't readable on this run. Never overwrite a stored name with a `null`, and
+  never treat a changed name as a changed clan.
 
 Consequently, **do not derive "the user left their clan" from this payload**. This export cannot
 distinguish "no clan" from "unreadable", and it carries no membership list to diff against.
 
-**The clan's *name* is not in this payload either**, for reason 1 above — it is not free the way the
-id is. A consumer that wants to label a clan resolves the name from its own store of clans; until
-some source names it, `clanId` alone is enough to group accounts and is what every clan-scoped
-feature keys on.
+### What is *not* here, and why it never will be
+
+The clan's **member roster** — every clanmate's id, name, rank, level and power. It is not omitted
+for cost. As of schema 14 the whole clan cache is a pointer walk off the client root, and the roster
+sits beside the name at the same price; an earlier revision of this file blamed an 18–31 s memory
+scan, and that is simply no longer true.
+
+It is omitted because **it describes people who are not the user**. Clanmates never installed this
+app and never agreed to anything, and RSL Companion builds clan membership from each member
+importing their own account instead — the same list, reached by consent. Nothing the uploader sends
+now describes anyone but the signed-in user, and cheapness is not an argument for changing that.
 
 ---
 
@@ -577,11 +578,11 @@ tombstone: reconcile by replacing the account's set, or deletes will never land.
 5b. **`heroes[].roleId` is nullable and `0` is a real value** (Attack). Never coalesce `null → 0`.
     Roles and skill metadata are *game* data joined by id — `role-names.json` here, a skill catalog
     for `skills[].typeId`; this payload carries ids and levels only.
-6. **Clan names and rosters do not arrive from this uploader at all.** This payload has `clanId`
-   only, and since schema 13 there is no second payload that carries anything more — the clan export
-   was withdrawn. Clan membership is built by each member importing their own account, so a clan's
-   member list is the set of accounts reporting the same `clanId`, not something one player's client
-   reports about everyone else.
+6. **Clan rosters do not arrive from this uploader at all**, and there is no second payload that
+   carries one — the clan export was withdrawn in schema 13. A clan's member list is the set of
+   accounts reporting the same `clanId`, built by each member importing their own account, not
+   something one player's client reports about everyone else. `clanName` (schema 14) is a label for
+   display; group and join on `clanId`.
 7. Server-side, `ConsolidatedJsonSyncAdapter` in RaidTools is the reader that must track this file.
 
 ---
@@ -603,6 +604,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 14 | *unreleased* | 2026-08-07 | **New top-level `clanName` (string or `null`) — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 13. This closes the gap schema 13 opened: with the clan export withdrawn, no export named a clan at all, so a clan with no other source of a name displayed as `Clan #<id>` permanently. **The interesting part is the cost, because the previous entry in this file was wrong about it.** Both this file and the engine held that the clan's name needed an 18–31 s full-memory scan and was therefore unaffordable on a ~4 s export. It does not. The clan cache hangs off `AppModel`, the client-root **static singleton** that sits *above* the account object — `klass → static_fields → instance → AllianceNotes → Dictionary<clanId, AllianceNote>` — so the name is a pointer walk keyed by the `clanId` this payload already carried: **measured 5 ms warm, 3.3 s the first time a game build is seen** (a one-off klass lookup, then cached in the shipped offset catalog). The old figure came from searching for the record by class identity across all of memory, having concluded it was unreachable because a breadth-first walk *downward* from the account object finds nothing — which is true, and irrelevant, because the owner is upstream. Verified end to end on a client that had been open for minutes with no actions taken and the clan screen never opened, so the record is not populated on demand. **Consumer impact: `null` is not "no name"** — it is "this export says nothing", so never overwrite a stored name with it. Names are not unique and are editable by the clan leader: join and group on `clanId`, and use `clanName` for display only. Absent key (schema ≤13) and explicit `null` mean the same thing. **The member roster is still not emitted and this does not reopen that** — it is now equally cheap and remains excluded because it describes people other than the user; see "What is *not* here" above. |
 | 13 | *unreleased* | 2026-08-07 | **No wire change to this payload — but the *other* payload is gone.** The uploader's second export, `POST /api/sync/clan/raw` (the clan record plus the member roster with clanmates' display names), has been **removed from the app**: the button, the endpoint config, and the code path. `clan-export-schema.md` / `.json` are deleted with it. Nothing here gains or loses a field; `clanId` is unchanged and is now the only clan data the uploader emits anywhere. Why: RSL Companion stopped ingesting the roster. It described **other people** — clanmates who never installed this app and never agreed to anything — and clan membership is now built from each member importing their own account instead, which reaches the same list by consent rather than by one player's client reporting on everyone else's. Continuing to scan for it would have been ~25 s of work per run for data the server discards. **Consumer impact:** a consumer that also read the clan payload must stop expecting it — accounts sharing a clan are found by grouping on `clanId`, and a clan's *name* now comes from the consumer's own store, not from an export. A consumer that only ever read this payload is unaffected and needs no change. |
 | 12 | v1.6.2 | 2026-08-03 | **Every artifact and accessory stat value was DOUBLE the game's in schemas 9–11; this halves them to the truth.** No field changes shape, name or type — only the numbers in `artifacts[]` and `accessories[]` `primaryBonus.value`, `secondaryBonuses[].value` and `ascendBonus.value` change, and they change for every record. The engine read the game's `BonusValue._value` as fixed point scaled by 2³¹; it is **Q32.32**, so the divisor is 2³². The error was uniform, which is why nothing downstream flagged it: a 6★ +16 speed boot exported `90` (game: 45), a maxed glove `1.6` C.DMG (game: 80%), the strongest C.RATE substat 64% (real cap 32%), the largest ascension SPD bonus 24 (real cap 12). Corrected, all thirteen 6★ +16 main-stat maxima reproduce the game's table exactly. **Consumer impact: every artifact stat stored from schemas 9–11 is wrong and must be re-synced, not patched in place** — the payload carries nothing that distinguishes a doubled row from a corrected one, so a consumer cannot tell which of its stored rows to halve. Any derived figure computed off those stats — champion totals, gear scores, build rankings, "best piece" sorts — is invalid for the same window. The bug ran from schema 9 (2026-08-02), i.e. from the first release that shipped artifact stats at all; no correct artifact stat has ever been published before this. Reported by a user who recognised 90 SPD as physically impossible. |
 | 11 | v1.6.2 | 2026-08-03 | *(This row said v1.6.1 — no such release was ever tagged. Schema 11 reaches users in **v1.6.2**, alongside schema 12.)* **New `relics[]` and `gemstones[]`; six new resource ids that were previously being DROPPED.** Two changes, both additive — nothing existing changes shape, and a consumer that ignores the new arrays is exactly as correct as it was on schema 10. (1) **The relic system is exported for the first time.** `relics[]` is every relic the account owns, equipped and stored, each with its gemstone sockets (377 total / 240 unequipped on the reference account); `gemstones[]` is every gemstone, socketed or not (543 / 303 unsocketed). Two arrays rather than one because the game counts them as two inventories and **56% of gemstones sit in no relic** — nesting them would have hidden all 303. Both `typeId`s are join keys into a relic catalog, not data: name, rarity, group and stat bonuses live on shared type objects the client hydrates lazily, so exporting them per record would produce holes that look like values. The socket join is verified in both directions (240 socketed, zero dangling refs). `sockets[].shapeKindId`'s **names are provisional** — the enum has five members and the data five values, but the member-to-value binding is inferred from declaration order, the same assumption that made the artifact set table wrong from id 4 onward; join on the id. New static-metadata file [`relic-enums.json`](relic-enums.json). (2) **`resources[]` 49 → 55 entries, and this half is a data-loss fix, not a feature.** `4000` Starstone and `19001`–`19005` Rank 1–5 Basalt are the relic upgrade currencies. None was on the engine's *exclusive* resource allowlist, so **every export ever made discarded all six regardless of how many the account held** — the third time this has happened, after Rank 1/2 Chickens (2026-07-28) and the Immortal/Eternal Soul Essences (2026-07-29). Ids were read from a live dump and matched against in-game balances rather than inferred from a numbering pattern: the five Basalt ranks matched 10/17/10/5/1 *in rank order*, Starstone matched 19,466. **Consumer impact: an account's Basalt and Starstone history begins at this schema** — their absence before now was never evidence the player had none. |

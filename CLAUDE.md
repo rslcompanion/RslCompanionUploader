@@ -16,16 +16,21 @@ There is **one export**:
 
 | Action | Payload | Endpoint | Cost |
 | --- | --- | --- | --- |
-| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, relics, gemstones, `clanId`) | `/api/sync/consolidated/raw` | ~5 s first run of a game session, ~1 s after |
+| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, relics, gemstones, `clanId` + `clanName`) | `/api/sync/consolidated/raw` | ~5 s first run of a game session, ~1 s after |
 
 **There used to be a second one — "Export clan" → `/api/sync/clan/raw` — and it is gone. Do not
 bring it back.** It posted the clan record plus a roster of every clanmate's id and display name,
 read out of the exporting player's client. RSL Companion stopped ingesting rosters: those people
 never installed this app and never agreed to anything, so clan membership is now built from each
-member importing their *own* account, and the server endpoint no longer exists. The account's
-`clanId` still rides on the consolidated payload (a two-pointer read off `UserGameData`, free) and is
-what puts an account in its clan; the clan's **name** is deliberately not emitted, because unlike the
-id it needs a full-memory scan. The engine still has `ExtractClanAsync` — nothing calls it.
+member importing their *own* account, and the server endpoint no longer exists. The engine still has
+`ExtractClanAsync` — nothing calls it.
+
+**The clan's id *and name* both ride on the consolidated payload, and both are free** (schema 14).
+The id is two pointers off `UserGameData`; the name is a pointer walk from `AppModel` — see
+`ClanExtractor.TryReadClanName` in the engine. **The roster is reachable by that same walk and is
+still not emitted.** That is the whole point: the reason was never cost, and now that cost is
+measurably zero, the consent reason stands on its own. Don't let a future "but it's cheap now"
+reopen it.
 
 **Artifacts are the one thing that pays a scan on this path, deliberately.** The vault is not
 reachable from the account object either, but it stays on the consolidated path: it is the account's
