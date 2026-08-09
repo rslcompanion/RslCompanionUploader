@@ -73,11 +73,10 @@ public sealed class MainForm : Form
     private ExtractionService.GameBuildInfo? _buildInfo;
 
     /// <summary>
-    /// Whether this is the newest uploader — null until the check succeeds. Gates the "report this
-    /// game version" prompt, which only makes sense on the latest build: if the user is behind, the
-    /// release they haven't installed may already cover their game, so prompting would generate
-    /// reports for something already fixed. Unknown (offline, GitHub down) is treated as "don't
-    /// prompt" — a wrong report costs more than a missed one.
+    /// Whether this is the newest uploader — null until the check succeeds. Gates auto-recalibration
+    /// for an uncovered build: if the user is behind, the release they haven't installed may already
+    /// cover their game, so calibrating would just repeat work a plain update fixes. Unknown (offline,
+    /// GitHub down) is treated as "don't act" — calibrating on a stale premise costs more than waiting.
     /// </summary>
     private bool? _isLatestUploader;
 
@@ -131,13 +130,11 @@ public sealed class MainForm : Form
         // WebView2 host. BeginInvoke lets the handler return first, then shows the dialog.
         _shell.SignInRequested += () => BeginInvoke(new Action(SignIn));
         _shell.SignOutRequested += () => BeginInvoke(new Action(SignOut));
+        _shell.NoticeDismissRequested += () => _shell.SetNotice(null);
 #if EXTRACTION
         // The export action lives on the shell's live tile; it reads the running game and routes by
         // the in-game id it finds there, regardless of which tile drove the label.
         _shell.ExportRequested += async () => await ExportAccountAsync();
-        // Deferred for the same reason as SignIn below: this path can open a modal TaskDialog, and
-        // doing that inside the WebView2 message handler crashes the host.
-        _shell.ReportBuildRequested += () => BeginInvoke(new Action(ReportUncoveredBuild));
         // Export availability is gated on being signed in — set in EnterSignedInAsync, not here.
         FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
 #endif
@@ -322,9 +319,11 @@ public sealed class MainForm : Form
 
         _calibrating = true;
         ApplyGameState(GameState.Calibrating, force: true);
-        Log("This game version isn't in the shipped memory map yet — working it out from the running "
-          + "game. This takes about a minute, happens once per game update, and only needs doing "
-          + "while Raid is fully loaded.");
+        // Disables the tile buttons for the same reason export does: reading the process while a
+        // ~35s scan also has it attached would race the two, and neither result would be trustworthy.
+        SetBusy(true);
+        Log("This Raid version is new to the app — setting it up now. This takes about a minute, "
+          + "happens once per game update, and only works while Raid is fully loaded.");
 
         try
         {
@@ -341,16 +340,24 @@ public sealed class MainForm : Form
 
             if (result.Success)
             {
-                Log($"Calibration succeeded — identified {result.Name ?? "the account"} (#{result.AccountId}). "
-                  + "This game version won't need calibrating again on this PC.");
-                if (result.ExportedCatalogPath is string p)
-                    Log($"Saved to {p} — sending that file to RSL Companion gets this game version "
-                      + "recognised out of the box for everyone in the next release.");
+                Log($"All set — found your account, {result.Name ?? "the account"}. This Raid version "
+                  + "is ready to go on this PC from now on.");
+                if (result.ExportedCatalogPath is not null)
+                    Log("This also helps RSL Companion support this Raid version for everyone else "
+                      + "in the next update.");
+
+                // A dismissible banner, not just an activity-log line: the console starts collapsed,
+                // so a silent ~35-50s pause followed by nothing visible would read as the app having
+                // done nothing, when it just quietly fixed the one thing that would have blocked export.
+                var versionLabel = _buildInfo is { } b ? BuildLabel(b) : "this Raid version";
+                _shell.SetNotice($"Raid {versionLabel} is a new version — RSL Companion set it up "
+                                + "automatically so everything keeps working.");
             }
             else
             {
-                Log($"Calibration didn't succeed: {result.Error}. If Raid was still loading, wait for "
-                  + "the roster to appear and use Help → Recalibrate for this game version.");
+                Log($"Couldn't finish setting up this Raid version: {result.Error}. If Raid was still "
+                  + "loading, wait until your heroes are visible, then try again from "
+                  + "Help → Set up this Raid version.");
             }
         }
         catch (OperationCanceledException)
@@ -359,11 +366,12 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log($"Calibration failed: {DescribeExtractionFailure(ex)}");
+            Log($"Couldn't set up this Raid version: {DescribeExtractionFailure(ex)}");
         }
         finally
         {
             _calibrating = false;
+            SetBusy(false);
             // Let the next poll re-read reality rather than asserting a state from here.
             _gameState = GameState.NotRunning;
         }
@@ -391,27 +399,32 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Shows the banner for a game build nothing on this PC covers yet.
+    /// Kicks off covering a game build nothing on this PC recognises yet — automatically, not on a
+    /// click: the user already knows something is wrong from the status line, so making them also
+    /// find and press a button just delays the fix.
     ///
     /// Only when this is the newest uploader — on an older build the release the user hasn't
     /// installed may already carry the map. A build the user has already certified or calibrated is
     /// covered locally even though the shipped catalog still doesn't know it, and must not keep
-    /// prompting.
+    /// re-triggering. <see cref="TryCertifyBuildAsync"/> and <see cref="TrySelfCalibrateAsync"/> each
+    /// own their once-per-build-per-session guard, so calling both on every state transition is safe.
     /// </summary>
     private void UpdateReportPrompt()
     {
-        bool show = _buildInfo is { CoveredByShippedCatalog: false } b
-                 && _isLatestUploader == true
-                 && !BuildCertification.HasLocalMap(b.GameAssemblyHash);
-        if (show)
-        {
-            _shell.SetReport($"Raid {BuildLabel(_buildInfo!)} isn't covered by this release yet — " +
-                             "click to check for a compatible memory map");
-        }
-        else
-        {
-            _shell.SetReport(null);
-        }
+        bool needsCover = _buildInfo is { CoveredByShippedCatalog: false } b
+                       && _isLatestUploader == true
+                       && !BuildCertification.HasLocalMap(b.GameAssemblyHash);
+        if (needsCover) _ = AutoCoverUncoveredBuildAsync();
+    }
+
+    /// <summary>
+    /// Published map first: it costs a GET against the ~35s local scan, and it is the same answer.
+    /// Only when the server has nothing does the user pay to derive it themselves.
+    /// </summary>
+    private async Task AutoCoverUncoveredBuildAsync()
+    {
+        if (await TryCertifyBuildAsync(_statusCts.Token)) return;
+        await TrySelfCalibrateAsync(Path.Combine(AppContext.BaseDirectory, "offsets_cache.json"), _statusCts.Token);
     }
 
     private static string BuildLabel(ExtractionService.GameBuildInfo b)
@@ -432,26 +445,6 @@ public sealed class MainForm : Form
             _buildInfo = null;
         }
         UpdateReportPrompt();
-    }
-
-    /// <summary>
-    /// The banner's action: ask the server for a map for this build, and fall back to deriving one
-    /// locally. Ordered that way because a download is a second or two against a ~50 s scan.
-    /// </summary>
-    private async void ReportUncoveredBuild()
-    {
-        if (!RaidProcess.IsRunning())
-        {
-            Log("Start Raid and let it load to the roster first, then try again.");
-            return;
-        }
-
-        if (await TryCertifyBuildAsync(_statusCts.Token, force: true)) return;
-
-        await TrySelfCalibrateAsync(
-            Path.Combine(AppContext.BaseDirectory, "offsets_cache.json"),
-            _statusCts.Token,
-            force: true);
     }
 
     /// <summary>
@@ -479,60 +472,71 @@ public sealed class MainForm : Form
         // the user is running.
         if (!UserSettings.Current.AutoCheckBuildCertification && !AskToCheckCompatibility(build))
         {
-            Log("Skipped the compatibility check — the memory map will be worked out locally instead.");
+            Log("Skipped the compatibility verification — setting this Raid version up directly instead.");
             return false;
         }
 
-        var label = BuildLabel(build);
-        Log($"Checking whether RSL Companion has a memory map for Raid {label}…");
-
-        CertificationResult response;
+        // Disables the tile buttons for the duration: applying the result re-probes the account, and
+        // a "Update user data" click landing mid-check would race that re-probe.
+        SetBusy(true);
         try
         {
-            response = await _api.GetCertifiedBuildAsync(
-                build.GameAssemblyHash, build.GameVersion, AboutForm.DisplayVersion, token);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
-        }
-        catch (Exception ex)
-        {
-            Log($"Compatibility check couldn't reach RSL Companion: {ex.Message}");
-            return false;
-        }
+            var label = BuildLabel(build);
+            Log($"Running a compatibility verification for Raid {label}…");
 
-        if (response.Status == CertificationStatus.NotPublished)
-        {
-            Log($"RSL Companion has no map for Raid {label} yet.");
-            return false;
-        }
-
-        if (response.Status == CertificationStatus.Failed)
-        {
-            Log(response.Error ?? "Compatibility check failed.");
-            return false;
-        }
-
-        var applied = BuildCertification.Apply(response.Body!, build.GameAssemblyHash, AboutForm.DisplayVersion);
-        switch (applied.Outcome)
-        {
-            case BuildCertification.Outcome.Applied:
-                Log($"Compatible map installed — {applied.Message} Reading the account now.");
-                // Let the next poll re-probe against the map that now exists rather than asserting a
-                // state from here.
-                _gameState = GameState.NotRunning;
-                RefreshBuildInfo();
-                return true;
-
-            case BuildCertification.Outcome.NeedsNewerUploader:
-                Log($"A map for Raid {label} exists, but {applied.Message} " +
-                    "Use Help → Check for updates, then try again.");
+            CertificationResult response;
+            try
+            {
+                response = await _api.GetCertifiedBuildAsync(
+                    build.GameAssemblyHash, build.GameVersion, AboutForm.DisplayVersion, token);
+            }
+            catch (OperationCanceledException)
+            {
                 return false;
-
-            default:
-                Log($"Couldn't use the published map: {applied.Message}");
+            }
+            catch (Exception ex)
+            {
+                Log($"Couldn't reach RSL Companion for the compatibility verification: {ex.Message}");
                 return false;
+            }
+
+            if (response.Status == CertificationStatus.NotPublished)
+            {
+                Log($"Compatibility verification found nothing for Raid {label} yet — setting it up "
+                  + "directly instead.");
+                return false;
+            }
+
+            if (response.Status == CertificationStatus.Failed)
+            {
+                Log(response.Error ?? "Compatibility verification failed.");
+                return false;
+            }
+
+            var applied = BuildCertification.Apply(response.Body!, build.GameAssemblyHash, AboutForm.DisplayVersion);
+            switch (applied.Outcome)
+            {
+                case BuildCertification.Outcome.Applied:
+                    Log($"Compatibility confirmed — {applied.Message} Reading your account now.");
+                    // Let the next poll re-probe against the result that now exists rather than
+                    // asserting a state from here.
+                    _gameState = GameState.NotRunning;
+                    RefreshBuildInfo();
+                    return true;
+
+                case BuildCertification.Outcome.NeedsNewerUploader:
+                    Log($"A compatible setup exists for Raid {label}, but {applied.Message} " +
+                        "Use Help → Check for updates, then try again.");
+                    return false;
+
+                default:
+                    Log($"Couldn't complete the compatibility verification: {applied.Message}");
+                    return false;
+            }
+        }
+        finally
+        {
+            SetBusy(false);
         }
     }
 
@@ -543,19 +547,18 @@ public sealed class MainForm : Form
     /// </summary>
     private bool AskToCheckCompatibility(ExtractionService.GameBuildInfo build)
     {
-        var check = new TaskDialogButton("Check compatibility");
+        var check = new TaskDialogButton("Verify compatibility");
         var page = new TaskDialogPage
         {
             Caption = "RSL Companion",
-            Heading = $"Raid {BuildLabel(build)} isn't certified yet",
-            Text = "This release doesn't ship a memory map for the game version you're running. "
-                 + "RSL Companion may already have one — checking sends this game build's identifier "
-                 + "and installs the map if it fits, which takes a moment instead of the minute-long "
-                 + "local scan.",
+            Heading = $"New Raid version detected ({BuildLabel(build)})",
+            Text = "This app hasn't been set up for this Raid version yet. We can run a quick "
+                 + "compatibility verification online, which usually takes just a few seconds — "
+                 + "otherwise it'll be worked out directly from your game, which takes about a minute.",
             Icon = TaskDialogIcon.Information,
             Buttons = { check, TaskDialogButton.Cancel },
             DefaultButton = check,
-            Verification = new TaskDialogVerificationCheckBox("Check automatically from now on"),
+            Verification = new TaskDialogVerificationCheckBox("Verify compatibility automatically next time"),
         };
 
         var clicked = TaskDialog.ShowDialog(this, page);
@@ -565,7 +568,7 @@ public sealed class MainForm : Form
         {
             UserSettings.Current.AutoCheckBuildCertification = true;
             UserSettings.Current.Save();
-            Log("Future game updates will be checked for a compatible memory map automatically.");
+            Log("Future Raid updates will be verified automatically.");
         }
 
         return clicked == check;
@@ -587,7 +590,7 @@ public sealed class MainForm : Form
             GameState.Loading =>
                 ("loading", "Raid is running — waiting for account data…"),
             GameState.Calibrating =>
-                ("calibrating", "New game version — mapping memory (about a minute)…"),
+                ("calibrating", "New Raid version — setting things up (about a minute)…"),
             GameState.NeedsCalibration =>
                 ("needsCalibration", "Raid is running — account can't be identified"),
             _ =>
@@ -715,7 +718,7 @@ public sealed class MainForm : Form
         }
 #if EXTRACTION
         // The manual retry for a build whose automatic attempt ran too early (game still loading).
-        help.DropDownItems.Add(new ToolStripMenuItem("&Recalibrate for this game version", null,
+        help.DropDownItems.Add(new ToolStripMenuItem("&Set up this Raid version", null,
             async (_, _) =>
             {
                 if (!RaidProcess.IsRunning())
@@ -859,6 +862,18 @@ public sealed class MainForm : Form
         try
         {
             var profile = await ExtractProfileAsync();
+
+            // A scan can return without throwing even when it read the wrong offsets — a bad
+            // extraction looks like an empty or garbage account, not a crash. RSL Companion can't
+            // tell "this account really has nothing" from "this reading is wrong", so catch it here
+            // rather than shipping it.
+            if (GameUserId(profile.AccountId) is not int || string.IsNullOrWhiteSpace(profile.Account.Name))
+            {
+                Log("Something looks wrong with the data read from Raid, so it wasn't sent to RSL "
+                  + "Companion. If Raid just updated, try Help → Set up this Raid version, then "
+                  + "Update user data again.");
+                return;
+            }
 
             var gameId = profile.AccountId;
             var gameName = string.IsNullOrWhiteSpace(profile.Account.Name) ? $"account {gameId}" : profile.Account.Name;

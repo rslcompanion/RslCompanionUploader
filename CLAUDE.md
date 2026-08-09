@@ -45,10 +45,11 @@ The **entire UI is one full-window WebView2 page** ([Forms/AppShell.cs](Forms/Ap
 match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native shell: title bar + a
 File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
-flag, user, connection status, update/uncovered-build banners, accounts, busy + which action is
-busy, frontend URL). The page posts back six actions: `export`, `signIn`, `signOut`, `refresh`,
-`reportBuild`, `openUrl`. Check for updates, recalibrate and about stay native menu items
-calling straight into `MainForm` — no bridge needed.
+flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL).
+The page posts back five actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`. Check for
+updates, recalibrate and about stay native menu items calling straight into `MainForm` — no bridge
+needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
+automatically from `MainForm`, not from anything the page posts back.
 
 The app opens its main window **before authenticating** (like Postman): [Program.cs](Program.cs) tries
 to restore a session but never blocks on it. When there is no session the window opens signed-out —
@@ -57,9 +58,9 @@ Clicking Sign In runs the browser handoff via the [BrowserSignInForm](Forms/Brow
 and, on success, `MainForm.EnterSignedInAsync` loads accounts and enables export. Sign out drops back to
 the signed-out state in place (no process restart).
 
-The page is a top bar (brand + connection pill + Sign In button / identity), optional banners, the
-accounts grid, an "Open RSL Helper" bar (opens `MainForm.HelperUrl()` via `openUrl`), and a
-collapsible activity console.
+The page is a top bar (brand + connection pill + Sign In button / identity), an optional update
+banner, the accounts grid, an "Open RSL Helper" bar (opens `MainForm.HelperUrl()` via `openUrl`), and
+a collapsible activity console.
 
 `HelperUrl()` is `AppConfig.FrontendUrl` plus **`?account=<in-game id>`** whenever the running game is
 on an account the profile has already imported, so the site opens on the account being played rather
@@ -86,15 +87,35 @@ engine's own phase lines in the activity log alongside.
 Because the whole UI is WebView2, the runtime (preinstalled on Win11) is now load-bearing; if it's
 missing, `AppShell` shows a plain fallback label instead of the page.
 
-**An uncovered game build resolves itself; it no longer asks the user to file a report.** When Raid
-updates ahead of a release, the app asks RSL Companion for a published memory map
-(`Endpoints.BuildCertification`) and installs it into the user's own
-`calibrated-offsets.json`, and only falls back to the ~35–50 s local calibration scan when the server
-has none. The lookup is **opt-in** — a TaskDialog with a "Check automatically from now on"
-verification box, one offer per build per session, the tick persisted to
-`settings.json`. The `reportBuild` bridge action kept its name but now drives that flow (the old
-GitHub-issue prompt is gone), and the banner clears once *any* local map exists, certified or
-self-calibrated — `CoveredByShippedCatalog` alone would keep nagging a user who already fixed it.
+**An uncovered game build resolves itself, automatically, with no button to click.** When Raid updates
+ahead of a release, `MainForm.UpdateReportPrompt` fires the moment the status poll notices a build
+`CoveredByShippedCatalog` doesn't know: it asks RSL Companion for a published memory map
+(`Endpoints.BuildCertification`) and installs it into the user's own `calibrated-offsets.json`, and
+only falls back to the ~35–50 s local calibration scan when the server has none. The server lookup is
+still **opt-in** — a TaskDialog with a "Check automatically from now on" verification box, one offer
+per build per session, the tick persisted to `settings.json` — but nothing here waits for the user to
+notice or click a banner first. Both the certify check and the calibration own a
+once-per-build-per-session guard, so re-running this on every poll tick is safe. It stops re-triggering
+once *any* local map exists, certified or self-calibrated — `CoveredByShippedCatalog` alone would keep
+firing for a user who already fixed it.
+
+**A calibration result is only trusted if it looks like a real account.** `ExtractionService.CalibrateAsync`
+extracts without throwing even when the offsets are wrong — a bad scan can read zeroed or garbage
+fields just as easily as it can crash. Since `KnownOffsets.Export` writes into a catalog that
+`TryResolve` treats as ground truth forever afterwards (a known hash is never recalibrated), the result
+is validated (a parseable positive account id, a non-empty name) before it is allowed to touch that
+file. A result that fails validation returns `Success: false` and nothing is written, leaving whatever
+was already in the catalog — a prior good calibration, or nothing — untouched.
+
+**Both `TryCertifyBuildAsync` and `TrySelfCalibrateAsync` hold `SetBusy(true)` for their duration**,
+same as export — the accounts grid's action buttons disable while either is in flight, since a click
+landing mid-scan or mid-apply would race the process attach the scan already owns.
+
+**`ExportAccountAsync` validates before uploading, not just on the calibration path.** The same
+"parseable id, non-empty name" bar used for calibration is applied to every extracted profile right
+before it's sent to RSL Companion — a bad read can slip through fine on a `Update user data` click
+even when calibration itself reported success earlier in the session. A failing check logs and returns
+without calling `UploadConsolidatedAsync`.
 
 File-based JSON import (`resources` / `champions`) used to live here but was moved to the
 rslcompanion.com metadata tooling — do not reintroduce it in this app.

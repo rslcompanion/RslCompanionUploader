@@ -9,13 +9,14 @@ namespace RslCompanionUploader.Forms;
 /// The whole application UI, rendered as one full-window WebView2 page so it matches rslcompanion.com
 /// rather than looking like native WinForms chrome. The C# side stays the backend: it owns all data
 /// and pushes a single view-state into the page, and receives back only the actions the page can
-/// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>reportBuild</c>,
-/// <c>openUrl</c>. Check for updates, recalibrate, and about stay on the native Help menu, which
-/// calls into <see cref="MainForm"/> directly and needs no bridge.
+/// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>. Check for
+/// updates, recalibrate, and about stay on the native Help menu, which calls into
+/// <see cref="MainForm"/> directly and needs no bridge. An uncovered game build is covered
+/// automatically (server certify, then local calibration) rather than through anything on this page.
 ///
 /// The page is a top bar (brand + connection pill + identity, whose account dropdown holds refresh
-/// and sign out), optional update / uncovered-build banners, the accounts grid, and a collapsible
-/// activity console, with an "Open RSL Helper" bar above it.
+/// and sign out), an optional update banner, the accounts grid, and a collapsible activity console,
+/// with an "Open RSL Helper" bar above it.
 ///
 /// <para><b>Tiles are status, with one exception: the account the running game is on.</b> That tile
 /// — and only that one — carries the game-reading action ("Update user data", or "Add this game
@@ -46,7 +47,7 @@ public sealed class AppShell : Panel
     private string? _email;
     private object? _status;                 // { kind, text } or null (public builds have no game status)
     private object? _update;                 // { version, url } or null
-    private string? _report;                 // uncovered-build prompt text, or null
+    private string? _notice;                 // dismissible one-off notice text, or null
     private IReadOnlyList<Tile> _accounts = Array.Empty<Tile>();
     private int? _identified;
     private int? _detectedUserId;
@@ -62,11 +63,11 @@ public sealed class AppShell : Panel
     /// <summary>Raised (on the UI thread) when the live tile's "Update user data" button is clicked.</summary>
     public event Action? ExportRequested;
 
-    /// <summary>Raised when the uncovered-build banner is clicked.</summary>
-    public event Action? ReportBuildRequested;
-
     /// <summary>Raised with a URL the page asked to open (e.g. the update-download link).</summary>
     public event Action<string>? OpenUrlRequested;
+
+    /// <summary>Raised when the user dismisses the one-off notice banner (its "×" button).</summary>
+    public event Action? NoticeDismissRequested;
 
     /// <summary>Raised when the top-bar (or signed-out CTA) "Sign In" button is clicked.</summary>
     public event Action? SignInRequested;
@@ -158,8 +159,12 @@ public sealed class AppShell : Panel
         PushState();
     }
 
-    /// <summary>Shows (or clears, with null) the uncovered-build report banner.</summary>
-    public void SetReport(string? text) { _report = text; PushState(); }
+    /// <summary>
+    /// Shows a one-off notice the user must actively dismiss (its own "×", not a click-to-act
+    /// banner). Used for things worth surfacing once — e.g. "recalibrated for a new game version" —
+    /// that would otherwise be missed inside the collapsed activity console.
+    /// </summary>
+    public void SetNotice(string? text) { _notice = text; PushState(); }
 
     /// <summary>Replaces the tile list. Drops the in-game highlight if its account is no longer present.</summary>
     public void SetAccounts(IReadOnlyList<Tile> accounts)
@@ -217,7 +222,7 @@ public sealed class AppShell : Panel
             userEmail = _email,
             status = _status,
             update = _update,
-            report = _report,
+            notice = _notice,
             accounts = _accounts,
             identifiedUserId = _identified,
             detected = _detectedUserId is int id ? new { userId = id, name = _detectedName ?? $"Account {id}" } : null,
@@ -244,7 +249,7 @@ public sealed class AppShell : Panel
                 case "signIn": SignInRequested?.Invoke(); break;
                 case "signOut": SignOutRequested?.Invoke(); break;
                 case "refresh": RefreshRequested?.Invoke(); break;
-                case "reportBuild": ReportBuildRequested?.Invoke(); break;
+                case "dismissNotice": NoticeDismissRequested?.Invoke(); break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
                     break;
@@ -358,8 +363,15 @@ public sealed class AppShell : Panel
   .banner { flex:none; display:none; padding:9px 16px; font-size:12px; font-weight:600; cursor:pointer;
             border-bottom:1px solid var(--line); }
   #updateBanner { color:var(--accent); background:var(--accentbg); }
-  #reportBanner { color:var(--warn); background:var(--warnbg); }
   .banner:hover { text-decoration:underline; }
+
+  .notice-banner { flex:none; display:none; align-items:center; justify-content:space-between; gap:12px;
+                    padding:9px 16px; font-size:12px; font-weight:600; border-bottom:1px solid var(--line);
+                    color:var(--ok); background:var(--okbg); }
+  .notice-banner .txt { flex:1 1 auto; }
+  .notice-banner .close { flex:none; border:none; background:none; color:inherit; font-family:inherit;
+                           font-size:16px; line-height:1; padding:0 2px; cursor:pointer; opacity:.75; }
+  .notice-banner .close:hover { opacity:1; }
 
   #scroll { flex:1 1 auto; min-height:0; overflow:auto; padding:16px; display:flex; flex-direction:column; }
   #secHdr { display:none; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
@@ -456,7 +468,7 @@ public sealed class AppShell : Panel
     </div>
   </div>
   <div id='updateBanner' class='banner'></div>
-  <div id='reportBanner' class='banner'></div>
+  <div id='noticeBanner' class='notice-banner'><span class='txt'></span><button type='button' class='close' aria-label='Dismiss'>&times;</button></div>
 
   <div id='scroll'>
     <div id='signedOut'>
@@ -476,7 +488,7 @@ public sealed class AppShell : Panel
   </div>
 
 <script>
-  var state = { signedIn:false, user:null, status:null, update:null, report:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null };
+  var state = { signedIn:false, user:null, status:null, update:null, notice:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null };
   var logLines = [];
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
@@ -518,9 +530,9 @@ public sealed class AppShell : Panel
     var ub = $('updateBanner');
     if (state.update) { ub.style.display = 'block'; ub.textContent = 'A new version (' + esc(state.update.version) + ') is available — click to download'; }
     else ub.style.display = 'none';
-    var rb = $('reportBanner');
-    if (state.report) { rb.style.display = 'block'; rb.textContent = esc(state.report); }
-    else rb.style.display = 'none';
+    var nb = $('noticeBanner');
+    if (state.notice) { nb.style.display = 'flex'; nb.querySelector('.txt').textContent = state.notice; }
+    else nb.style.display = 'none';
   }
 
   // 'artifacts', not 'gear': the game counts Gear (slots 1-6) and Accessories (slots 7-9)
@@ -639,7 +651,7 @@ public sealed class AppShell : Panel
   });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAccountMenu(); });
   $('updateBanner').onclick = function(){ if (state.update && state.update.url) window.chrome.webview.postMessage({ type:'openUrl', url: state.update.url }); };
-  $('reportBanner').onclick = function(){ window.chrome.webview.postMessage({ type:'reportBuild' }); };
+  $('noticeBanner').querySelector('.close').onclick = function(){ window.chrome.webview.postMessage({ type:'dismissNotice' }); };
 
   window.chrome.webview.addEventListener('message', function(e) {
     var m = e.data;

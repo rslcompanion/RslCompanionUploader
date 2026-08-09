@@ -39,24 +39,24 @@ public static class BuildCertification
         }
         catch (JsonException ex)
         {
-            return new(Outcome.Failed, $"the server's response wasn't readable ({ex.Message}).");
+            return new(Outcome.Failed, $"the response from RSL Companion wasn't readable ({ex.Message}).");
         }
 
         if (root is not JsonObject obj)
-            return new(Outcome.Failed, "the server's response wasn't readable.");
+            return new(Outcome.Failed, "the response from RSL Companion wasn't readable.");
 
         var servedHash = obj["gameAssemblyHash"]?.GetValue<string>();
         if (!string.Equals(servedHash, gameAssemblyHash, StringComparison.OrdinalIgnoreCase))
-            return new(Outcome.Failed, "the server returned a map for a different game build.");
+            return new(Outcome.Failed, "RSL Companion sent back compatibility data for a different Raid version.");
 
         if (obj["offsets"] is not JsonObject offsets)
-            return new(Outcome.NotPublished, "the server has no map for this game version yet.");
+            return new(Outcome.NotPublished, "RSL Companion doesn't have compatibility data for this Raid version yet.");
 
-        // The compatibility half of the check: a map can exist while describing fields this engine
-        // can't read, in which case updating the app is the fix and applying the map is not.
+        // The compatibility half of the check: a fix can exist while describing fields this engine
+        // can't read, in which case updating the app is the fix and applying this one is not.
         if (obj["minUploaderVersion"]?.GetValue<string>() is string min && IsOlder(uploaderVersion, min))
             return new(Outcome.NeedsNewerUploader,
-                $"this game version needs uploader {min} or newer — you're on {uploaderVersion}.");
+                $"this Raid version needs app version {min} or newer — you're on {uploaderVersion}.");
 
         try
         {
@@ -64,13 +64,13 @@ public static class BuildCertification
         }
         catch (Exception ex)
         {
-            return new(Outcome.Failed, $"the map couldn't be saved ({ex.Message}).");
+            return new(Outcome.Failed, $"the compatibility data couldn't be saved ({ex.Message}).");
         }
 
         var label = obj["gameVersion"]?.GetValue<string>();
         return new(Outcome.Applied, string.IsNullOrWhiteSpace(label)
-            ? "this game version is now certified on this PC."
-            : $"Raid {label} is now certified on this PC.");
+            ? "this Raid version is ready to go on this PC."
+            : $"Raid {label} is ready to go on this PC.");
     }
 
     /// <summary>
