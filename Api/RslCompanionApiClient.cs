@@ -86,12 +86,19 @@ public sealed class RslCompanionApiClient
         // endpoint isn't deployed, which is a server-side state the user can do nothing about and
         // must not read as "your export is broken".
         if (resp.StatusCode == HttpStatusCode.NotFound)
-            return UploadResult.Fail($"Endpoint not found (404): {endpoint}\nThe server may not have this endpoint deployed yet.");
+            return UploadResult.Fail(
+                "RSL Companion isn't accepting uploads at the moment — nothing is wrong on your side. "
+              + "Please try again later.",
+                $"404 from {endpoint}: {Trim(body)}");
 
         if (!resp.IsSuccessStatusCode)
-            return UploadResult.Fail($"Sync failed ({(int)resp.StatusCode} {resp.ReasonPhrase}).\n{Trim(body)}");
+            return UploadResult.Fail(
+                "RSL Companion couldn't accept your data. Please try again in a few minutes.",
+                $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
 
-        return UploadResult.Ok($"Synced to RSL Companion ({(int)resp.StatusCode}).\n{Trim(body)}");
+        return UploadResult.Ok(
+            "Done — your account is up to date on RSL Companion.",
+            $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
     }
 
     /// <summary>
@@ -153,10 +160,15 @@ public sealed class RslCompanionApiClient
     private static string Trim(string s) => s.Length > 500 ? s[..500] + "…" : s;
 }
 
-public readonly record struct UploadResult(bool Success, string Message)
+/// <summary>
+/// The outcome of a sync. <paramref name="Message"/> is what the user is told; <paramref name="Detail"/>
+/// is the status line and response body behind it, which belongs in the activity log's diagnostic
+/// level rather than in front of a player who only wants to know whether it worked.
+/// </summary>
+public readonly record struct UploadResult(bool Success, string Message, string? Detail = null)
 {
-    public static UploadResult Ok(string message) => new(true, message);
-    public static UploadResult Fail(string message) => new(false, message);
+    public static UploadResult Ok(string message, string? detail = null) => new(true, message, detail);
+    public static UploadResult Fail(string message, string? detail = null) => new(false, message, detail);
 }
 
 public enum CertificationStatus

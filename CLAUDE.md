@@ -46,7 +46,7 @@ match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native 
 File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL).
-The page posts back five actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`. Check for
+The page posts back six actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`, `logDetail`. Check for
 updates, recalibrate and about stay native menu items calling straight into `MainForm` — no bridge
 needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
 automatically from `MainForm`, not from anything the page posts back.
@@ -64,6 +64,37 @@ the signed-out state in place (no process restart).
 The page is a top bar (brand + connection pill + Sign In button / identity), an optional update
 banner, the accounts grid, an "Open RSL Helper" bar (opens `MainForm.HelperUrl()` via `openUrl`), and
 a collapsible activity console.
+
+**The window sizes itself in `ApplyStartupBounds` (on handle creation), never in the constructor.** A
+`Form` only rescales assigned bounds when `AutoScaleDimensions` is set, which it is not — so
+`Width = 1210` was applied as *device* pixels and the window opened at 605×374 logical on a 200%
+display, with the WebView2 page (which is DPI-aware) getting a ~605 px CSS viewport and a scrollbar
+across the accounts pane. The design numbers are 96-DPI units, scaled by `DeviceDpi` and clamped to the
+monitor's work area. Don't move them back into the constructor: `DeviceDpi` isn't known there.
+
+**Tiles carry the last-sync *instant*, not a "14 min ago" label.** `AppShell.Tile.LastSyncIso` is
+ISO-8601 and the page renders the wording (`syncLabel`), re-texting it every 30 s (`tickSyncLabels`,
+which retexts nodes rather than rebuilding the grid — a rebuild would throw away the button under the
+user's cursor). Formatting it in C# froze the age at render time, so a window left open showed the gap
+between the last sync and the last tile rebuild — reading hours fresher than the truth.
+`MainForm.PollAccountsAsync` additionally re-reads the accounts every 5 minutes via
+`LoadAccountsAsync(silent: true)`, which skips the busy flag and the narration: counts, clan and
+last-sync are server-side facts that change without this app doing anything.
+
+**The activity console has two levels, and the default is the one a player can read.** `MainForm.Log`
+takes `detail:` — false (the default) for lines written for the user, true for diagnostics. The
+engine's `Console` output is *all* diagnostic: `LogEngineLine` sends every line at the detail level and,
+from the phase markers alone, emits a plain-language progress line ("Reading your champions…") via the
+`PhaseProgress` map. Phase names there are stable identifiers in `ExtractionService`; an unrecognised
+one produces no plain line rather than leaking the raw name. API results carry the same split —
+`UploadResult` has a user `Message` and a diagnostic `Detail` (status code + body) instead of one
+string with the raw response in it.
+
+**Detail lines are hidden, never dropped.** The page keeps every line and filters on render, so the
+console's "Details" toggle explains the export that already ran instead of requiring the user to
+reproduce it — which is the whole point, since the person who wants the trace is reporting a problem
+that already happened. The choice persists (`activityLogDetail` in `settings.json`), and the collapsed
+header always summarises with a plain line so Details-off never shows an address there.
 
 `HelperUrl()` is `AppConfig.FrontendUrl` plus **`?account=<in-game id>`** whenever the running game is
 on an account the profile has already imported, so the site opens on the account being played rather

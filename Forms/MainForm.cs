@@ -130,13 +130,10 @@ public sealed class MainForm : Form
         // the WebView2 page's own top bar already shows that brand right underneath.
         Text = $"Uploader  v{AboutForm.DisplayVersion}";
         Icon = AppIcon.Value;
-        Width = 1210;   // ~10% larger than the previous 1100×680 default
-        Height = 748;
-        StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(820, 480);
-        // Open windowed (not maximized) and centered. The size below is generous enough that the
-        // accounts grid fits at a glance on a typical display without claiming the whole screen;
-        // the user can still maximize manually if they want the full work area.
+        StartPosition = FormStartPosition.Manual; // ApplyStartupBounds centres it against the real work area
+        // Open windowed (not maximized) and centered, at a size that shows a full row of account tiles
+        // without a scrollbar. The numbers are applied in ApplyStartupBounds, which is where the
+        // monitor's DPI is actually known.
         Font = new Font("Segoe UI", 9.5f);
 
         BuildLayout();
@@ -152,6 +149,15 @@ public sealed class MainForm : Form
         _shell.SignInRequested += () => BeginInvoke(new Action(SignIn));
         _shell.SignOutRequested += () => BeginInvoke(new Action(SignOut));
         _shell.NoticeDismissRequested += () => _shell.SetNotice(null);
+        // Persisted: someone who wants the engine trace usually wants it for more than one export
+        // (they are reporting a problem), and someone who doesn't should never see it again.
+        _shell.SetLogDetail(UserSettings.Current.ActivityLogDetail);
+        _shell.LogDetailChanged += detail =>
+        {
+            UserSettings.Current.ActivityLogDetail = detail;
+            UserSettings.Current.Save();
+            _shell.SetLogDetail(detail);
+        };
 #if EXTRACTION
         // The export action lives on the shell's live tile; it reads the running game and routes by
         // the in-game id it finds there, regardless of which tile drove the label.
@@ -159,6 +165,7 @@ public sealed class MainForm : Form
         // Export availability is gated on being signed in — set in EnterSignedInAsync, not here.
         FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
 #endif
+        FormClosed += (_, _) => _refreshCts.Cancel(); // same, for the account refresh
 
         Load += async (_, _) =>
         {
@@ -173,6 +180,49 @@ public sealed class MainForm : Form
             _shell.SetSignedOut();
             await RestoreSessionAsync();
         };
+    }
+
+    // Startup window size, in 96-DPI units — i.e. the size the page's own CSS pixels are measured in,
+    // which is what decides whether a row of account tiles fits. At this height the accounts pane
+    // clears a full tile row (header + tile + its action button) with the update banner showing.
+    private const int DesignWidth = 1210;
+    private const int DesignHeight = 780;
+    private const int DesignMinWidth = 820;
+    private const int DesignMinHeight = 560;
+
+    /// <summary>
+    /// Sizes and centres the window against the monitor it actually opens on.
+    ///
+    /// <para><b>Setting <c>Width</c>/<c>Height</c> in the constructor was a HiDPI bug, not a style
+    /// choice.</b> A <see cref="Form"/> only rescales assigned bounds when <c>AutoScaleDimensions</c>
+    /// is set, which it is not here, so 1210×748 was applied as raw device pixels: on a 200% display
+    /// the window opened at 605×374 logical px — half its intended size — and the WebView2 page, which
+    /// *is* DPI-aware, got a ~605 px CSS viewport. That is where the scrollbar across the accounts
+    /// pane came from; the page was never too big, the window was too small.</para>
+    ///
+    /// <para>Clamped to the work area because the design height can exceed a short screen, and a
+    /// window taller than the desktop reintroduces the same clipping from the other direction.</para>
+    /// </summary>
+    private void ApplyStartupBounds()
+    {
+        float scale = DeviceDpi / 96f;
+        int Scaled(int v) => (int)Math.Round(v * scale);
+
+        var work = Screen.FromHandle(Handle).WorkingArea;
+        MinimumSize = new Size(Math.Min(Scaled(DesignMinWidth), work.Width),
+                               Math.Min(Scaled(DesignMinHeight), work.Height));
+
+        int w = Math.Min(Scaled(DesignWidth), work.Width);
+        int h = Math.Min(Scaled(DesignHeight), work.Height);
+        Bounds = new Rectangle(work.X + (work.Width - w) / 2, work.Y + (work.Height - h) / 2, w, h);
+    }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        // Here rather than in the constructor: DeviceDpi and the target monitor are only known once
+        // the handle exists.
+        ApplyStartupBounds();
     }
 
     /// <summary>
@@ -203,7 +253,9 @@ public sealed class MainForm : Form
             {
                 // Codes die after ~60s, so a launch that queued behind a slow start legitimately
                 // arrives dead. Say so in the log and fall through to the saved session.
-                Log("Sign-in from the website did not complete: " + ex.Message);
+                Log("Couldn't finish signing in from the website — the link may have expired. "
+                  + "Use Sign In to try again.");
+                Log("Handoff exchange failed: " + ex.Message, detail: true);
             }
         }
 
@@ -217,7 +269,7 @@ public sealed class MainForm : Form
         {
             // Nothing to act on: TryRestoreAsync has already decided whether the saved session was
             // rejected (and cleared it) or merely unreachable (and kept it for the next launch).
-            Log("Could not restore your saved session. Sign in to continue.");
+            Log("Couldn't reopen your saved session — please sign in again.");
             return;
         }
 
@@ -340,10 +392,56 @@ public sealed class MainForm : Form
 #endif
         await LoadAccountsAsync();
 
+        // One loop per session, not one per sign-in: signing out and back in must not leave two
+        // refreshers running against the same tiles.
+        if (!_accountRefreshStarted)
+        {
+            _accountRefreshStarted = true;
+            _ = PollAccountsAsync(_refreshCts.Token);
+        }
+
         // Packaged (MSIX/Store) builds get updates via the Store or App Installer instead of this
         // GitHub-release poll, so the banner/menu item would be confusing there.
         if (!PackagedAppInfo.IsPackaged)
             _ = CheckForUpdateAsync(silent: true);
+    }
+
+    private bool _accountRefreshStarted;
+
+    // Stops the account refresh when the window closes. Its own source rather than the game poll's:
+    // the tiles refresh in every build, including the public one with no extraction engine.
+    private readonly CancellationTokenSource _refreshCts = new();
+
+    /// <summary>
+    /// How often the tiles are re-read from RSL Companion. Counts, clan and last-sync are server-side
+    /// facts that change without this app doing anything — another device syncing, or the same account
+    /// updated from the website — so a window left open all day otherwise shows the state at the moment
+    /// it was opened. Five minutes is well under the interval at which anyone notices, and it is one
+    /// small GET.
+    /// </summary>
+    private static readonly TimeSpan AccountRefreshInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// Re-reads the accounts on a timer, quietly. Skipped while signed out or while something else
+    /// holds the app busy — an export ends with its own reload, so refreshing underneath it would only
+    /// race that with staler data.
+    /// </summary>
+    private async Task PollAccountsAsync(CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try { await Task.Delay(AccountRefreshInterval, token).ConfigureAwait(true); }
+            catch (OperationCanceledException) { return; }
+
+            if (token.IsCancellationRequested) return;
+            if (!_api.IsAuthenticated || _busy) continue;
+
+            // LoadAccountsAsync(silent) already swallows its own failures; this guard is for anything
+            // that could escape it, because one throw here would end the refreshing for the session.
+            try { await LoadAccountsAsync(silent: true); }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex) { Log("Background account refresh failed: " + ex.Message, detail: true); }
+        }
     }
 
 #if EXTRACTION
@@ -609,7 +707,7 @@ public sealed class MainForm : Form
         // the user is running.
         if (!UserSettings.Current.AutoCheckBuildCertification && !AskToCheckCompatibility(build))
         {
-            Log("Skipped the compatibility verification — setting this Raid version up directly instead.");
+            Log("No problem — setting this Raid version up from your own game instead.");
             return false;
         }
 
@@ -619,7 +717,7 @@ public sealed class MainForm : Form
         try
         {
             var label = BuildLabel(build);
-            Log($"Running a compatibility verification for Raid {label}…");
+            Log($"Checking whether RSL Companion already supports Raid {label}…");
 
             CertificationResult response;
             try
@@ -633,20 +731,22 @@ public sealed class MainForm : Form
             }
             catch (Exception ex)
             {
-                Log($"Couldn't reach RSL Companion for the compatibility verification: {ex.Message}");
+                Log("Couldn't reach RSL Companion just now — setting this Raid version up from your own game instead.");
+                Log($"Certification lookup failed: {ex.Message}", detail: true);
                 return false;
             }
 
             if (response.Status == CertificationStatus.NotPublished)
             {
-                Log($"Compatibility verification found nothing for Raid {label} yet — setting it up "
-                  + "directly instead.");
+                Log($"RSL Companion doesn't cover Raid {label} yet — setting it up from your own game "
+                  + "instead.");
                 return false;
             }
 
             if (response.Status == CertificationStatus.Failed)
             {
-                Log(response.Error ?? "Compatibility verification failed.");
+                Log($"Couldn't check Raid {label} online — setting it up from your own game instead.");
+                if (response.Error is string err) Log($"Certification lookup: {err}", detail: true);
                 return false;
             }
 
@@ -654,7 +754,7 @@ public sealed class MainForm : Form
             switch (applied.Outcome)
             {
                 case BuildCertification.Outcome.Applied:
-                    Log($"Compatibility confirmed — {applied.Message} Reading your account now.");
+                    Log($"Good news — {applied.Message} Reading your account now.");
                     // Let the next poll re-probe against the result that now exists rather than
                     // asserting a state from here.
                     _gameState = GameState.NotRunning;
@@ -662,12 +762,12 @@ public sealed class MainForm : Form
                     return true;
 
                 case BuildCertification.Outcome.NeedsNewerUploader:
-                    Log($"A compatible setup exists for Raid {label}, but {applied.Message} " +
+                    Log($"Raid {label} is supported, but {applied.Message} " +
                         "Use Help → Check for updates, then try again.");
                     return false;
 
                 default:
-                    Log($"Couldn't complete the compatibility verification: {applied.Message}");
+                    Log($"Couldn't set this up from RSL Companion — {applied.Message}");
                     return false;
             }
         }
@@ -705,7 +805,7 @@ public sealed class MainForm : Form
         {
             UserSettings.Current.AutoCheckBuildCertification = true;
             UserSettings.Current.Save();
-            Log("Future Raid updates will be verified automatically.");
+            Log("Future Raid updates will be checked automatically.");
         }
 
         return clicked == check;
@@ -913,10 +1013,21 @@ public sealed class MainForm : Form
         }
     }
 
-    private async Task LoadAccountsAsync()
+    /// <summary>
+    /// Reloads the tiles from RSL Companion.
+    ///
+    /// <para><paramref name="silent"/> is what the background refresh uses: it skips the busy flag and
+    /// the narration. A periodic reload that greyed the action buttons out and announced itself every
+    /// few minutes would be worse than the staleness it exists to fix — the user would see the export
+    /// button flicker dead under the cursor for no reason they asked for.</para>
+    /// </summary>
+    private async Task LoadAccountsAsync(bool silent = false)
     {
-        SetBusy(true);
-        Log("Loading your accounts…");
+        if (!silent)
+        {
+            SetBusy(true);
+            Log("Loading your accounts…");
+        }
         try
         {
             var accounts = await _api.GetAccountsAsync();
@@ -929,20 +1040,35 @@ public sealed class MainForm : Form
 
             _shell.SetAccounts(_loadedAccounts
                 .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName,
-                    a.HeroCount, a.ArtifactCount, FormatLastSync(a.LastSyncDate)))
+                    a.HeroCount, a.ArtifactCount, LastSyncInstant(a.LastSyncDate)))
                 .ToList());
 
-            Log(_loadedAccounts.Count > 0
-                ? $"Loaded {_loadedAccounts.Count} account(s)."
-                : "No accounts in your profile yet — open Raid and click Export account to create one.");
+            if (silent)
+            {
+                Log($"Background refresh: {_loadedAccounts.Count} account(s).", detail: true);
+            }
+            else
+            {
+                Log(_loadedAccounts.Count switch
+                {
+                    0 => "No accounts in your profile yet — start Raid, then use the button on your account "
+                       + "to add it.",
+                    1 => "Found 1 account in your profile.",
+                    var n => $"Found {n} accounts in your profile.",
+                });
+            }
         }
         catch (Exception ex)
         {
-            Log("Failed to load accounts: " + ex.Message);
+            // A silent refresh failing is not news: the tiles simply keep the values they already have,
+            // and the next tick tries again. Saying so out loud would turn a flaky minute of Wi-Fi into
+            // a recurring error in front of someone who never asked for the reload.
+            if (!silent) Log("Couldn't load your accounts — check your internet connection and try again.");
+            Log(ex.ToString(), detail: true);
         }
         finally
         {
-            SetBusy(false);
+            if (!silent) SetBusy(false);
 #if EXTRACTION
             // The tiles just changed, so the live account's imported/new status may have too.
             ReconcileLiveAccount();
@@ -950,20 +1076,12 @@ public sealed class MainForm : Form
         }
     }
 
-    /// <summary>Friendly, local-time "last synced" label for a tile, or null when unknown.</summary>
-    private static string? FormatLastSync(DateTimeOffset? when)
-    {
-        if (when is not { } dt) return null;
-        var local = dt.ToLocalTime();
-        var age = DateTimeOffset.Now - local;
-        if (age < TimeSpan.Zero) return local.ToString("MMM d, yyyy");     // clock skew — show the date
-        if (age < TimeSpan.FromMinutes(1)) return "just now";
-        if (age < TimeSpan.FromHours(1)) return $"{(int)age.TotalMinutes} min ago";
-        if (local.Date == DateTimeOffset.Now.Date) return $"today at {local:h:mm tt}";
-        if (local.Date == DateTimeOffset.Now.Date.AddDays(-1)) return "yesterday";
-        if (age < TimeSpan.FromDays(7)) return $"{(int)age.TotalDays} days ago";
-        return local.ToString("MMM d, yyyy");
-    }
+    /// <summary>
+    /// The instant an account was last synced, as ISO-8601 for the page — <b>not</b> a "14 min ago"
+    /// label. The page owns that wording and re-derives it on a ticker, because a relative label is
+    /// only true at the moment it is written and the tiles outlive that moment by hours.
+    /// </summary>
+    private static string? LastSyncInstant(DateTimeOffset? when) => when?.ToString("o");
 
     /// <summary>
     /// On startup (<paramref name="silent"/> = true) failures and "already up to date" are not
@@ -1018,7 +1136,7 @@ public sealed class MainForm : Form
     private async Task ExportAccountAsync()
     {
         SetBusy(true, "export");
-        Log("Reading the running Raid account… make sure the game is open and loaded.");
+        Log("Reading your account from Raid — keep the game open until this finishes.");
         try
         {
             var profile = await ExtractProfileAsync();
@@ -1037,10 +1155,15 @@ public sealed class MainForm : Form
 
             var gameId = profile.AccountId;
             var gameName = string.IsNullOrWhiteSpace(profile.Account.Name) ? $"account {gameId}" : profile.Account.Name;
-            Log($"Extracted {gameName} (game ID {gameId}): {profile.Resources.Count} resources and {profile.Heroes.Count} champions" +
+            // Counts, in the names the game uses on screen — they are the one thing here a player can
+            // check against their own account, which is what makes them worth a plain-level line. The
+            // in-game id and the resource tally are bookkeeping, so they go to the detail level.
+            Log($"Read {gameName}'s account: {profile.Heroes.Count} champions" +
                 (ExportArtifacts
-                    ? $", {profile.Artifacts.Count} artifacts and {profile.Accessories.Count} accessories."
-                    : ". (Artifacts: not yet available from the game — will be included in a future update.)"));
+                    ? $", {profile.Artifacts.Count} pieces of gear and {profile.Accessories.Count} accessories."
+                    : ". (Gear isn't included in this version.)"));
+            Log($"accountId={gameId} resources={profile.Resources.Count} relics={profile.Relics.Count} "
+              + $"gemstones={profile.Gemstones.Count} guardians={profile.FactionGuardians.Count}", detail: true);
 
             // The server derives an account's numeric UserId from this game accountId (parsed as a
             // uint), so that's how we recognise whether this game account is already registered —
@@ -1055,10 +1178,8 @@ public sealed class MainForm : Form
             }
             var match = gameUserId is int uid ? _loadedAccounts.FirstOrDefault(a => a.UserId == uid) : null;
             Log(match is not null
-                ? $"This game account is already registered as “{match.Name ?? gameName}” — updating it."
-                : "This game account isn't registered yet — a new account will be created for it.");
-
-            Log("Exporting to RSL Companion…");
+                ? $"Sending it to RSL Companion to update “{match.Name ?? gameName}”…"
+                : $"Sending it to RSL Companion — this will add “{gameName}” to your profile…");
             // Stamp uploader-side provenance onto every export/update. These are the uploader's own
             // concern (not the shared extraction model), so they are injected here at serialization
             // time rather than baked into ConsolidatedProfile. The export just read the live game, so
@@ -1067,6 +1188,7 @@ public sealed class MainForm : Form
             var json = SerializeWithProvenance(profile, gameVersion);
             var result = await _api.UploadConsolidatedAsync(json);
             Log(result.Message);
+            if (result.Detail is string detail) Log($"Sync response: {detail}", detail: true);
 
             // Refresh the tiles (a new account now exists). LoadAccountsAsync reconciles the live
             // account against them, so the exported one comes back highlighted as the in-game tile.
@@ -1075,7 +1197,8 @@ public sealed class MainForm : Form
         }
         catch (Exception ex)
         {
-            Log($"Export account failed: {DescribeExtractionFailure(ex)}");
+            Log($"Couldn't update your data: {DescribeExtractionFailure(ex)}");
+            Log(ex.ToString(), detail: true);
         }
         finally
         {
@@ -1140,6 +1263,51 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
+    /// Takes one line of the engine's console output and decides what, if anything, the user sees.
+    ///
+    /// <para>Everything goes to the activity log as a <i>diagnostic</i> line — hidden unless the
+    /// console's "Details" toggle is on. That output is written for debugging a memory map (klass
+    /// addresses, offset chains, per-phase timings) and runs to hundreds of lines per export; shown
+    /// to a player it reads as either an error or a crash in progress.</para>
+    ///
+    /// <para>What the user gets instead is the engine's own phase markers, translated. They are the
+    /// one part of that stream that is genuinely about progress, and an export is slow enough
+    /// (~5 s cold) that silence during it is worse than jargon. The phase names are stable
+    /// identifiers in <c>ExtractionService</c>, not prose — an unrecognised one simply produces no
+    /// plain line rather than leaking the raw name.</para>
+    /// </summary>
+    private void LogEngineLine(string raw)
+    {
+        Log(raw, detail: true);
+
+        const string marker = ">>> PHASE START: ";
+        int at = raw.IndexOf(marker, StringComparison.Ordinal);
+        if (at < 0) return;
+
+        var phase = raw[(at + marker.Length)..].Trim();
+        if (PhaseProgress.TryGetValue(phase, out var friendly)) Log(friendly);
+    }
+
+    /// <summary>
+    /// Engine phase name → what that phase is doing, in the user's terms. Deliberately partial: the
+    /// bookkeeping phases (loading the offset cache, loading the champion name catalog) finish in
+    /// milliseconds and naming them adds noise without adding information.
+    /// </summary>
+    private static readonly Dictionary<string, string> PhaseProgress = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["attach"] = "Connecting to Raid…",
+        ["calibrate-offsets"] = "First time on this Raid version — working out where the game keeps its data. This takes about a minute.",
+        ["resolve-user"] = "Finding your account in the game…",
+        ["extract-account"] = "Reading your profile…",
+        ["extract-resources"] = "Reading your resources…",
+        ["extract-heroes"] = "Reading your champions…",
+        ["extract-faction-guardians"] = "Reading your Faction Guardians…",
+        ["read-clan"] = "Reading your clan…",
+        ["extract-artifacts"] = "Reading your gear and accessories — the slowest part, please wait…",
+        ["extract-relics"] = "Reading your relics and gemstones…",
+    };
+
+    /// <summary>
     /// Runs the private extraction engine against the live Raid process on a background thread,
     /// mirroring its console diagnostics into the activity log. Backs "Update user data"; always
     /// pulls resources + champions, and artifacts when <see cref="ExportArtifacts"/> is enabled.
@@ -1155,7 +1323,7 @@ public sealed class MainForm : Form
         {
             var originalOut = Console.Out;
             var originalError = Console.Error;
-            using var writer = new ConsoleLogWriter(Log);
+            using var writer = new ConsoleLogWriter(LogEngineLine);
             Console.SetOut(writer);
             Console.SetError(writer);
             try
@@ -1263,10 +1431,15 @@ public sealed class MainForm : Form
 
     // Marshals to the UI thread: the extraction engine logs from a background thread (see
     // ConsoleLogWriter), and the shell may only be touched on the UI thread.
-    private void Log(string message)
+    //
+    // `detail: true` marks a line as diagnostic — the page keeps it but hides it unless the user turned
+    // the console's "Details" toggle on. The default is the user-facing level, so an unmarked call is
+    // one a player is meant to read; anything naming an offset, an address, a class or a phase belongs
+    // on the other side of the flag.
+    private void Log(string message, bool detail = false)
     {
-        if (InvokeRequired) BeginInvoke(() => _shell.Log(message));
-        else _shell.Log(message);
+        if (InvokeRequired) BeginInvoke(() => _shell.Log(message, detail));
+        else _shell.Log(message, detail);
     }
 }
 

@@ -9,7 +9,8 @@ namespace RslCompanionUploader.Forms;
 /// The whole application UI, rendered as one full-window WebView2 page so it matches rslcompanion.com
 /// rather than looking like native WinForms chrome. The C# side stays the backend: it owns all data
 /// and pushes a single view-state into the page, and receives back only the actions the page can
-/// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>. Check for
+/// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>,
+/// <c>logDetail</c> (the activity console's diagnostics toggle). Check for
 /// updates, recalibrate, and about stay on the native Help menu, which calls into
 /// <see cref="MainForm"/> directly and needs no bridge. An uncovered game build is covered
 /// automatically (server certify, then local calibration) rather than through anything on this page.
@@ -56,9 +57,12 @@ public sealed class AppShell : Panel
     private string? _busyKind;               // "export" | null — drives which button shows progress
     private bool _exportAvailable;
     private string? _frontendUrl;            // target of the "Open RSL Helper" button
+    private bool _logDetail;                 // false = plain-language activity only; true = engine diagnostics too
 
-    // Log lines produced before the page is ready, flushed on load.
-    private readonly List<string> _pendingLog = new();
+    // Log lines produced before the page is ready, flushed on load. Detail lines are kept even while
+    // they are hidden, so switching the toggle on reveals what already happened rather than starting
+    // a fresh trace the user would have to reproduce.
+    private readonly List<(string Line, bool Detail)> _pendingLog = new();
 
     /// <summary>Raised (on the UI thread) when the live tile's "Update user data" button is clicked.</summary>
     public event Action? ExportRequested;
@@ -77,6 +81,9 @@ public sealed class AppShell : Panel
 
     /// <summary>Raised when "Refresh accounts" is chosen from the top-bar account menu.</summary>
     public event Action? RefreshRequested;
+
+    /// <summary>Raised with the new value when the activity console's "Details" toggle is clicked.</summary>
+    public event Action<bool>? LogDetailChanged;
 
     public AppShell()
     {
@@ -99,7 +106,7 @@ public sealed class AppShell : Panel
             {
                 if (!e.IsSuccess) return;
                 _ready = true;
-                foreach (var line in _pendingLog) Post(new { type = "log", line });
+                foreach (var (line, detail) in _pendingLog) Post(new { type = "log", line, detail });
                 _pendingLog.Clear();
                 PushState();
             };
@@ -198,13 +205,21 @@ public sealed class AppShell : Panel
     /// <summary>Target of the "Open RSL Helper" button (<c>AppConfig.FrontendUrl</c>).</summary>
     public void SetFrontendUrl(string? url) { _frontendUrl = url; PushState(); }
 
-    /// <summary>Appends a timestamped line to the activity console.</summary>
-    public void Log(string message)
+    /// <summary>
+    /// Appends a timestamped line to the activity console. <paramref name="detail"/> marks a line as
+    /// diagnostic — engine internals, addresses, timings — which the page holds but only shows while
+    /// the console's "Details" toggle is on. Default false: a line with no level stated is one a
+    /// player is meant to read.
+    /// </summary>
+    public void Log(string message, bool detail = false)
     {
         var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
-        if (!_ready || _web.CoreWebView2 is null) { _pendingLog.Add(line); return; }
-        Post(new { type = "log", line });
+        if (!_ready || _web.CoreWebView2 is null) { _pendingLog.Add((line, detail)); return; }
+        Post(new { type = "log", line, detail });
     }
+
+    /// <summary>Sets whether diagnostic lines are shown, without discarding the ones already logged.</summary>
+    public void SetLogDetail(bool detail) { _logDetail = detail; PushState(); }
 
     private void PushState()
     {
@@ -225,6 +240,7 @@ public sealed class AppShell : Panel
             busyKind = _busyKind,
             exportAvailable = _exportAvailable,
             frontendUrl = _frontendUrl,
+            logDetail = _logDetail,
         });
     }
 
@@ -245,6 +261,9 @@ public sealed class AppShell : Panel
                 case "signOut": SignOutRequested?.Invoke(); break;
                 case "refresh": RefreshRequested?.Invoke(); break;
                 case "dismissNotice": NoticeDismissRequested?.Invoke(); break;
+                case "logDetail" when root.TryGetProperty("detail", out var d):
+                    LogDetailChanged?.Invoke(d.ValueKind == JsonValueKind.True);
+                    break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
                     break;
@@ -256,14 +275,22 @@ public sealed class AppShell : Panel
         }
     }
 
-    /// <summary>Compact per-account payload sent to the page.</summary>
+    /// <summary>
+    /// Compact per-account payload sent to the page.
+    ///
+    /// <para><paramref name="LastSyncIso"/> is the raw instant (ISO-8601), never a formatted label.
+    /// "14 min ago" is only true for the instant it is written: formatting it here froze the age at
+    /// render time, so a window left open showed the gap between the last sync and the last time the
+    /// tiles happened to be rebuilt — reading as far more recent than the truth. The page renders the
+    /// relative text and re-renders it on a ticker.</para>
+    /// </summary>
     public sealed record Tile(
         [property: JsonPropertyName("userId")] int UserId,
         [property: JsonPropertyName("name")] string Name,
         [property: JsonPropertyName("clanName")] string? ClanName,
         [property: JsonPropertyName("heroCount")] int HeroCount,
         [property: JsonPropertyName("artifactCount")] int ArtifactCount,
-        [property: JsonPropertyName("lastSync")] string? LastSync = null);
+        [property: JsonPropertyName("lastSync")] string? LastSyncIso = null);
 
     private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
 
@@ -372,7 +399,9 @@ public sealed class AppShell : Panel
   #secHdr { display:none; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
   #secHdr .lbl { font-size:12px; font-weight:600; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; }
   #secHdr .cnt { font-size:12px; color:var(--mut); }
-  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; }
+  /* auto-fill packs as many columns as fit, so a maximised window makes columns *narrower* (down to
+     the minimum), not wider — the min has to hold a tile's widest row on its own. */
+  #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:12px; }
 
   /* Tiles are status and cannot be selected — with one exception: the tile for the account the
      running game is on carries the game-reading action (see .tile .actions below). It reads the
@@ -385,16 +414,22 @@ public sealed class AppShell : Panel
   .tile .avatar { width:34px; height:34px; border-radius:9px; background:var(--panel); color:var(--fg);
                   display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; flex:none; }
   .tile.identified .avatar { background:var(--card); color:var(--ok); }
+  /* min-width:0 lets the name column shrink instead of shoving the badge out of the tile. */
+  .tile .who { min-width:0; }
   .tile .name { font-size:15px; font-weight:600; word-break:break-word; }
   .tile.identified .name { color:var(--ok); }
-  .tile .clan { font-size:12px; color:var(--sub); margin-top:2px; }
-  .tile .meta { font-size:12px; color:var(--sub); margin-top:10px; display:flex; gap:16px; }
+  .tile .clan { font-size:12px; color:var(--sub); word-break:break-word; margin-top:2px; }
+  /* Wrap whole stats, never mid-stat: at the narrow end a column is one tile wide, not two. */
+  .tile .meta { font-size:12px; color:var(--sub); margin-top:10px; display:flex; flex-wrap:wrap; gap:4px 16px; }
+  .tile .meta span { white-space:nowrap; }
   .tile.identified .meta { color:var(--ok); }
   .tile .synced { font-size:11px; color:var(--mut); margin-top:8px; }
   .tile.identified .synced { color:var(--ok); }
-  .tile .badge { position:absolute; top:12px; right:12px; display:inline-flex; align-items:center; gap:5px;
-                 font-size:11px; font-weight:600; color:var(--ok); }
-  .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); }
+  /* In the head's flow, not absolutely positioned over it — pinned to the corner it overlapped the
+     name as soon as the column hit its minimum width. */
+  .tile .badge { flex:none; margin-left:auto; align-self:flex-start; display:inline-flex; align-items:center;
+                 gap:5px; white-space:nowrap; font-size:11px; font-weight:600; color:var(--ok); }
+  .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
 
   /* Action row on the live tile only. */
   .tile .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
@@ -434,13 +469,21 @@ public sealed class AppShell : Panel
   #console { flex:none; border-top:1px solid var(--line); background:var(--panel); }
   #consoleHdr { display:flex; align-items:center; gap:8px; padding:8px 16px; cursor:pointer;
                 font-size:12px; color:var(--sub); }
-  #consoleHdr .last { font-family:'Consolas', ui-monospace, monospace; color:var(--fg); overflow:hidden;
+  /* Always a plain-language line (renderLog skips diagnostics here), so it reads as prose, not code. */
+  #consoleHdr .last { color:var(--fg); overflow:hidden;
                       text-overflow:ellipsis; white-space:nowrap; flex:1; }
   #consoleHdr .chev { color:var(--mut); }
+  /* The detail switch lives on the header because that is where the noise is: a player who finds the
+     log too technical is already looking at it. Off by default — see MainForm's Log(detail:). */
+  #logDetail { flex:none; padding:2px 9px; border:1px solid var(--line); border-radius:999px;
+               background:none; color:var(--sub); font-family:inherit; font-size:11px; cursor:pointer; }
+  #logDetail.on { background:var(--accent); border-color:var(--accent); color:#fff; }
   #consoleBody { display:none; max-height:150px; overflow:auto; padding:6px 16px 12px;
-                 font-family:'Consolas', ui-monospace, monospace; font-size:12px; line-height:1.55; }
+                 font-size:12px; line-height:1.55; }
   #console.open #consoleBody { display:block; }
   #consoleBody .ln { color:var(--sub); white-space:pre-wrap; word-break:break-word; }
+  /* Diagnostics stay monospace — they are addresses and timings, and columns help there. */
+  #consoleBody .ln.detail { color:var(--mut); font-family:'Consolas', ui-monospace, monospace; }
 </style></head>
 <body>
   <div id='topbar'>
@@ -478,16 +521,43 @@ public sealed class AppShell : Panel
   <div id='actionBar'><button id='openHelper' type='button'>Open RSL Helper</button></div>
 
   <div id='console'>
-    <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><span class='chev'>&#9650;</span></div>
+    <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><button id='logDetail' type='button'>Details</button><span class='chev'>&#9650;</span></div>
     <div id='consoleBody'></div>
   </div>
 
 <script>
-  var state = { signedIn:false, user:null, status:null, update:null, notice:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null };
+  var state = { signedIn:false, user:null, status:null, update:null, notice:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null, logDetail:false };
   var logLines = [];
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
   function initials(s){ s=(s||'').trim(); if(!s) return '?'; var p=s.split(/\s+/); return (p.length>1 ? p[0][0]+p[1][0] : s.slice(0,2)).toUpperCase(); }
+
+  // The last-synced wording, computed from the raw instant every time it is rendered.
+  // Deliberately not precomputed on the C# side: a relative label is only correct at the moment it is
+  // written, and the tiles are rebuilt far less often than the clock moves.
+  function syncLabel(iso) {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return '';
+    var d = new Date(t), now = new Date(), mins = (now - d) / 60000;
+    if (mins < 0) return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+    if (mins < 1) return 'just now';
+    if (mins < 60) return Math.floor(mins) + ' min ago';
+    var sameDay = function(a, b){ return a.toDateString() === b.toDateString(); };
+    if (sameDay(d, now)) return 'today at ' + d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+    var yesterday = new Date(now.getTime()); yesterday.setDate(yesterday.getDate() - 1);
+    if (sameDay(d, yesterday)) return 'yesterday at ' + d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+    if (mins < 60 * 24 * 7) return Math.floor(mins / 1440) + ' days ago';
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  }
+
+  // Retexts the existing labels rather than re-rendering the grid: a rebuild every half-minute would
+  // throw away the button the user may be reaching for.
+  function tickSyncLabels() {
+    var nodes = document.querySelectorAll('#grid .synced[data-sync]');
+    for (var i = 0; i < nodes.length; i++)
+      nodes[i].textContent = 'Last synced ' + syncLabel(nodes[i].getAttribute('data-sync'));
+  }
+  setInterval(tickSyncLabels, 30000);
 
   function liveSelection() {
     if (state.detected) return { userId: state.detected.userId, kind: 'add' };
@@ -583,11 +653,12 @@ public sealed class AppShell : Panel
       el.className = 'tile'
         + (a.userId === state.identifiedUserId ? ' identified' : '')
         + (sel && sel.kind === 'update' && a.userId === sel.userId ? ' selected' : '');
-      var html = ""<div class='head'><div class='avatar'>"" + esc(initials(a.name)) + ""</div><div><div class='name'>"" + esc(a.name) + ""</div>"";
+      var html = ""<div class='head'><div class='avatar'>"" + esc(initials(a.name)) + ""</div><div class='who'><div class='name'>"" + esc(a.name) + ""</div>"";
       html += a.clanName ? (""<div class='clan'>"" + esc(a.clanName) + ""</div>"") : '';
-      html += ""</div></div>"" + tileMeta(a);
-      if (a.lastSync) html += ""<div class='synced'>Last synced "" + esc(a.lastSync) + ""</div>"";
+      html += ""</div>"";
       if (a.userId === state.identifiedUserId) html += ""<div class='badge'>In game</div>"";
+      html += ""</div>"" + tileMeta(a);
+      if (a.lastSync) html += ""<div class='synced' data-sync='"" + esc(a.lastSync) + ""'>Last synced "" + esc(syncLabel(a.lastSync)) + ""</div>"";
       if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;
       grid.appendChild(el);
@@ -610,15 +681,33 @@ public sealed class AppShell : Panel
     renderGrid(sel);
   }
 
+  // Diagnostic lines are always kept, only hidden — flipping Details on has to explain the run that
+  // just happened, not start a new one. The collapsed header always summarises with a plain line, so
+  // a user with Details off never sees an engine address there either.
+  function visibleLog() {
+    return state.logDetail ? logLines : logLines.filter(function(l){ return !l.detail; });
+  }
+
   function renderLog() {
-    var last = logLines.length ? logLines[logLines.length - 1] : '';
-    $('consoleHdr').querySelector('.last').textContent = last;
+    var shown = visibleLog();
+    var plain = logLines.filter(function(l){ return !l.detail; });
+    var last = plain.length ? plain[plain.length - 1] : '';
+    $('consoleHdr').querySelector('.last').textContent = last ? last.line : '';
+    $('logDetail').classList.toggle('on', !!state.logDetail);
     var body = $('consoleBody');
-    body.innerHTML = logLines.map(function(l){ return ""<div class='ln'>"" + esc(l) + ""</div>""; }).join('');
+    body.innerHTML = shown.map(function(l){
+      return ""<div class='ln"" + (l.detail ? "" detail"" : """") + ""'>"" + esc(l.line) + ""</div>"";
+    }).join('');
     body.scrollTop = body.scrollHeight;
   }
 
   $('consoleHdr').onclick = function(){ $('console').classList.toggle('open'); };
+  $('logDetail').onclick = function(e){
+    // Stops the header's collapse handler: the toggle sits inside the row that opens the console, and
+    // turning details on should never also close the thing you turned them on to read.
+    e.stopPropagation();
+    window.chrome.webview.postMessage({ type:'logDetail', detail: !state.logDetail });
+  };
   $('signin').onclick = function(){ window.chrome.webview.postMessage({ type:'signIn' }); };
   $('openHelper').onclick = function(){
     if (state.frontendUrl) window.chrome.webview.postMessage({ type:'openUrl', url: state.frontendUrl });
@@ -651,8 +740,8 @@ public sealed class AppShell : Panel
   window.chrome.webview.addEventListener('message', function(e) {
     var m = e.data;
     if (!m) return;
-    if (m.type === 'state') { state = m; render(); }
-    else if (m.type === 'log') { logLines.push(m.line); if (logLines.length > 500) logLines.shift(); renderLog(); }
+    if (m.type === 'state') { state = m; render(); renderLog(); }
+    else if (m.type === 'log') { logLines.push({ line:m.line, detail:!!m.detail }); if (logLines.length > 1000) logLines.shift(); renderLog(); }
   });
   render();
   renderLog();

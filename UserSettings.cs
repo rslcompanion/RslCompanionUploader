@@ -43,6 +43,17 @@ public sealed class UserSettings
     [JsonPropertyName("sessionProtectionChosen")]
     public bool SessionProtectionChosen { get; set; }
 
+    /// <summary>
+    /// Whether the activity console shows the extraction engine's own diagnostics alongside the
+    /// plain-language lines. Off by default: those lines are addresses, offsets and phase timings
+    /// written for debugging a memory map, and they are the bulk of the volume during an export.
+    ///
+    /// <para>They are never dropped, only hidden — the page keeps every line and filters on render,
+    /// so turning this on explains the export that already ran instead of requiring another.</para>
+    /// </summary>
+    [JsonPropertyName("activityLogDetail")]
+    public bool ActivityLogDetail { get; set; }
+
     private static string Path_ => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "RslCompanion", "settings.json");
