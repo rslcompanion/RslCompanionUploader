@@ -84,18 +84,13 @@ public sealed class AppShell : Panel
         Controls.Add(_web);
     }
 
+
     /// <summary>Async-initializes the WebView2 and loads the page. Call once, from the UI thread.</summary>
     public async void Start()
     {
         try
         {
-            var userData = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "RslCompanionUploader", "WebView2");
-            Directory.CreateDirectory(userData);
-
-            var env = await CoreWebView2Environment.CreateAsync(userDataFolder: userData);
-            await _web.EnsureCoreWebView2Async(env);
+            await _web.EnsureCoreWebView2Async(await WebViewEnvironment.GetAsync());
 
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             _web.CoreWebView2.Settings.IsStatusBarEnabled = false;

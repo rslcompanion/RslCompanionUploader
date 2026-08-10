@@ -51,11 +51,14 @@ updates, recalibrate and about stay native menu items calling straight into `Mai
 needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
 automatically from `MainForm`, not from anything the page posts back.
 
-The app opens its main window **before authenticating** (like Postman): [Program.cs](Program.cs) tries
-to restore a session but never blocks on it. When there is no session the window opens signed-out —
-the top bar shows a **Sign In** button and the body a sign-in prompt; the game-status pill still works.
-Clicking Sign In runs the browser handoff via the [BrowserSignInForm](Forms/BrowserSignInForm.cs) splash
-and, on success, `MainForm.EnterSignedInAsync` loads accounts and enables export. Sign out drops back to
+The app opens its main window **before authenticating** (like Postman). [Program.cs](Program.cs) now
+does *no* authentication at all — it hands `MainForm` the launch code (if any) and starts the message
+loop. `MainForm.RestoreSessionAsync` runs on Load: redeem the launch code, else restore the saved
+session. **That work moved off the startup path deliberately** — both legs make a network call, and
+the Windows Hello option prompts the user, so doing it before the first paint gives them a hang with
+nothing on screen to explain it. The window opens signed-out and fills in when the session arrives;
+the game-status pill works throughout. Clicking Sign In opens [SignInPanel](Forms/SignInPanel.cs) and,
+on success, `MainForm.EnterSignedInAsync` loads accounts and enables export. Sign out drops back to
 the signed-out state in place (no process restart).
 
 The page is a top bar (brand + connection pill + Sign In button / identity), an optional update
@@ -84,8 +87,10 @@ reachable, no tile carries buttons at all.
 can show progress on the button that is running rather than only greying everything out, with the
 engine's own phase lines in the activity log alongside.
 
-Because the whole UI is WebView2, the runtime (preinstalled on Win11) is now load-bearing; if it's
-missing, `AppShell` shows a plain fallback label instead of the page.
+Because the whole UI is WebView2, the runtime (preinstalled on Win11) is load-bearing; if it's
+missing, `AppShell` shows a plain fallback label instead of the page. Sign-in does **not** depend on
+it — that flow is the user's own browser plus a native panel, so it still works on a machine where
+the runtime is absent.
 
 **An uncovered game build resolves itself, automatically, with no button to click.** When Raid updates
 ahead of a release, `MainForm.UpdateReportPrompt` fires the moment the status poll notices a build
@@ -133,14 +138,48 @@ This repo is **public**; the extraction engine is **private** and optional at bu
   `resource-allowlist.json`), limitations, and vendoring rules are documented **in the
   private repo's CLAUDE.md** — do not re-document them here.
 
-## Browser launch (protocol handler)
+## Sign-in: the real browser, always
 
-The app registers `rslcompanion-extractor://` under HKCU on every startup ([ProtocolHandler.cs](ProtocolHandler.cs));
-the installer also registers it at install time. rslcompanion.com launches
-`rslcompanion-extractor://sync?code=<one-time handoff code>`; [Auth/ExtractorHandoff.cs](Auth/ExtractorHandoff.cs)
-redeems it at `POST /api/extractor/handoff/exchange` for a Firebase **custom token**, signs in with
-`accounts:signInWithCustomToken`, and the app holds its own ID/refresh tokens
-([Program.cs](Program.cs) `TrySignInFromLaunchUri`, or `BrowserSignInForm` when the app is already up).
+Clicking Sign In shows [SignInPanel](Forms/SignInPanel.cs) — an in-window "finish this in your
+browser" state — and opens the user's **real default browser** at `/connect-extractor`. That page
+mints a one-time handoff code and launches `rslcompanion-extractor://sync?code=…`; Windows routes it
+to this app, `SingleInstance` forwards it to the waiting panel, and
+[Auth/ExtractorHandoff.cs](Auth/ExtractorHandoff.cs) redeems it for a Firebase **custom token**.
+
+**Hosting that page in an embedded WebView2 was built, tested and abandoned. Do not rebuild it.** It
+looks obviously better — one window, no browser bounce, and the handoff code never touches a command
+line — and it does not work, for reasons no amount of layout work fixes:
+
+- **Google and Microsoft will not complete a consent flow in an embedded browser.** They screen the
+  surface, and `signInWithPopup` opens a chromeless second WebView2 with no address bar. The user
+  reaches a real provider page that then goes nowhere.
+- **The popup has no opener to answer.** Suppress the popup window and `window.open()` returns null;
+  host it and the flow still has to postMessage back. Navigating the main view to the popup's URL —
+  the obvious fix — destroys the handshake outright and presents as the app hanging with no error.
+- **`signInWithRedirect` in-window works around the popup but not the surface check**, and it drags a
+  `connect` redirect-intent through the site's auth service purely for the app's benefit.
+- **Stale script fails silently.** The WebView2 profile outlives releases, so a cached bundle quietly
+  runs an older sign-in flow against a site that has moved on.
+
+The real browser already has the user's session, password manager and 2FA, and is the surface the
+providers actually support. The site keeps its `?embed=1` mode from that attempt (unused, harmless —
+it only activates on the parameter, which this app no longer sends).
+
+**The app still gets its own session, and that is the point.** It is not a copy of the browser's.
+`/connect-extractor` hands over a code, not credentials, and `signInWithCustomToken` mints tokens that
+belong to this install — so a token on this disk is never worth a browser session, and the two are
+independently revocable. **Do not "simplify" this into reading the browser's session** (Chrome
+app-bound-encrypts its store, and it is an infostealer pattern) or into an in-app password form (it
+would lock out every Google and Microsoft user and put a password back into a desktop process).
+
+**`SignInPanel` earns its place with the checkbox, not the status.** The browser signs the *user* in,
+but only the app can be asked whether the *app* should stay signed in, because only the app writes to
+this disk — so the question is asked while the browser works and read when the code comes back.
+
+The app registers `rslcompanion-extractor://` under HKCU on every startup
+([ProtocolHandler.cs](ProtocolHandler.cs)); the installer also registers it at install time. A code
+arriving on the launch URI at startup (site-initiated: dashboard → "Sync New Account") is redeemed by
+`MainForm.RestoreSessionAsync`.
 
 **It used to be `?rt=<firebase refresh token>`, and that is a protocol break, not a refactor.** Windows
 hands a protocol URI to its handler as *process arguments* — readable by any local process and
@@ -151,6 +190,60 @@ deliberately **not** still accepted: the site no longer sends it, and reading it
 credential path alive on the one surface it was removed from. Server contract:
 `docs/extractor-handoff.md` in the RaidTools repo. **An uploader older than this cannot sign in from
 the website at all** — the launch URI carries a parameter it does not read.
+
+## Staying signed in
+
+Once signed in, the app never needs the website again: it holds a Firebase **refresh token**, and
+Firebase refresh tokens do not expire on their own. [Auth/SessionManager.cs](Auth/SessionManager.cs)
+owns restore/persist/forget; [Auth/CredentialStore.cs](Auth/CredentialStore.cs) owns the file at
+`%LOCALAPPDATA%\RslCompanionUploader\creds.dat`.
+
+**Persistence is opt-in, and the opt-in is total.** [Auth/SessionProtection.cs](Auth/SessionProtection.cs)
+is the single stored value (`sessionProtection` in `settings.json`), chosen on the sign-in window and
+changeable later from Help ▸ Session security without signing out:
+
+| Level | What is stored | What it stops |
+| --- | --- | --- |
+| `None` (default) | **nothing** — no token, no email, no display name | n/a; session ends with the process |
+| `WindowsAccount` | refresh token, DPAPI CurrentUser | another Windows user, disk theft |
+| `WindowsHello` | the above, additionally AES-GCM under a TPM-held key | **code running as the signed-in user** |
+
+At `None` the file does not exist. Identity fields used to be saved regardless "for convenience" —
+they are identity, the choice is the only mandate for keeping any of it, and a file that exists only
+when consent was given is a file whose presence answers "did I agree to this?".
+
+**`sessionProtectionChosen` is separate from the level, and the difference matters.** A launch from
+the website signs the app in with no sign-in screen, so there is no checkbox to read — and treating
+the `None` default as an answer would mean silently never remembering anyone who arrives that way.
+`MainForm.AskProtectionIfUnansweredAsync` asks **once ever** on that path, after the UI is up. The
+sign-in panel and Help ▸ Session security also set the flag; nothing asks twice.
+
+Hello does not hand out key material, it signs, so the blob carries a random challenge and the AES key
+is SHA-256 of the Hello signature over it ([Auth/HelloProtector.cs](Auth/HelloProtector.cs)). This
+relies on Hello signing with **RSASSA-PKCS1-v1_5, which is deterministic**. Which factor is offered —
+face, fingerprint, PIN — is Windows' decision, not ours. If the credential is lost (Hello reset, TPM
+cleared) the saved session is simply unreadable and the user signs in again; every caller treats a
+Hello failure as "no saved session" rather than an error to surface. **If Hello was chosen and then
+declined, nothing is written and the preference resets** — silently storing it unprotected would be
+the opposite of the request.
+
+The DPAPI entropy constant is a public constant in a public repo and therefore **adds no secrecy**. It
+is retained only so files written by earlier versions stay readable; the protection comes from DPAPI's
+CurrentUser scope and, optionally, Hello. Don't churn it thinking it does something.
+
+**A failed refresh only clears the saved session when Firebase actually rejected it**
+(`TOKEN_EXPIRED`, `USER_DISABLED`, `INVALID_REFRESH_TOKEN`, …). Anything else — no network yet, DNS
+not up, a 503 — leaves the file alone. It used to clear on *any* exception, so launching before the
+network was ready silently discarded a good session and sent the user back to the website. Guessing
+wrong in this direction costs one sign-in; in the other it throws away a valid session because Wi-Fi
+was slow.
+
+**Sign-out asks which kind it is**, because they are different actions. Plain sign-out forgets this
+PC. "Sign out everywhere" also calls `POST /api/auth/logout` (which already existed — it blacklists
+the presented ID token and calls Admin `RevokeRefreshTokens`) and clears the shared WebView2 profile.
+**Firebase revokes per user, not per device**, so "everywhere" genuinely signs the browser out too;
+that is stated on the button rather than in a follow-up confirmation, because it is the surprising
+part and afterwards is too late to read it.
 
 ## Export payload contract — keep the pair in sync
 
@@ -180,6 +273,21 @@ migration guide for the schema 9 + 10 artifact changes, written to be handed str
 working on RaidTools. It is a **summary of the contract, not part of it** — if it ever disagrees with
 the schema pair, the schema pair wins and the guide is what needs fixing.
 
+[docs/raidtools-skill-attribution.md](docs/raidtools-skill-attribution.md) is a second note of that
+kind: how a consumer attributes an owned copy's `skills[].typeId` to a form **at that copy's own
+ascension**. Same standing — a summary, never the contract. It exists because ascension does not only
+add skills, it also replaces them (374 of 1,355 champions hold a skill below max ascension that is
+gone by max), so the champion catalog's `champions{}.forms[]` — deliberately the max-ascension kit —
+attributes 97.4% of owned skills and structurally cannot do better. The catalog's `types[]` carries
+every variant and closes it.
+
+**The bundled `exports/champion_index.json` is the SLIM shape: `champions{}` without `types[]`.**
+`types[]` is 3.98 MB of the 4.47 MB catalog and nothing here reads it (`LoadChampionCatalog` touches
+`champions{}` only), so the installer ships without it and the full catalog stays in
+RslCompanionMetadata for consumers that need per-ascension kits. Both come out of one
+`ChampionIndexExporter` run so they cannot drift, and slim is a strict subset — dropping the full
+file in after a game patch still works, the reverse loses data.
+
 They live in this repo precisely because it is public, so consumers can reference them without access
 to the private engine. **Nothing the uploader sends now describes anyone but the signed-in user** —
 that became true when the clan roster export was withdrawn, and it is a property worth keeping.
@@ -205,6 +313,7 @@ them optional for that reason).
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
 | `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
 | `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
+| `Endpoints.Logout` | Revokes the session server-side, for "sign out everywhere" only | `/api/auth/logout` |
 
 User preferences the app writes back live in `%LOCALAPPDATA%\RslCompanion\settings.json`
 ([UserSettings.cs](UserSettings.cs)) — *not* in `appsettings.json`, which is install-time config next

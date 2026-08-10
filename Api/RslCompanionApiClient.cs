@@ -123,6 +123,33 @@ public sealed class RslCompanionApiClient
         return CertificationResult.Found(body);
     }
 
+    /// <summary>
+    /// Ends the session server-side: the API blacklists the ID token we present and asks Firebase to
+    /// revoke the user's refresh tokens, so the copy saved on this disk stops working immediately
+    /// rather than whenever it happens to be noticed.
+    ///
+    /// <para><b>Firebase revocation is per-user, not per-device.</b> There is no way to revoke just
+    /// this install's token, so this also signs the user out of their browser. That is why it backs
+    /// an explicit "sign out everywhere" and never a plain sign-out.</para>
+    ///
+    /// <para>Best-effort by design: a failure here must not strand the user in a signed-in UI, so the
+    /// caller clears local state regardless and this reports only whether the server agreed.</para>
+    /// </summary>
+    public async Task<bool> RevokeSessionAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Post, _config.LogoutEndpoint, ct);
+            req.Content = new StringContent("{}", Encoding.UTF8, "application/json");
+            using var resp = await _http.SendAsync(req, ct);
+            return resp.IsSuccessStatusCode;
+        }
+        catch
+        {
+            return false; // offline, or the token already expired — local sign-out still proceeds
+        }
+    }
+
     private static string Trim(string s) => s.Length > 500 ? s[..500] + "…" : s;
 }
 

@@ -34,8 +34,26 @@ public sealed class MainForm : Form
     private readonly AppConfig _config;
     private readonly ExtractorHandoff _handoff;
     private readonly RslCompanionApiClient _api;
+    private readonly SessionManager _sessions;
+
+    /// <summary>
+    /// A one-time handoff code this process was launched with (the website's
+    /// <c>rslcompanion-extractor://sync?code=…</c>). Redeemed once, on Load, then discarded — the code
+    /// lives about 60 seconds and is single-use, so there is nothing to retry it with.
+    /// </summary>
+    private string? _launchCode;
+
+    /// <summary>Help ▸ Session security. Enabled only while signed in — it re-saves the live session.</summary>
+    private ToolStripMenuItem? _sessionSecurityItem;
 
     private readonly AppShell _shell = new() { Dock = DockStyle.Fill };
+
+    /// <summary>Hosts whatever occupies the window below the menu: the shell, or sign-in over it.</summary>
+    private readonly Panel _content = new() { Dock = DockStyle.Fill };
+
+    /// <summary>The in-window sign-in view while it is up; null the rest of the time.</summary>
+    private SignInPanel? _signIn;
+
 
     // The accounts currently shown as tiles.
     private List<AccountSummary> _loadedAccounts = new();
@@ -98,11 +116,14 @@ public sealed class MainForm : Form
     private readonly CancellationTokenSource _statusCts = new();
 #endif
 
-    public MainForm(AppConfig config, ExtractorHandoff handoff, RslCompanionApiClient api)
+    public MainForm(AppConfig config, ExtractorHandoff handoff, RslCompanionApiClient api,
+                    SessionManager sessions, string? launchCode)
     {
         _config = config;
         _handoff = handoff;
         _api = api;
+        _sessions = sessions;
+        _launchCode = launchCode;
 
         // The running version is in the title bar as well as Help → About: "which build am I on?"
         // is the first question in almost every support thread. "RSL Companion" itself is left out —
@@ -149,30 +170,145 @@ public sealed class MainForm : Form
             // The game-status poll above runs regardless of sign-in. Everything account-related waits
             // until there is a session — the window opens signed-out and the user signs in from the
             // top bar (see SignIn).
-            if (_api.IsAuthenticated)
-                await EnterSignedInAsync();
-            else
-                _shell.SetSignedOut();
+            _shell.SetSignedOut();
+            await RestoreSessionAsync();
         };
     }
 
     /// <summary>
-    /// Opens the browser sign-in splash and, on success, adopts the session and switches the UI into
-    /// the signed-in state. Invoked from the shell's "Sign In" button.
+    /// Re-establishes a session without asking, in the two cases where that is possible: this process
+    /// was launched from the website with a handoff code, or a previous run saved one.
+    ///
+    /// <para>Runs on Load rather than before the window exists. Both paths make a network call, and
+    /// the saved-session path may raise a Windows Hello prompt — putting either in front of the first
+    /// paint would give the user a hang with nothing on screen to explain it.</para>
     /// </summary>
-    private async void SignIn()
+    private async Task RestoreSessionAsync()
     {
-        using var dlg = new BrowserSignInForm(_config, _handoff);
-        if (dlg.ShowDialog(this) != DialogResult.OK || dlg.Session is null)
-            return;
+        // The launch code wins: it is fresher than anything on disk, expires in about a minute, and
+        // is the reason this process was started at all.
+        var code = Interlocked.Exchange(ref _launchCode, null);
+        if (!string.IsNullOrEmpty(code))
+        {
+            try
+            {
+                var session = await _handoff.SignInAsync(code);
+                await AdoptSessionAsync(session);
+                // Asked after the UI is up, not before: this path had no sign-in screen to put a
+                // checkbox on, so the question arrives once the user can see what it applies to.
+                await AskProtectionIfUnansweredAsync(session);
+                return;
+            }
+            catch (Exception ex)
+            {
+                // Codes die after ~60s, so a launch that queued behind a slow start legitimately
+                // arrives dead. Say so in the log and fall through to the saved session.
+                Log("Sign-in from the website did not complete: " + ex.Message);
+            }
+        }
 
-        // The browser held the foreground while the user signed in; pull this existing window back to
-        // the front so the freshly signed-in state is what they see, not the leftover browser tab.
+        if (!SessionManager.HasSavedSession) return;
+
+        if (UserSettings.Current.SessionProtection == SessionProtection.WindowsHello)
+            Log("Unlocking your saved session with Windows Hello…");
+
+        var restored = await _sessions.TryRestoreAsync();
+        if (restored is null)
+        {
+            // Nothing to act on: TryRestoreAsync has already decided whether the saved session was
+            // rejected (and cleared it) or merely unreachable (and kept it for the next launch).
+            Log("Could not restore your saved session. Sign in to continue.");
+            return;
+        }
+
+        await AdoptSessionAsync(restored);
+    }
+
+    /// <summary>
+    /// Takes over the window's content area with the sign-in view. Invoked from the shell's "Sign In"
+    /// button, which is why it is idempotent — a second click while it is already up is a no-op
+    /// rather than a second WebView2 on the same page.
+    /// </summary>
+    private void SignIn()
+    {
+        if (_signIn is not null) return;
+
+        var panel = new SignInPanel(_config, _handoff) { Dock = DockStyle.Fill };
+        panel.Completed += async (session, protection) => await OnSignInCompletedAsync(session, protection);
+        panel.Cancelled += CloseSignIn;
+
+        _signIn = panel;
+        _content.Controls.Add(panel);
+        panel.BringToFront();
+
+        panel.Start();
+    }
+
+    private async Task OnSignInCompletedAsync(AuthSession session, SessionProtection protection)
+    {
+        CloseSignIn();
+
+        // Sign-in normally happens inside this window now, but the browser fallback is still there —
+        // and when it was used, the browser held the foreground. Pull this window back either way.
         BringToForeground();
 
-        _api.SignIn(dlg.Session);
-        Program.Persist(dlg.Session, dlg.RememberMe);
+        await _sessions.PersistAsync(session, protection);
+        await AdoptSessionAsync(session);
+    }
+
+    /// <summary>Tears the sign-in view down, revealing the shell underneath it again.</summary>
+    private void CloseSignIn()
+    {
+        if (_signIn is not { } panel) return;
+        _signIn = null;
+        _content.Controls.Remove(panel);
+        panel.Dispose();
+    }
+
+    /// <summary>Hands a freshly obtained session to the API client and lights up the signed-in UI.</summary>
+    private async Task AdoptSessionAsync(AuthSession session)
+    {
+        _api.SignIn(session);
         await EnterSignedInAsync();
+    }
+
+    /// <summary>
+    /// Asks the stay-signed-in question on the one path that has no sign-in screen to carry it: a
+    /// launch straight from the website, where the app is handed a code and is simply signed in.
+    ///
+    /// <para>Asked <b>once ever</b>, and only when it has never been answered — the default is "don't
+    /// save", so staying silent would quietly mean never remembering anyone who signs in from the
+    /// site. Answering it here (or on the sign-in panel, or in Help ▸ Session security) settles it
+    /// for good; there is no version of this that nags.</para>
+    /// </summary>
+    private async Task AskProtectionIfUnansweredAsync(AuthSession session)
+    {
+        if (UserSettings.Current.SessionProtectionChosen) return;
+
+        var stay = new TaskDialogCommandLinkButton(
+            "Keep me signed in",
+            "Saved and encrypted for your Windows account, so this app opens ready to use.");
+        var dont = new TaskDialogCommandLinkButton(
+            "Ask me every time",
+            "Nothing is saved. You'll sign in through your browser again next launch.");
+
+        var page = new TaskDialogPage
+        {
+            Caption = "RSL Companion",
+            Heading = $"Stay signed in as {session.Email ?? session.DisplayName ?? session.Uid}?",
+            Text = "You can change this at any time from Help ▸ Session security, which also offers "
+                   + "locking the saved session with Windows Hello.",
+            Icon = TaskDialogIcon.ShieldBlueBar,
+            AllowCancel = false, // there is no third answer; both buttons are a real choice
+            Buttons = { stay, dont },
+            DefaultButton = stay,
+        };
+
+        var chosen = TaskDialog.ShowDialog(this, page) == stay
+            ? SessionProtection.WindowsAccount
+            : SessionProtection.None;
+
+        await _sessions.PersistAsync(session, chosen);
     }
 
     /// <summary>
@@ -198,6 +334,7 @@ public sealed class MainForm : Form
     {
         var session = _api.Session!;
         _shell.SetUser(session.DisplayName, session.Email ?? session.Uid);
+        if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = true;
 #if EXTRACTION
         _shell.SetExportAvailable(true);
 #endif
@@ -698,11 +835,15 @@ public sealed class MainForm : Form
 
     private void BuildLayout()
     {
-        // The entire UI is the WebView2 shell; the form only adds the native menu strip on top.
-        Controls.Add(_shell);
+        // The shell lives inside a content host rather than directly on the form, so that sign-in can
+        // take over the same area (see SignIn) by filling _content and coming to the front. Docking
+        // it straight onto the form would put it in a z-order argument with the MenuStrip below.
+        _shell.Dock = DockStyle.Fill;
+        _content.Controls.Add(_shell);
+        Controls.Add(_content);
 
         // Added after the Fill control on purpose: WinForms resolves docking from the highest child
-        // index down, so the menu must be last to claim the top strip before the shell fills.
+        // index down, so the menu must be last to claim the top strip before the content fills.
         var menu = BuildMenu();
         Controls.Add(menu);
         MainMenuStrip = menu;
@@ -735,6 +876,19 @@ public sealed class MainForm : Form
         // Evaluated per click, not once at build time: the account being played changes underneath it.
         help.DropDownItems.Add(new ToolStripMenuItem("Open rslcompanion.com", null,
             (_, _) => OpenUrl(HelperUrl())));
+
+        // The stay-signed-in choice is made on the sign-in window, which someone with a remembered
+        // session may not see for months. This is how they change their mind without the sign-out
+        // that would cost them the very thing they were protecting.
+        _sessionSecurityItem = new ToolStripMenuItem("Session &security…", null, (_, _) =>
+        {
+            if (_api.Session is not { } session) return;
+            using var dlg = new SessionSecurityForm(_sessions, session);
+            dlg.ShowDialog(this);
+        })
+        { Enabled = false };
+        help.DropDownItems.Add(_sessionSecurityItem);
+
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add(new ToolStripMenuItem("&About", null, (_, _) =>
         {
@@ -824,12 +978,18 @@ public sealed class MainForm : Form
             {
                 case UpdateCheckStatus.UpdateAvailable:
                     _shell.SetUpdate(result.Info!.Version.ToString(), result.Info.ReleaseUrl);
+#if EXTRACTION
+                    // Only the extraction build has anything to gate on this: it is what stops an
+                    // out-of-date uploader burning 35 s calibrating a build the next release covers.
                     _isLatestUploader = false;
+#endif
                     if (!silent) Log($"Update available: {result.Info.Version}.");
                     break;
                 case UpdateCheckStatus.UpToDate:
                     _shell.SetUpdate(null, null);
+#if EXTRACTION
                     _isLatestUploader = true;
+#endif
                     if (!silent) Log($"You're on the latest version ({UpdateChecker.CurrentVersion}).");
                     break;
                 case UpdateCheckStatus.Failed:
@@ -1012,11 +1172,37 @@ public sealed class MainForm : Form
     }
 #endif
 
-    private void SignOut()
+    /// <summary>
+    /// Signs out, offering the stronger form as an explicit second option.
+    ///
+    /// <para>The two are genuinely different actions, which is why this asks rather than picking.
+    /// A plain sign-out forgets the session on this PC. "Everywhere" additionally asks the server to
+    /// revoke the Firebase refresh tokens — but Firebase revokes <b>per user, not per device</b>, so
+    /// it signs the browser out too, and clears the embedded browser's stored site session. That is
+    /// the right answer on a shared or lost machine and the wrong one on a laptop the user is about
+    /// to sign back in on, and only they know which they are looking at.</para>
+    /// </summary>
+    private async void SignOut()
     {
-        CredentialStore.ClearSession();
+        var everywhere = AskSignOutScope();
+        if (everywhere is null) return; // cancelled
+
+        if (everywhere.Value)
+        {
+            Log("Signing out everywhere…");
+            if (await _api.RevokeSessionAsync())
+                Log("Your sessions have been revoked, including the website's.");
+            else
+                Log("The server could not be reached, so other sessions may still be active. This device is signed out.");
+        }
+
+        await SessionManager.ForgetAsync();
+        UserSettings.Current.SessionProtection = SessionProtection.None;
+        UserSettings.Current.Save();
+
         _api.SignOut();
         _loadedAccounts.Clear();
+        if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = false;
 #if EXTRACTION
         _shell.SetExportAvailable(false);
 #endif
@@ -1026,6 +1212,41 @@ public sealed class MainForm : Form
         // The tiles are gone, so nothing is "imported" any more — stop naming an account on the
         // helper link, which would otherwise select it for whoever signs in next in that browser.
         RefreshHelperUrl();
+    }
+
+    /// <summary>
+    /// Asks which kind of sign-out this is. Returns true for "everywhere", false for this device
+    /// only, or null if the user backed out.
+    ///
+    /// <para>The "everywhere" button states the browser consequence up front rather than in a
+    /// follow-up confirmation: it is the surprising part, and a user who reads it after the fact has
+    /// already been signed out of the site.</para>
+    /// </summary>
+    private bool? AskSignOutScope()
+    {
+        // Command links rather than plain buttons: the difference between these two is entirely in
+        // the consequence, which needs a sentence, not a verb.
+        var thisDevice = new TaskDialogCommandLinkButton(
+            "Sign out", "Forget this session on this PC.");
+        var everywhere = new TaskDialogCommandLinkButton(
+            "Sign out everywhere",
+            "Also revoke your other sessions. This signs you out of rslcompanion.com in your browser too.");
+
+        var page = new TaskDialogPage
+        {
+            Caption = "Sign out",
+            Heading = "Sign out of RSL Companion?",
+            Text = "Your saved session on this PC will be deleted either way.",
+            Icon = TaskDialogIcon.ShieldBlueBar,
+            AllowCancel = true,
+            Buttons = { thisDevice, everywhere, TaskDialogButton.Cancel },
+            DefaultButton = thisDevice,
+        };
+
+        var clicked = TaskDialog.ShowDialog(this, page);
+        if (clicked == everywhere) return true;
+        if (clicked == thisDevice) return false;
+        return null;
     }
 
     /// <summary>

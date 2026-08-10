@@ -19,6 +19,30 @@ public sealed class UserSettings
     [JsonPropertyName("autoCheckBuildCertification")]
     public bool AutoCheckBuildCertification { get; set; }
 
+    /// <summary>
+    /// How the signed-in session is kept between launches — the user's own choice, made on the
+    /// sign-in window and changeable afterwards from Help ▸ Session security.
+    ///
+    /// <para>It defaults to <see cref="Auth.SessionProtection.None"/>, and that default is load-bearing:
+    /// the two paths that have no UI to ask — the website's protocol launch, and the silent restore
+    /// at startup — read this before writing anything, so a session is never persisted until someone
+    /// has actually chosen to persist it.</para>
+    /// </summary>
+    [JsonPropertyName("sessionProtection")]
+    public Auth.SessionProtection SessionProtection { get; set; } = Auth.SessionProtection.None;
+
+    /// <summary>
+    /// Whether the user has ever actually answered the stay-signed-in question, as opposed to
+    /// <see cref="SessionProtection"/> merely sitting at its default.
+    ///
+    /// <para>The two are not the same, and the difference is the whole point. Signing in from the
+    /// website launches the app with a handoff code and no sign-in screen — so there is no checkbox
+    /// to read, and treating the default as an answer would mean silently never remembering anyone
+    /// who arrives that way. This flag lets that path ask once, and only once.</para>
+    /// </summary>
+    [JsonPropertyName("sessionProtectionChosen")]
+    public bool SessionProtectionChosen { get; set; }
+
     private static string Path_ => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "RslCompanion", "settings.json");

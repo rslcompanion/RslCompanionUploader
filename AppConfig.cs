@@ -36,6 +36,14 @@ public sealed class AppConfig
     public string BuildCertificationEndpoint { get; init; } = "/api/extractor/offsets";
 
     /// <summary>
+    /// Server-relative path that ends the session everywhere: it blacklists the presented ID token
+    /// and calls Firebase Admin's <c>RevokeRefreshTokens</c> for the user. Only reached from "sign out
+    /// everywhere", because Firebase revocation is per-user and not per-device — it takes the
+    /// browser's session down with this one.
+    /// </summary>
+    public string LogoutEndpoint { get; init; } = "/api/auth/logout";
+
+    /// <summary>
     /// Server-relative page the app opens in the user's browser to sign in. When a session is already
     /// active there, that page mints a one-time handoff code and launches
     /// <c>rslcompanion-extractor://sync?code=...</c> with it, which this app redeems at
@@ -43,7 +51,13 @@ public sealed class AppConfig
     /// </summary>
     public string ConnectExtractorPath { get; init; } = "/connect-extractor";
 
-    /// <summary>Absolute URL <see cref="Forms.BrowserSignInForm"/> opens for browser sign-in.</summary>
+    /// <summary>
+    /// Absolute URL <see cref="Forms.SignInPanel"/> opens in the user's real browser to sign in.
+    ///
+    /// <para>No <c>?embed=1</c>: the page has an embed mode for being hosted inside the app, and that
+    /// approach was abandoned — Google and Microsoft do not complete a consent flow in an embedded
+    /// browser. This is a normal browser tab, so it gets the normal page.</para>
+    /// </summary>
     public string ConnectExtractorUrl => FrontendUrl + ConnectExtractorPath;
 
     public static AppConfig Load()
@@ -74,6 +88,7 @@ public sealed class AppConfig
                 SyncConsolidatedEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncConsolidated", def.SyncConsolidatedEndpoint) : def.SyncConsolidatedEndpoint,
                 HandoffExchangeEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "HandoffExchange", def.HandoffExchangeEndpoint) : def.HandoffExchangeEndpoint,
                 BuildCertificationEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "BuildCertification", def.BuildCertificationEndpoint) : def.BuildCertificationEndpoint,
+                LogoutEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "Logout", def.LogoutEndpoint) : def.LogoutEndpoint,
                 ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };
         }
