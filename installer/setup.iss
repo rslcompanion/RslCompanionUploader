@@ -53,7 +53,10 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; extraction submodule — the engine's runtime data (known-offsets.json, resource-allowlist.json)
 ; and the bundled metadata catalogs under exports\ (champion_index.json, mastery_index.json). Those
 ; are shipped as plain JSON so refreshing them after a game patch is a file swap in {app}\exports,
-; not a rebuild; champion_index.json gives each hero a real name.
+; not a rebuild; champion_index.json gives each hero a real name, faction and role.
+; champion_index.json ships SLIM (champions{} only, ~0.5 MB). The full catalog's types[] — every
+; ascension variant — is another ~4 MB that nothing in this app reads; it lives in
+; RslCompanionMetadata/exports for the consumers that do. See the note in the engine's csproj.
 ; offsets_cache.json is deliberately NOT among them: it is per-session scratch the app writes next
 ; to the exe on first run, and a shipped copy would only carry a heap address that died with
 ; whichever machine produced it. known-offsets.json is what spares users the calibration scan.
