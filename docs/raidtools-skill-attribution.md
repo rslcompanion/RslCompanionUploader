@@ -19,14 +19,19 @@ Attributing a copy's skills to a form using `champions{}[baseTypeId].forms[]` wo
 owned skills (2,720 of 2,792 on the reference account, 2026-08-09). The residual 2.6% are not noise
 and not a bad read — they are a structural mismatch, and this note is how to close it.
 
-## Why the residual exists
+> **Updated 2026-08-12 for the reshaped catalog.** The fix below used to be a lookup into a
+> `types[]` array of per-ascension variants. That array is retired and the answer now lives on the
+> skill itself. If you are reading a file that still has `types[]`, it predates 2026-08-11 — get a
+> current one. The old `skillTypeIds[]` and the current `skills[]` are not interchangeable.
 
-`champions{}` carries **one entry per champion**, holding the **max-ascension** kit. That is
-deliberate: it is what "this champion's skills" means to a reader, and it is the complete kit, since
-skills *unlock* with ascension.
+## Why the residual existed
 
-But ascension does not only add. It also **replaces**. A copy sitting below max ascension can hold a
-skill id that does not appear anywhere in the max-ascension kit, and that skill attributes to nothing:
+`champions{}` carries **one entry per champion**. It used to hold only the **max-ascension** kit,
+on the reasoning that skills *unlock* with ascension and the top kit is therefore complete.
+
+That reasoning is wrong, and it is the whole problem: ascension does not only add, it also
+**replaces**. A copy sitting below max ascension can hold a skill id that does not appear anywhere
+in the max-ascension kit, and that skill attributes to nothing:
 
 ```
 Apothecary  (base 30)     asc0–2: 301, 302, 303      asc3–6: 301, 302, 304
@@ -41,42 +46,55 @@ ascension and is gone by max ascension. For the other 981 the max-ascension kit 
 
 ## The fix
 
-`types[]` carries **every ascension variant separately**, keyed by `typeId`, with its own `forms[]`.
-Attribute against the variant matching the copy's own ascension, and keep `champions{}` as the
-fallback:
+Each skill now carries **the span of ascensions it is actually on the champion for**, so the
+champion's own row answers every ascension and there is no second lookup:
 
-```ts
-// heroes[].baseTypeId + heroes[].ascensionLevel identify the exact variant.
-const variantTypeId = hero.baseTypeId + hero.ascensionLevel;
-
-const forms =
-  catalog.types?.find(t => t.typeId === variantTypeId)?.forms
-  ?? catalog.champions[String(hero.baseTypeId)]?.forms
-  ?? [];
-
-const form = forms.find(f => f.skillTypeIds.includes(skill.typeId));
+```jsonc
+"skills": [
+  { "typeId": 301, "fromAscension": 0 },                    // whole life
+  { "typeId": 303, "fromAscension": 0, "toAscension": 2 },  // replaced at asc 3
+  { "typeId": 304, "fromAscension": 3 }                     // the replacement
+]
 ```
 
-The fallback is not decoration. A variant can be missing from `types[]` (the catalog only sees what
-the client had loaded), and `types` is absent entirely from one of the two published catalog shapes.
+`toAscension` absent means "through max ascension", which is the common case.
+
+```ts
+const forms = catalog.champions[String(hero.baseTypeId)]?.forms ?? [];
+
+const isActiveAt = (s, asc) =>
+  s.fromAscension <= asc && (s.toAscension == null || s.toAscension >= asc);
+
+const form = forms.find(f =>
+  f.skills.some(s => s.typeId === skill.typeId && isActiveAt(s, hero.ascensionLevel)));
+```
+
+**Match on the range, not just on membership.** Dropping `isActiveAt` and testing `typeId` alone
+re-creates the original bug in the other direction: it credits an un-ascended copy with the
+post-swap skill it does not have yet. Both halves of a swapped pair are in the list — that is the
+point of the list — and only the range separates them.
+
+It also cannot be done arithmetically. The upgraded id is *usually* the higher one and sometimes is
+not: Abbess goes `23104` → `23103`.
 
 ## Which catalog file — this part matters
 
-The catalog ships in **two shapes from the same extraction**:
+**There is one file and one shape.** The slim/full pair this section used to describe is gone:
+`types[]` was 89% of the old catalog, folding it away made the single file smaller than the old
+slim copy, and the `--slim-out` flag that wrote the second one was deleted with it.
 
-| Shape | `champions{}` | `types[]` | Where |
-| --- | --- | --- | --- |
-| **slim** (~0.5 MB) | yes | **no** | bundled in the uploader installer, `{app}\exports\champion_index.json` |
-| **full** (~4.5 MB) | yes | yes | `RslCompanionMetadata/exports/champion_index.json` |
+| File | Holds | Where |
+| --- | --- | --- |
+| `champion_index.json` | 1,034 **playable champions** | produced in `RslCompanionMetadata/exports/`; a verbatim copy is bundled at `{app}\exports\champion_index.json` |
+| `boss_index.json` | 321 bosses + location-only entries | `RslCompanionMetadata/exports/` only — **not** in the uploader install |
 
-`types[]` is 3.98 MB of the 4.47 MB full catalog and nothing in the uploader reads it, so the
-installer ships the slim shape. **RaidTools needs the full one** — take it from the metadata repo,
-not from an uploader install.
+Take either from the metadata repo; the uploader's copy is a copy, refreshed by copying. The two
+files never share a key, and bosses are separate because nothing in a roster can own one — see
+`RslCompanionMetadata/docs/champion-index-contract.md`.
 
-A missing `types` key means *"this file cannot answer per-ascension questions"*, **not** *"this
-champion has no ascension variants"*. Do not silently degrade to the `champions{}` answer for a
-catalog that simply is not the right file; log it, because every below-max copy will be misattributed
-and the output still looks plausible.
+A file that still carries a `types[]` array predates the reshape. Do not read it as "this champion
+has no ascension variants" — it means the file cannot answer the question at all. Log it, because
+every below-max copy will be misattributed and the output still looks plausible.
 
 ## Traps
 
@@ -84,7 +102,7 @@ and the output still looks plausible.
   3,027 of 3,082 skills and then quietly fails: a champion with a second form also carries that
   form's whole block at `800000 + own id`, and a skill can sit in another champion's block outright
   (Ezio Auditore `10270` and Edward Kenway `10280` both carry `102505`). Membership in
-  `forms[].skillTypeIds` is the only correct test.
+  `forms[].skills[]`, at the copy's ascension, is the only correct test.
 - **Slots are not dense.** A real, complete Kael reports `15101 / 15103 / 15104`. A gap is not a
   missing skill.
 - **Base ids and skill ids look alike and are different id spaces.** Skavag's *champion* base id is
@@ -95,6 +113,7 @@ and the output still looks plausible.
 
 ## Regenerating after a game update
 
-Both shapes come out of one run of `tools/ChampionIndexExporter` in the metadata repo, with Raid
-running and the champion **index** screen opened. Generating them separately is what would let them
-drift, so don't. See that tool's README.
+`champion_index.json` and `boss_index.json` come out of **one run** of `tools/ChampionIndexExporter`
+in the metadata repo, with Raid running and the champion **index** screen opened. Generating them
+separately is what would let them drift, so don't. Every copy elsewhere is refreshed by copying that
+output, never by a separate run. See that tool's README.

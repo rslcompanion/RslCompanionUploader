@@ -308,16 +308,22 @@ the schema pair, the schema pair wins and the guide is what needs fixing.
 kind: how a consumer attributes an owned copy's `skills[].typeId` to a form **at that copy's own
 ascension**. Same standing — a summary, never the contract. It exists because ascension does not only
 add skills, it also replaces them (374 of 1,355 champions hold a skill below max ascension that is
-gone by max), so the champion catalog's `champions{}.forms[]` — deliberately the max-ascension kit —
-attributes 97.4% of owned skills and structurally cannot do better. The catalog's `types[]` carries
-every variant and closes it.
+gone by max), so a `champions{}.forms[]` holding only the max-ascension kit attributed 97.4% of
+owned skills and structurally could not do better. Each skill now carries the ascension span it is
+active for, which closes it from the champion's own row.
 
-**The bundled `exports/champion_index.json` is the SLIM shape: `champions{}` without `types[]`.**
-`types[]` is 3.98 MB of the 4.47 MB catalog and nothing here reads it (`LoadChampionCatalog` touches
-`champions{}` only), so the installer ships without it and the full catalog stays in
-RslCompanionMetadata for consumers that need per-ascension kits. Both come out of one
-`ChampionIndexExporter` run so they cannot drift, and slim is a strict subset — dropping the full
-file in after a game patch still works, the reverse loses data.
+**The bundled `exports/champion_index.json` is a verbatim copy of
+`RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
+note used to describe is gone: `types[]` was 89% of the old catalog, folding it into the champion
+made the single file smaller than the slim copy had been, and the `--slim-out` flag went with it.
+Refresh after a game patch by **copying**, never by a separate export run; if the copy disagrees
+with the metadata repo, the metadata repo is right.
+
+It holds **playable champions only**. `boss_index.json` is a separate file under a separate schema
+and is deliberately **not** bundled — this path names heroes an account owns, and no account owns a
+boss. A boss id falls back to `Template_<id>`, which is correct. `LoadChampionCatalog` reads `name`,
+`faction` and `role` and nothing else, so the reshape of `forms[]` did not touch this path. The rule
+for both files: `RslCompanionMetadata/docs/champion-index-contract.md`.
 
 They live in this repo precisely because it is public, so consumers can reference them without access
 to the private engine. **Nothing the uploader sends now describes anyone but the signed-in user** —
