@@ -307,8 +307,9 @@ the schema pair, the schema pair wins and the guide is what needs fixing.
 [docs/raidtools-skill-attribution.md](docs/raidtools-skill-attribution.md) is a second note of that
 kind: how a consumer attributes an owned copy's `skills[].typeId` to a form **at that copy's own
 ascension**. Same standing — a summary, never the contract. It exists because ascension does not only
-add skills, it also replaces them (374 of 1,355 champions hold a skill below max ascension that is
-gone by max), so a `champions{}.forms[]` holding only the max-ascension kit attributed 97.4% of
+add skills, it also replaces them (336 of the 1,034 playable champions hold a skill below max
+ascension that is gone by max; 374 counts the 38 bosses in too, which is the figure older notes
+quote), so a `champions{}.forms[]` holding only the max-ascension kit attributed 97.4% of
 owned skills and structurally could not do better. Each skill now carries the ascension span it is
 active for, which closes it from the champion's own row.
 

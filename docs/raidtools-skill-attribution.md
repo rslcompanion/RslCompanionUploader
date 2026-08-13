@@ -40,9 +40,17 @@ Skavag      (base 23100)  asc0:   …, 231002, …        asc1+:  …, 231005, �
                           asc6 additionally gains 200009, 200010
 ```
 
-**374 of the 1,355 champions** in the 11.70.0 catalog have at least one skill that exists below max
-ascension and is gone by max ascension. For the other 981 the max-ascension kit is a superset, so the
+**336 of the 1,034 playable champions** have at least one skill that exists below max ascension and
+is gone by max ascension. For the other 698 the max-ascension kit is a superset, so the
 `champions{}` lookup is already correct for them.
+
+The swap is at ascension 3 for 335 of the 336 — but **not all of them**, so do not special-case the
+number 3. Deathless (1590) keeps `15903` through ascension 3 and gains `15904` at 4. Evaluate the
+range; that is what it is for.
+
+(Older notes here said "374 of 1,355, the other 981". That counted bosses in — 336 playable plus 38
+bosses — from before `boss_index.json` split them out. Against the roster this document is about,
+which is the playable one, it is 336 and 698.)
 
 ## The fix
 

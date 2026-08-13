@@ -77,10 +77,11 @@ ChampionIndexExporter --out D:\Codex\RslCompanionMetadata\exports\champion_index
 `docs/raidtools-skill-attribution.md` (public repo) is the consumer-side note, in the same standing
 as the schema-10 migration guide: a summary, never the contract.
 
-Measured against the 11.70.0 catalog while writing it: **374 of 1,355 champions** hold at least one
-skill below max ascension that is gone by max ascension — Apothecary swaps `303`→`304` at asc3,
-Abbess `23104`→`23103` at asc3, Skavag `231002`→`231005` at asc1. For the other 981 the
-max-ascension kit is a superset, so `champions{}` is already right for them.
+Measured against the 11.70.0 catalog while writing it: **336 of the 1,034 playable champions** hold
+at least one skill below max ascension that is gone by max ascension — Apothecary swaps `303`→`304`
+at asc3, Abbess `23104`→`23103` at asc3, Skavag `231002`→`231005` at asc1. For the other 698 the
+max-ascension kit is a superset, so `champions{}` is already right for them. (The **374 of 1,355**
+this used to say counted the 38 bosses in, from before the boss split.)
 
 **DONE 2026-08-12 — and the mechanism changed, so ignore the plan this section describes.** The fix
 is no longer "read `types[]` from the full catalog": `types[]` is retired, the slim/full pair no
