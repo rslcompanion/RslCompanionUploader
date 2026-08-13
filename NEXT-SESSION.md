@@ -82,14 +82,34 @@ skill below max ascension that is gone by max ascension — Apothecary swaps `30
 Abbess `23104`→`23103` at asc3, Skavag `231002`→`231005` at asc1. For the other 981 the
 max-ascension kit is a superset, so `champions{}` is already right for them.
 
-**Still to do: implement it in RaidTools**, and point RaidTools at the **full** catalog — the slim
-one it would get from an uploader install has no `types[]` at all, and degrading silently to
-`champions{}` there misattributes every below-max copy while still looking plausible.
+**DONE 2026-08-12 — and the mechanism changed, so ignore the plan this section describes.** The fix
+is no longer "read `types[]` from the full catalog": `types[]` is retired, the slim/full pair no
+longer exists, and each skill now carries the ascension span it is active for
+(`{ typeId, fromAscension, toAscension? }`) on the champion's own row. One lookup answers every
+ascension.
 
-## 5. Boss catalog (deferred by design)
+RaidTools implements it — `ChampionIndexSkill.IsActiveAt` is the test. `docs/raidtools-skill-attribution.md`
+was rewritten to match; the version of it that predates 2026-08-12 hands an agent a code sample that
+fails on both the lookup and the field name.
 
-`HeroForm` declares `AdditionalSkillTypeIds@+40` and `ChallengeSkillTypeIds@+48`. Both are read by
-`ReadIntCollection` but **not emitted** — they are boss data:
+The one trap that survived the rewrite: match on the **range**, not just on membership. Both halves
+of a swapped pair are in the list, so testing `typeId` alone credits an un-ascended copy with the
+post-swap skill it does not have — the original bug, pointing the other way.
+
+## 5. Boss catalog — SHIPPED 2026-08-11, two fields still unemitted
+
+**The design question is answered.** `boss_index.json` exists, produced by the same
+`ChampionIndexExporter` run, with its own schema: 321 entries (212 `kind: "boss"`, 109
+`"locationOnly"`), split on `HeroType.BossData` rather than on `Fraction == 0`, keys never colliding
+with `champion_index.json`. It is deliberately **not** bundled in this installer — nothing a user
+owns is a boss. Contract: `RslCompanionMetadata/docs/champion-index-contract.md`.
+
+**What is still open is narrower than this section implies:** boss forms currently emit
+`element / index / role / skills` only. `HeroForm` declares `AdditionalSkillTypeIds@+40` and
+`ChallengeSkillTypeIds@+48`, both read by `ReadIntCollection` and still **not emitted** into the
+boss schema — verified against the shipped file, where Chimera's four forms carry ordinary `skills[]`
+and nothing else. Adding them is now an additive change to a file that exists, not a catalog to
+design. The findings that justified deferring them:
 - *Additional*: six champions only, all drawing from a shared `200000`-block pool; the same ids
   appear verbatim across champions, and Kurosa carries an identical set on both forms.
 - *Challenge*: entirely Chimera (base 26690–26720), forms 1–3, ids `8000101`–`8000127`.
