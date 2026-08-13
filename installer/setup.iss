@@ -20,6 +20,20 @@
 #define MyAppURL "https://rslcompanion.com"
 #define MyAppExeName "RslCompanionUploader.exe"
 #define MyProtocol "rslcompanion-extractor"
+; The folder this installer packs wholesale. Releases fill it in CI: .github/workflows/release.yml
+; runs `dotnet publish -c Release -r win-x64 --self-contained true -o publish\win-x64` on a fresh
+; runner, so a real release is always built from a clean checkout at the pinned extraction gitlink
+; and cannot pick up anything stale. publish\ is gitignored and never committed.
+;
+; RUNNING ISCC BY HAND IS THE UNSAFE PATH. Inno packs whatever is in this folder with no idea how old
+; it is, so a local build against a leftover publish ships that leftover — silently, since the
+; installer compiles fine. One was found here holding a champion catalog a month older than the
+; source tree, and a second holding one with two champions' ascension ranges wrong. If you compile
+; locally, publish immediately before, with the same flags CI uses (note --self-contained TRUE; a
+; false build produces a framework-dependent layout that is not what ships).
+;
+; The folder is deliberately left absent rather than pre-populated: ISCC fails loudly on a missing
+; source, which is a better outcome than packing a stale one.
 #define PublishDir "..\publish\win-x64"
 
 [Setup]
