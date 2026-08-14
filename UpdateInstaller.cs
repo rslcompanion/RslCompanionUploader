@@ -72,8 +72,38 @@ public static class UpdateInstaller
 
         await VerifyChecksumAsync(partial, info.ChecksumUrl, ct);
 
-        File.Move(partial, target, overwrite: true);
+        await FinalizeAsync(partial, target, ct);
         return target;
+    }
+
+    /// <summary>
+    /// Renames the verified download into place, retrying briefly.
+    ///
+    /// <para><b>A plain <see cref="File.Move(string, string, bool)"/> here fails intermittently, and it
+    /// was caught doing it.</b> Antivirus opens a freshly written executable to scan it the moment the
+    /// handle closes — which is exactly when this runs — and the rename comes back
+    /// <see cref="UnauthorizedAccessException"/>. The scan is over in well under a second, but the
+    /// single attempt turned a completed, checksum-verified 41 MB download into "couldn't download the
+    /// update", sending the user to the browser to fetch the same bytes again.</para>
+    ///
+    /// <para>So: retry with a widening gap, ~9 s in total. Anything still refusing after that is a
+    /// real failure (no permission, no disk) and is thrown to the caller, which does have a fallback.</para>
+    /// </summary>
+    private static async Task FinalizeAsync(string partial, string target, CancellationToken ct)
+    {
+        const int attempts = 10;
+        for (int attempt = 1; ; attempt++)
+        {
+            try
+            {
+                File.Move(partial, target, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException && attempt < attempts)
+            {
+                await Task.Delay(200 * attempt, ct);
+            }
+        }
     }
 
     /// <summary>
