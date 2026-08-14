@@ -103,12 +103,29 @@ Type: filesandordirs; Name: "{localappdata}\RslCompanionUploader"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+; The in-app update banner downloads this installer, runs it with /SILENT /relaunch=1 and exits so
+; its files can be replaced — so without this entry an update would end with the app simply gone
+; (the line above is postinstall+skipifsilent: it is the wizard's finish-page checkbox, which a
+; silent install never shows). Gated on the parameter rather than on silence alone, so an unattended
+; deployment does not get a window it never asked for. The app passes /NORESTARTAPPLICATIONS to keep
+; the restart manager from launching a second copy alongside this one.
+Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent; Check: RelaunchRequested
 
 [Code]
+// Whether the caller asked for the app to be started again afterwards (the in-app updater does:
+// /SILENT /relaunch=1). Only consulted by the silent-mode [Run] entry above.
+function RelaunchRequested(): Boolean;
+begin
+  Result := ExpandConstant('{param:relaunch|0}') = '1';
+end;
+
 // Inno already upgrades in place when AppId matches (files below are ignoreversion, so they get
 // overwritten regardless). This just surfaces that to the user instead of silently replacing files
 // with no feedback. It deliberately never runs the previous uninstaller: that would trigger
 // [UninstallDelete] and wipe creds.dat / the WebView2 profile, signing the user out on every update.
+//
+// Suppressed in silent mode: a MsgBox still shows there, so without the guard the in-app updater
+// would sit on an invisible modal dialog waiting for a click nobody knows to give.
 function InitializeSetup(): Boolean;
 var
   PrevVersion: String;
@@ -116,6 +133,6 @@ var
 begin
   Result := True;
   UninstallKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#SetupSetting("AppId")}_is1';
-  if RegQueryStringValue(HKA, UninstallKey, 'DisplayVersion', PrevVersion) then
+  if (not WizardSilent()) and RegQueryStringValue(HKA, UninstallKey, 'DisplayVersion', PrevVersion) then
     MsgBox(FmtMessage('{#MyAppName} %1 is already installed.'#13#10'Setup will update it to version {#MyAppVersion}.', [PrevVersion]), mbInformation, MB_OK);
 end;

@@ -10,6 +10,7 @@ namespace RslCompanionUploader.Forms;
 /// rather than looking like native WinForms chrome. The C# side stays the backend: it owns all data
 /// and pushes a single view-state into the page, and receives back only the actions the page can
 /// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>,
+/// <c>installUpdate</c> (the update banner, which installs rather than opening a page),
 /// <c>logDetail</c> (the activity console's diagnostics toggle). Check for
 /// updates, recalibrate, and about stay on the native Help menu, which calls into
 /// <see cref="MainForm"/> directly and needs no bridge. An uncovered game build is covered
@@ -47,7 +48,8 @@ public sealed class AppShell : Panel
     private string? _user;
     private string? _email;
     private object? _status;                 // { kind, text } or null (public builds have no game status)
-    private object? _update;                 // { version, url } or null
+    private object? _update;                 // { version } or null
+    private string? _updateStatus;           // download/install progress text; non-null disables the banner
     private string? _notice;                 // dismissible one-off notice text, or null
     private IReadOnlyList<Tile> _accounts = Array.Empty<Tile>();
     private int? _identified;
@@ -67,8 +69,15 @@ public sealed class AppShell : Panel
     /// <summary>Raised (on the UI thread) when the live tile's "Update user data" button is clicked.</summary>
     public event Action? ExportRequested;
 
-    /// <summary>Raised with a URL the page asked to open (e.g. the update-download link).</summary>
+    /// <summary>Raised with a URL the page asked to open (the "Open RSL Helper" bar).</summary>
     public event Action<string>? OpenUrlRequested;
+
+    /// <summary>
+    /// Raised when the update banner is clicked. The banner downloads and installs the new version
+    /// rather than opening the release page — <see cref="MainForm"/> falls back to a browser only when
+    /// there is nothing installable (no installer asset, or an MSIX build that the Store owns).
+    /// </summary>
+    public event Action? InstallUpdateRequested;
 
     /// <summary>Raised when the user dismisses the one-off notice banner (its "×" button).</summary>
     public event Action? NoticeDismissRequested;
@@ -155,11 +164,19 @@ public sealed class AppShell : Panel
     }
 
     /// <summary>Shows (or clears, with null) the "update available" banner.</summary>
-    public void SetUpdate(string? version, string? url)
+    public void SetUpdate(string? version)
     {
-        _update = version is null ? null : new { version, url };
+        _update = version is null ? null : new { version };
+        if (version is null) _updateStatus = null;
         PushState();
     }
+
+    /// <summary>
+    /// Replaces the banner's text while the update is downloading or installing, and stops it
+    /// responding to clicks. Null restores the plain "click to install" wording, which is what a
+    /// failed attempt wants — the banner is the retry.
+    /// </summary>
+    public void SetUpdateStatus(string? status) { _updateStatus = status; PushState(); }
 
     /// <summary>
     /// Shows a one-off notice the user must actively dismiss (its own "×", not a click-to-act
@@ -232,6 +249,7 @@ public sealed class AppShell : Panel
             userEmail = _email,
             status = _status,
             update = _update,
+            updateStatus = _updateStatus,
             notice = _notice,
             accounts = _accounts,
             identifiedUserId = _identified,
@@ -261,6 +279,7 @@ public sealed class AppShell : Panel
                 case "signOut": SignOutRequested?.Invoke(); break;
                 case "refresh": RefreshRequested?.Invoke(); break;
                 case "dismissNotice": NoticeDismissRequested?.Invoke(); break;
+                case "installUpdate": InstallUpdateRequested?.Invoke(); break;
                 case "logDetail" when root.TryGetProperty("detail", out var d):
                     LogDetailChanged?.Invoke(d.ValueKind == JsonValueKind.True);
                     break;
@@ -386,6 +405,9 @@ public sealed class AppShell : Panel
             border-bottom:1px solid var(--line); }
   #updateBanner { color:var(--accent); background:var(--accentbg); }
   .banner:hover { text-decoration:underline; }
+  /* While the update is downloading/installing the banner is a status line, not a target. */
+  .banner.working { cursor:default; }
+  .banner.working:hover { text-decoration:none; }
 
   .notice-banner { flex:none; display:none; align-items:center; justify-content:space-between; gap:12px;
                     padding:9px 16px; font-size:12px; font-weight:600; border-bottom:1px solid var(--line);
@@ -591,9 +613,18 @@ public sealed class AppShell : Panel
     }
   }
 
+  // The update banner is a button, not a link: clicking it downloads and installs the new version in
+  // place. While that runs it carries the progress text and stops accepting clicks, so a second click
+  // can't start a second download over the first.
   function renderBanners() {
     var ub = $('updateBanner');
-    if (state.update) { ub.style.display = 'block'; ub.textContent = 'A new version (' + esc(state.update.version) + ') is available — click to download'; }
+    if (state.update) {
+      ub.style.display = 'block';
+      ub.classList.toggle('working', !!state.updateStatus);
+      ub.textContent = state.updateStatus
+        ? state.updateStatus
+        : 'A new version (' + esc(state.update.version) + ') is available — click to update';
+    }
     else ub.style.display = 'none';
     var nb = $('noticeBanner');
     if (state.notice) { nb.style.display = 'flex'; nb.querySelector('.txt').textContent = state.notice; }
@@ -734,7 +765,7 @@ public sealed class AppShell : Panel
       closeAccountMenu();
   });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAccountMenu(); });
-  $('updateBanner').onclick = function(){ if (state.update && state.update.url) window.chrome.webview.postMessage({ type:'openUrl', url: state.update.url }); };
+  $('updateBanner').onclick = function(){ if (state.update && !state.updateStatus) window.chrome.webview.postMessage({ type:'installUpdate' }); };
   $('noticeBanner').querySelector('.close').onclick = function(){ window.chrome.webview.postMessage({ type:'dismissNotice' }); };
 
   window.chrome.webview.addEventListener('message', function(e) {

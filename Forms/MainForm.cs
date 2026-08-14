@@ -149,6 +149,7 @@ public sealed class MainForm : Form
         _shell.SignInRequested += () => BeginInvoke(new Action(SignIn));
         _shell.SignOutRequested += () => BeginInvoke(new Action(SignOut));
         _shell.NoticeDismissRequested += () => _shell.SetNotice(null);
+        _shell.InstallUpdateRequested += async () => await InstallUpdateAsync();
         // Persisted: someone who wants the engine trace usually wants it for more than one export
         // (they are reporting a problem), and someone who doesn't should never see it again.
         _shell.SetLogDetail(UserSettings.Current.ActivityLogDetail);
@@ -1084,6 +1085,15 @@ public sealed class MainForm : Form
     private static string? LastSyncInstant(DateTimeOffset? when) => when?.ToString("o");
 
     /// <summary>
+    /// The release behind the update banner, so clicking it knows what to fetch. Null when the app is
+    /// current (or the check never succeeded).
+    /// </summary>
+    private UpdateInfo? _pendingUpdate;
+
+    /// <summary>Guards against a second download starting on top of the first.</summary>
+    private bool _updating;
+
+    /// <summary>
     /// On startup (<paramref name="silent"/> = true) failures and "already up to date" are not
     /// reported — only a real update lights up the banner. A manual click always logs the outcome.
     /// </summary>
@@ -1095,7 +1105,8 @@ public sealed class MainForm : Form
             switch (result.Status)
             {
                 case UpdateCheckStatus.UpdateAvailable:
-                    _shell.SetUpdate(result.Info!.Version.ToString(), result.Info.ReleaseUrl);
+                    _pendingUpdate = result.Info;
+                    _shell.SetUpdate(result.Info!.Version.ToString());
 #if EXTRACTION
                     // Only the extraction build has anything to gate on this: it is what stops an
                     // out-of-date uploader burning 35 s calibrating a build the next release covers.
@@ -1104,7 +1115,8 @@ public sealed class MainForm : Form
                     if (!silent) Log($"Update available: {result.Info.Version}.");
                     break;
                 case UpdateCheckStatus.UpToDate:
-                    _shell.SetUpdate(null, null);
+                    _pendingUpdate = null;
+                    _shell.SetUpdate(null);
 #if EXTRACTION
                     _isLatestUploader = true;
 #endif
@@ -1122,6 +1134,76 @@ public sealed class MainForm : Form
             // finishes — it runs asynchronously well after the first status poll.
             UpdateReportPrompt();
 #endif
+        }
+    }
+
+    /// <summary>
+    /// Installs the release behind the update banner: download it, verify it, run it, and get out of
+    /// its way.
+    ///
+    /// <para>The banner used to open the GitHub release page, which handed the user a list of assets
+    /// (versioned installer, unversioned copy, two checksums, an MSIX, a certificate) and asked them
+    /// to pick, download and run the right one. Clicking "a new version is available" means "give me
+    /// the new version", so this does all of it.</para>
+    ///
+    /// <para><b>Both fallbacks lead back to the browser, deliberately.</b> A packaged (MSIX/Store)
+    /// build must never replace itself with an Inno install — the Store owns those files — and a
+    /// release with no installer asset has nothing to run; in both cases the release page is still a
+    /// real answer. A download that fails midway does the same rather than dead-ending, since the user
+    /// has already said they want this version.</para>
+    ///
+    /// <para>The app exits as soon as the installer is running: it is about to overwrite the files
+    /// this process is executing from. <c>/relaunch=1</c> is what brings the new build back up (see
+    /// <c>installer/setup.iss</c>), so the visible result is the window disappearing and returning on
+    /// the new version.</para>
+    /// </summary>
+    private async Task InstallUpdateAsync()
+    {
+        if (_updating || _pendingUpdate is not { } info) return;
+
+        // This flow ends by closing the app, which would abandon an export or a calibration mid-flight
+        // — nothing corrupts (an interrupted upload is one failed POST), but losing a 5-second read at
+        // 90% is a surprise the user didn't ask for. The banner stays; they click it again in a moment.
+        if (_busy)
+        {
+            Log("Finishing what's running first — click the update banner again in a moment.");
+            return;
+        }
+
+        if (PackagedAppInfo.IsPackaged || info.InstallerUrl is null)
+        {
+            OpenUrl(info.ReleaseUrl);
+            return;
+        }
+
+        _updating = true;
+        try
+        {
+            _shell.SetUpdateStatus($"Downloading version {info.Version}…");
+            Log($"Downloading version {info.Version}…");
+
+            // Constructed on the UI thread, so its callback marshals back there for us.
+            var progress = new Progress<int>(p => _shell.SetUpdateStatus($"Downloading version {info.Version}… {p}%"));
+            var installer = await UpdateInstaller.DownloadAsync(info, progress, _refreshCts.Token);
+
+            _shell.SetUpdateStatus($"Installing version {info.Version} — the app will restart.");
+            Log($"Installing version {info.Version}. The app will close and reopen on the new version.");
+
+            UpdateInstaller.Launch(installer);
+            Close();
+        }
+        catch (OperationCanceledException)
+        {
+            // The window is closing (the token is the form's). Nothing to report and nowhere to
+            // report it — and opening a browser at someone who just quit would be worse than silence.
+        }
+        catch (Exception ex)
+        {
+            _updating = false;
+            _shell.SetUpdateStatus(null); // back to the plain banner, which is also the retry
+            Log("Couldn't install the update automatically — opening the download page instead.");
+            Log(ex.ToString(), detail: true);
+            OpenUrl(info.ReleaseUrl);
         }
     }
 

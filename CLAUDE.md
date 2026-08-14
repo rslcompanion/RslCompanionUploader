@@ -46,10 +46,24 @@ match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native 
 File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL).
-The page posts back six actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`, `logDetail`. Check for
+The page posts back seven actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
+`installUpdate`, `logDetail`. Check for
 updates, recalibrate and about stay native menu items calling straight into `MainForm` — no bridge
 needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
 automatically from `MainForm`, not from anything the page posts back.
+
+**The update banner installs the update; it does not open GitHub.** Clicking it downloads the
+release's Inno installer ([UpdateInstaller.cs](UpdateInstaller.cs)), checks it against the `.sha256`
+published beside it in the same release, runs it `/SILENT /relaunch=1`, and closes the app so its own
+files can be replaced — `installer/setup.iss` has a silent-mode `[Run]` entry, gated on that
+parameter, that starts the new build back up. The release page it used to open handed the user six
+assets and asked them to pick; "a new version is available" means they already decided. The banner
+carries the download percentage while this runs and stops accepting clicks, so a second click can't
+start a second download. **Both dead ends still fall back to the browser**: a packaged (MSIX/Store)
+build must never overwrite itself with an Inno install, and a failed download leaves the user
+somewhere they can finish by hand. `UpdateChecker` picks the version-stamped `…-Setup-<v>.exe` — the
+name the checksum file and the release notes refer to — and never the `.msix`, which is self-signed
+and cannot install onto a machine that hasn't already trusted the certificate.
 
 The app opens its main window **before authenticating** (like Postman). [Program.cs](Program.cs) now
 does *no* authentication at all — it hands `MainForm` the launch code (if any) and starts the message
