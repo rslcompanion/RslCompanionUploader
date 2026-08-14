@@ -52,18 +52,37 @@ updates, recalibrate and about stay native menu items calling straight into `Mai
 needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
 automatically from `MainForm`, not from anything the page posts back.
 
-**The update banner installs the update; it does not open GitHub.** Clicking it downloads the
-release's Inno installer ([UpdateInstaller.cs](UpdateInstaller.cs)), checks it against the `.sha256`
-published beside it in the same release, runs it `/SILENT /relaunch=1`, and closes the app so its own
-files can be replaced — `installer/setup.iss` has a silent-mode `[Run]` entry, gated on that
-parameter, that starts the new build back up. The release page it used to open handed the user six
-assets and asked them to pick; "a new version is available" means they already decided. The banner
-carries the download percentage while this runs and stops accepting clicks, so a second click can't
-start a second download. **Both dead ends still fall back to the browser**: a packaged (MSIX/Store)
-build must never overwrite itself with an Inno install, and a failed download leaves the user
-somewhere they can finish by hand. `UpdateChecker` picks the version-stamped `…-Setup-<v>.exe` — the
-name the checksum file and the release notes refer to — and never the `.msix`, which is self-signed
-and cannot install onto a machine that hasn't already trusted the certificate.
+**The update banner downloads the update; it does not open GitHub, and it never closes the app.**
+Clicking it fetches the release's Inno installer ([UpdateInstaller.cs](UpdateInstaller.cs)) and checks
+it against the `.sha256` published beside it in the same release. The release page it used to open
+handed the user six assets and asked them to pick; "a new version is available" means they already
+decided. The banner carries the percentage while the download runs and stops accepting clicks, so a
+second click can't start a second download. `UpdateChecker` picks the version-stamped
+`…-Setup-<v>.exe` — the name the checksum file and the release notes refer to — and never the
+`.msix`, which is self-signed and cannot install onto a machine that hasn't already trusted the
+certificate. **Both dead ends fall back to the browser**: a packaged (MSIX/Store) build must never
+overwrite itself with an Inno install, and a failed download leaves the user somewhere they can
+finish by hand.
+
+**Nothing is replaced until the user restarts, and both ways of restarting work.** A verified
+download is staged, and the banner says so while staying clickable; the click runs the installer
+`/SILENT /relaunch=1` and closes the app so the new build comes back up (`installer/setup.iss` has a
+silent-mode `[Run]` entry gated on that parameter). Quitting applies it too —
+`ApplyStagedUpdateOnExit` runs the same installer from `FormClosed`, deliberately **without**
+`relaunch`, because reopening a window someone just closed is not what they asked for. Both paths are
+guarded by `_installerLaunched` so a restart-click followed by the exit hook cannot start two
+installers. **Do not restore the old behaviour of installing the moment the download finishes**: it
+closed the app under a user who might be mid-export, and the restart is free to wait.
+
+**Automatic checks are opt-in, asked once, and revocable.** `AskAutoUpdateIfUnanswered` puts the
+question on the first run that finds `autoUpdateChecksChosen` false — same shape as the stay-signed-in
+question, and for the same reason: off is the default, so silence would decide by omission. Saying yes
+starts `PollUpdatesAsync` — once now, then hourly — and Help ▸ Check for updates automatically toggles
+it later (toggling counts as answering, so nobody is asked about something they already set). Saying
+no leaves Help ▸ Check for updates working, so it costs discovery, not the ability to update.
+**The check does not require a session.** It used to run from `EnterSignedInAsync`, which meant anyone
+who never signed in was never told a release existed — including the release covering the Raid build
+about to block them.
 
 The app opens its main window **before authenticating** (like Postman). [Program.cs](Program.cs) now
 does *no* authentication at all — it hands `MainForm` the launch code (if any) and starts the message

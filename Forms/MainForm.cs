@@ -167,6 +167,9 @@ public sealed class MainForm : Form
         FormClosed += (_, _) => _statusCts.Cancel(); // stop the poll touching a disposed form
 #endif
         FormClosed += (_, _) => _refreshCts.Cancel(); // same, for the account refresh
+        // Last thing this process does: hand a downloaded-but-unapplied update to the installer, so
+        // quitting is a real way to apply one and not just a way to postpone it.
+        FormClosed += (_, _) => ApplyStagedUpdateOnExit();
 
         Load += async (_, _) =>
         {
@@ -175,11 +178,22 @@ public sealed class MainForm : Form
             ApplyGameState(GameState.NotRunning, force: true); // render a status before the first poll
             _ = PollGameStatusAsync(_statusCts.Token);
 #endif
+            // Being out of date is not an account fact, so this does not wait for a session. It used
+            // to run from EnterSignedInAsync, which meant someone who never signed in — or who
+            // signed out, or whose saved session had gone — was never told a new version existed,
+            // and the release they were missing might be the one covering their game build.
+            StartUpdatePolling();
+
             // The game-status poll above runs regardless of sign-in. Everything account-related waits
             // until there is a session — the window opens signed-out and the user signs in from the
             // top bar (see SignIn).
             _shell.SetSignedOut();
             await RestoreSessionAsync();
+
+            // Asked last, on a painted window with the session already settled: this is a question
+            // about the app, and one modal at a time. RestoreSessionAsync may itself have asked about
+            // staying signed in, and stacking two dialogs on a first run reads as an interrogation.
+            AskAutoUpdateIfUnanswered();
         };
     }
 
@@ -400,11 +414,6 @@ public sealed class MainForm : Form
             _accountRefreshStarted = true;
             _ = PollAccountsAsync(_refreshCts.Token);
         }
-
-        // Packaged (MSIX/Store) builds get updates via the Store or App Installer instead of this
-        // GitHub-release poll, so the banner/menu item would be confusing there.
-        if (!PackagedAppInfo.IsPackaged)
-            _ = CheckForUpdateAsync(silent: true);
     }
 
     private bool _accountRefreshStarted;
@@ -957,6 +966,16 @@ public sealed class MainForm : Form
         {
             help.DropDownItems.Add(new ToolStripMenuItem("Check for &updates…", null,
                 async (_, _) => await CheckForUpdateAsync(silent: false)));
+
+            // The way out of the automatic checks, and the way back in. CheckOnClick flips the tick
+            // before the handler runs, so the handler reads it rather than negating the setting.
+            _autoUpdateItem = new ToolStripMenuItem("Check for updates &automatically", null,
+                (_, _) => SetAutoUpdate(_autoUpdateItem!.Checked, announce: true))
+            {
+                CheckOnClick = true,
+                Checked = UserSettings.Current.AutoUpdateChecks,
+            };
+            help.DropDownItems.Add(_autoUpdateItem);
         }
 #if EXTRACTION
         // The manual retry for a build whose automatic attempt ran too early (game still loading).
@@ -1094,8 +1113,137 @@ public sealed class MainForm : Form
     private bool _updating;
 
     /// <summary>
-    /// On startup (<paramref name="silent"/> = true) failures and "already up to date" are not
-    /// reported — only a real update lights up the banner. A manual click always logs the outcome.
+    /// A verified installer sitting on disk, waiting to be applied. Non-null means the download is
+    /// done and the only thing left is a restart — either the user clicking the banner again, or
+    /// simply quitting, which applies it on the way out.
+    /// </summary>
+    private string? _stagedInstaller;
+
+    /// <summary>Set once the installer is running, so the exit hook never starts a second copy.</summary>
+    private bool _installerLaunched;
+
+    /// <summary>How often the app re-checks for a release while it is open, once enabled.</summary>
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(1);
+
+    /// <summary>Stops the update poll when it is switched off. Null whenever the poll isn't running.</summary>
+    private CancellationTokenSource? _updatePollCts;
+
+    /// <summary>Help ▸ Check for updates automatically. Checked state mirrors the saved preference.</summary>
+    private ToolStripMenuItem? _autoUpdateItem;
+
+    /// <summary>
+    /// Starts the automatic check — once now, then hourly — if the user has turned it on. Safe to
+    /// call repeatedly: a second call while one is already running is a no-op, so enabling from the
+    /// menu can share this with startup.
+    /// </summary>
+    private void StartUpdatePolling()
+    {
+        // Packaged (MSIX/Store) builds are updated by the Store, so polling GitHub could only ever
+        // offer them an install they must not perform.
+        if (PackagedAppInfo.IsPackaged) return;
+        if (!UserSettings.Current.AutoUpdateChecks) return;
+        if (_updatePollCts is not null) return;
+
+        _updatePollCts = CancellationTokenSource.CreateLinkedTokenSource(_refreshCts.Token);
+        _ = PollUpdatesAsync(_updatePollCts.Token);
+    }
+
+    private void StopUpdatePolling()
+    {
+        _updatePollCts?.Cancel();
+        _updatePollCts?.Dispose();
+        _updatePollCts = null;
+    }
+
+    /// <summary>
+    /// Checks now, then every hour for as long as the window is open.
+    ///
+    /// <para>An app left running for days was the gap this closes: the check used to happen once, at
+    /// sign-in, so a session that stayed open never learned about a release — including the one that
+    /// covers a Raid build the user is about to be blocked by.</para>
+    /// </summary>
+    private async Task PollUpdatesAsync(CancellationToken token)
+    {
+        try
+        {
+            while (!token.IsCancellationRequested)
+            {
+                // Silent: a background check that found nothing has nothing to say, and an hourly
+                // "you're up to date" would be noise in a console the user reads for exports.
+                await CheckForUpdateAsync(silent: true);
+                await Task.Delay(UpdateCheckInterval, token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Switched off, or the window closed.
+        }
+    }
+
+    /// <summary>
+    /// Asks, once ever, whether the app may look for new versions on its own.
+    ///
+    /// <para>Off is the default and staying silent is not an answer, so this is what turns the
+    /// default into a decision — the same shape as the stay-signed-in question. Both answers are
+    /// real: declining leaves Help ▸ Check for updates working, so it costs discovery, not the
+    /// ability to update. Either way it is settled for good and never asked again; the menu item is
+    /// how anyone changes their mind.</para>
+    /// </summary>
+    private void AskAutoUpdateIfUnanswered()
+    {
+        if (PackagedAppInfo.IsPackaged) return;
+        if (UserSettings.Current.AutoUpdateChecksChosen) return;
+
+        var auto = new TaskDialogCommandLinkButton(
+            "Check automatically",
+            "Looks for a new version once an hour and shows a banner when one is ready. Nothing "
+            + "downloads or installs until you click it.");
+        var manual = new TaskDialogCommandLinkButton(
+            "Only when I ask",
+            "No background checks. Use Help ▸ Check for updates whenever you want one.");
+
+        var page = new TaskDialogPage
+        {
+            Caption = "RSL Companion",
+            Heading = "Check for updates automatically?",
+            Text = "You can change this at any time from Help ▸ Check for updates automatically.",
+            Icon = TaskDialogIcon.Information,
+            AllowCancel = false, // there is no third answer; both buttons are a real choice
+            Buttons = { auto, manual },
+            DefaultButton = auto,
+        };
+
+        SetAutoUpdate(TaskDialog.ShowDialog(this, page) == auto, announce: false);
+    }
+
+    /// <summary>
+    /// Records the automatic-check preference and starts or stops the poll to match. Writing
+    /// <c>Chosen</c> here means using the menu counts as answering, so nobody is asked a question
+    /// they have already acted on.
+    /// </summary>
+    private void SetAutoUpdate(bool enabled, bool announce)
+    {
+        UserSettings.Current.AutoUpdateChecks = enabled;
+        UserSettings.Current.AutoUpdateChecksChosen = true;
+        UserSettings.Current.Save();
+
+        if (_autoUpdateItem is not null) _autoUpdateItem.Checked = enabled;
+
+        if (enabled)
+        {
+            if (announce) Log("Automatic update checks are on — once an hour.");
+            StartUpdatePolling();
+        }
+        else
+        {
+            if (announce) Log("Automatic update checks are off. Use Help ▸ Check for updates when you want one.");
+            StopUpdatePolling();
+        }
+    }
+
+    /// <summary>
+    /// On a background check (<paramref name="silent"/> = true) failures and "already up to date" are
+    /// not reported — only a real update lights up the banner. A manual check always logs the outcome.
     /// </summary>
     private async Task CheckForUpdateAsync(bool silent)
     {
@@ -1152,23 +1300,22 @@ public sealed class MainForm : Form
     /// real answer. A download that fails midway does the same rather than dead-ending, since the user
     /// has already said they want this version.</para>
     ///
-    /// <para>The app exits as soon as the installer is running: it is about to overwrite the files
-    /// this process is executing from. <c>/relaunch=1</c> is what brings the new build back up (see
-    /// <c>installer/setup.iss</c>), so the visible result is the window disappearing and returning on
-    /// the new version.</para>
+    /// <para><b>Downloading never closes the app.</b> The installer is staged and the banner switches
+    /// to saying so; nothing is replaced until the user restarts, because they may well be mid-export
+    /// or mid-session when they click. From there either route applies it: clicking the banner again
+    /// restarts into the new version, or simply quitting applies it on the way out
+    /// (<see cref="ApplyStagedUpdateOnExit"/>) so the next launch is already updated.</para>
     /// </summary>
     private async Task InstallUpdateAsync()
     {
-        if (_updating || _pendingUpdate is not { } info) return;
-
-        // This flow ends by closing the app, which would abandon an export or a calibration mid-flight
-        // — nothing corrupts (an interrupted upload is one failed POST), but losing a 5-second read at
-        // 90% is a surprise the user didn't ask for. The banner stays; they click it again in a moment.
-        if (_busy)
+        // Second click, download already done: this is the "restart now" the banner is offering.
+        if (_stagedInstaller is { } staged)
         {
-            Log("Finishing what's running first — click the update banner again in a moment.");
+            RestartIntoUpdate(staged);
             return;
         }
+
+        if (_updating || _pendingUpdate is not { } info) return;
 
         if (PackagedAppInfo.IsPackaged || info.InstallerUrl is null)
         {
@@ -1186,11 +1333,12 @@ public sealed class MainForm : Form
             var progress = new Progress<int>(p => _shell.SetUpdateStatus($"Downloading version {info.Version}… {p}%"));
             var installer = await UpdateInstaller.DownloadAsync(info, progress, _refreshCts.Token);
 
-            _shell.SetUpdateStatus($"Installing version {info.Version} — the app will restart.");
-            Log($"Installing version {info.Version}. The app will close and reopen on the new version.");
-
-            UpdateInstaller.Launch(installer);
-            Close();
+            _stagedInstaller = installer;
+            _shell.SetUpdateStatus(
+                $"Version {info.Version} is downloaded — restart to install it. Click here to restart now.",
+                clickable: true);
+            Log($"Version {info.Version} is downloaded. It installs when you restart the app — click "
+              + "the banner to restart now, or just close the app when you're done and it applies itself.");
         }
         catch (OperationCanceledException)
         {
@@ -1201,9 +1349,68 @@ public sealed class MainForm : Form
         {
             _updating = false;
             _shell.SetUpdateStatus(null); // back to the plain banner, which is also the retry
-            Log("Couldn't install the update automatically — opening the download page instead.");
+            Log("Couldn't download the update — opening the download page instead.");
             Log(ex.ToString(), detail: true);
             OpenUrl(info.ReleaseUrl);
+        }
+    }
+
+    /// <summary>
+    /// Applies a staged update now, at the user's request: start the installer asking it to bring the
+    /// app back, and close so it can replace these files.
+    ///
+    /// <para>Refuses while something is running. Restarting mid-export would abandon it — nothing
+    /// corrupts, since an interrupted upload is one failed POST, but losing a read at 90% is a
+    /// surprise nobody asked for, and the update is already downloaded and in no hurry.</para>
+    /// </summary>
+    private void RestartIntoUpdate(string installer)
+    {
+        if (_installerLaunched) return;
+
+        if (_busy)
+        {
+            Log("Finishing what's running first — click the banner again in a moment to restart.");
+            return;
+        }
+
+        try
+        {
+            _installerLaunched = true;
+            _shell.SetUpdateStatus("Restarting to install the update…");
+            UpdateInstaller.Launch(installer, relaunch: true);
+            Close();
+        }
+        catch (Exception ex)
+        {
+            _installerLaunched = false;
+            _shell.SetUpdateStatus("Update downloaded — restart to install it. Click here to restart now.",
+                                   clickable: true);
+            Log("Couldn't start the installer. Close the app and open it again, or install it by hand.");
+            Log(ex.ToString(), detail: true);
+        }
+    }
+
+    /// <summary>
+    /// Runs a staged installer as the app exits, so "restart to install" is true however the user
+    /// restarts — closing the window counts, not just the banner's restart button. Without this the
+    /// app would tell them a restart applies the update and then not apply it.
+    ///
+    /// <para>Deliberately does <b>not</b> pass <c>relaunch</c>: they closed the app. Applying the
+    /// update is finishing what they already agreed to; reopening the window is not.</para>
+    /// </summary>
+    private void ApplyStagedUpdateOnExit()
+    {
+        if (_installerLaunched || _stagedInstaller is not { } installer) return;
+
+        try
+        {
+            _installerLaunched = true;
+            UpdateInstaller.Launch(installer, relaunch: false);
+        }
+        catch
+        {
+            // Nothing left to tell: the window is gone. The staged file survives and the banner
+            // offers it again next launch, since the version check will still report an update.
         }
     }
 

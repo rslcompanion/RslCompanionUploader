@@ -44,7 +44,28 @@ public sealed class UserSettings
     public bool SessionProtectionChosen { get; set; }
 
     /// <summary>
-    /// Whether the activity console shows the extraction engine's own diagnostics alongside the
+    /// Whether the app looks for a new version on its own — once at startup, then hourly.
+    ///
+    /// <para>Off by default, and the default is not the answer: see <see cref="AutoUpdateChecksChosen"/>.
+    /// Turning it off leaves Help ▸ Check for updates working, so declining costs discovery, not the
+    /// ability to update.</para>
+    /// </summary>
+    [JsonPropertyName("autoUpdateChecks")]
+    public bool AutoUpdateChecks { get; set; }
+
+    /// <summary>
+    /// Whether the user has ever answered the automatic-update-checks question, as opposed to
+    /// <see cref="AutoUpdateChecks"/> sitting at its default — the same distinction, and for the same
+    /// reason, as <see cref="SessionProtectionChosen"/>.
+    ///
+    /// <para>Asked once ever, on the first run that finds it unanswered. Toggling the menu item counts
+    /// as an answer too, so someone who turns it on before ever being asked is not then asked.</para>
+    /// </summary>
+    [JsonPropertyName("autoUpdateChecksChosen")]
+    public bool AutoUpdateChecksChosen { get; set; }
+
+    /// <summary>
+    /// Whether the activity console shows the engine's own diagnostics alongside the
     /// plain-language lines. Off by default: those lines are addresses, offsets and phase timings
     /// written for debugging a memory map, and they are the bulk of the volume during an export.
     ///

@@ -80,17 +80,22 @@ public static class UpdateInstaller
     /// Starts the downloaded installer and returns immediately. <b>The caller must exit the app right
     /// after</b> — the installer is replacing the files this process is running from.
     ///
-    /// <para><c>/SILENT</c> shows a progress window but no wizard: the user already chose to update by
-    /// clicking the banner, so asking them the same question again in a wizard is a step with no
-    /// decision in it. <c>/NORESTARTAPPLICATIONS</c> keeps the restart manager from launching the app
-    /// back up on its own, because <c>/relaunch=1</c> already asks the installer to do exactly that
-    /// once — without it the user gets two windows.</para>
+    /// <para><c>/SILENT</c> shows a progress window but no wizard: by this point the user has said
+    /// they want this version, so a wizard is a step with no decision left in it.
+    /// <c>/NORESTARTAPPLICATIONS</c> keeps the restart manager from launching the app back up on its
+    /// own — without it, a <paramref name="relaunch"/> install would produce two windows.</para>
+    ///
+    /// <para><paramref name="relaunch"/> distinguishes the two ways an update gets applied. True is
+    /// "restart now", clicked deliberately: the app should come back. False is the app being applied
+    /// on the way out, because the user quit — bringing the window back up would be reopening an app
+    /// they just closed.</para>
     /// </summary>
-    public static void Launch(string installerPath) =>
+    public static void Launch(string installerPath, bool relaunch) =>
         Process.Start(new ProcessStartInfo(installerPath)
         {
             UseShellExecute = true,
-            Arguments = "/SILENT /CLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /NORESTART /relaunch=1",
+            Arguments = "/SILENT /CLOSEAPPLICATIONS /NORESTARTAPPLICATIONS /NORESTART"
+                      + (relaunch ? " /relaunch=1" : ""),
         });
 
     /// <summary>

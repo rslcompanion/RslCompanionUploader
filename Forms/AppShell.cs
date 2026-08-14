@@ -49,7 +49,8 @@ public sealed class AppShell : Panel
     private string? _email;
     private object? _status;                 // { kind, text } or null (public builds have no game status)
     private object? _update;                 // { version } or null
-    private string? _updateStatus;           // download/install progress text; non-null disables the banner
+    private string? _updateStatus;           // download progress / "restart to install" text, or null
+    private bool _updateStatusClickable;     // whether that text is still an offer rather than a status
     private string? _notice;                 // dismissible one-off notice text, or null
     private IReadOnlyList<Tile> _accounts = Array.Empty<Tile>();
     private int? _identified;
@@ -172,11 +173,20 @@ public sealed class AppShell : Panel
     }
 
     /// <summary>
-    /// Replaces the banner's text while the update is downloading or installing, and stops it
-    /// responding to clicks. Null restores the plain "click to install" wording, which is what a
-    /// failed attempt wants — the banner is the retry.
+    /// Replaces the banner's text while an update is downloading, or once one is staged and waiting
+    /// for a restart. Null restores the plain "click to update" wording, which is what a failed
+    /// attempt wants — the banner is the retry.
+    ///
+    /// <para><paramref name="clickable"/> separates the two: a download in progress is a status line
+    /// and must not accept a second click, while "downloaded — restart to install" is an offer and
+    /// has to stay pressable.</para>
     /// </summary>
-    public void SetUpdateStatus(string? status) { _updateStatus = status; PushState(); }
+    public void SetUpdateStatus(string? status, bool clickable = false)
+    {
+        _updateStatus = status;
+        _updateStatusClickable = clickable;
+        PushState();
+    }
 
     /// <summary>
     /// Shows a one-off notice the user must actively dismiss (its own "×", not a click-to-act
@@ -250,6 +260,7 @@ public sealed class AppShell : Panel
             status = _status,
             update = _update,
             updateStatus = _updateStatus,
+            updateClickable = _updateStatusClickable,
             notice = _notice,
             accounts = _accounts,
             identifiedUserId = _identified,
@@ -613,14 +624,15 @@ public sealed class AppShell : Panel
     }
   }
 
-  // The update banner is a button, not a link: clicking it downloads and installs the new version in
-  // place. While that runs it carries the progress text and stops accepting clicks, so a second click
-  // can't start a second download over the first.
+  // The update banner is a button, not a link: clicking it downloads the new version, and clicking it
+  // again once that finishes restarts into it. While the download runs it carries the percentage and
+  // stops accepting clicks ('working'), so a second click can't start a second download over the
+  // first — but the 'downloaded, restart to install' text that follows is an offer, and stays live.
   function renderBanners() {
     var ub = $('updateBanner');
     if (state.update) {
       ub.style.display = 'block';
-      ub.classList.toggle('working', !!state.updateStatus);
+      ub.classList.toggle('working', !!state.updateStatus && !state.updateClickable);
       ub.textContent = state.updateStatus
         ? state.updateStatus
         : 'A new version (' + esc(state.update.version) + ') is available — click to update';
@@ -765,7 +777,10 @@ public sealed class AppShell : Panel
       closeAccountMenu();
   });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeAccountMenu(); });
-  $('updateBanner').onclick = function(){ if (state.update && !state.updateStatus) window.chrome.webview.postMessage({ type:'installUpdate' }); };
+  $('updateBanner').onclick = function(){
+    if (state.update && (!state.updateStatus || state.updateClickable))
+      window.chrome.webview.postMessage({ type:'installUpdate' });
+  };
   $('noticeBanner').querySelector('.close').onclick = function(){ window.chrome.webview.postMessage({ type:'dismissNotice' }); };
 
   window.chrome.webview.addEventListener('message', function(e) {
