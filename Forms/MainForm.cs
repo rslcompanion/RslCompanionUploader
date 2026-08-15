@@ -1294,11 +1294,14 @@ public sealed class MainForm : Form
     /// to pick, download and run the right one. Clicking "a new version is available" means "give me
     /// the new version", so this does all of it.</para>
     ///
-    /// <para><b>Both fallbacks lead back to the browser, deliberately.</b> A packaged (MSIX/Store)
-    /// build must never replace itself with an Inno install — the Store owns those files — and a
-    /// release with no installer asset has nothing to run; in both cases the release page is still a
-    /// real answer. A download that fails midway does the same rather than dead-ending, since the user
-    /// has already said they want this version.</para>
+    /// <para><b>Neither dead end opens a browser on the user; both report into the banner and offer a
+    /// link.</b> A packaged (MSIX/Store) build must never replace itself with an Inno install — the
+    /// Store owns those files — and a release with no installer asset has nothing to run. A download
+    /// that fails says so where it was promised, stays clickable as its own retry, and puts the manual
+    /// download beside it. Launching a browser instead was worse on both counts: it threw away the
+    /// retry, and it answered "the update failed" by silently opening a tab, so the user was left
+    /// looking at a page nobody told them why they were on — which read as the banner simply being a
+    /// link to GitHub.</para>
     ///
     /// <para><b>Downloading never closes the app.</b> The installer is staged and the banner switches
     /// to saying so; nothing is replaced until the user restarts, because they may well be mid-export
@@ -1319,7 +1322,10 @@ public sealed class MainForm : Form
 
         if (PackagedAppInfo.IsPackaged || info.InstallerUrl is null)
         {
-            OpenUrl(info.ReleaseUrl);
+            _shell.SetUpdateStatus($"Version {info.Version} has to be installed by hand from here:",
+                                   clickable: false,
+                                   linkUrl: info.ReleaseUrl, linkText: "open the release page");
+            Log($"Version {info.Version} can't be installed from here — get it from {info.ReleaseUrl}.");
             return;
         }
 
@@ -1340,18 +1346,25 @@ public sealed class MainForm : Form
             Log($"Version {info.Version} is downloaded. It installs when you restart the app — click "
               + "the banner to restart now, or just close the app when you're done and it applies itself.");
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_refreshCts.IsCancellationRequested)
         {
             // The window is closing (the token is the form's). Nothing to report and nowhere to
-            // report it — and opening a browser at someone who just quit would be worse than silence.
+            // report it. The guard matters: HttpClient signals *its own* 15-minute timeout with the
+            // same exception type, and a stalled download swallowed here would leave the banner
+            // frozen at a percentage and _updating stuck true, so no later click could retry it.
         }
         catch (Exception ex)
         {
+            // The banner stays clickable, so it is still the retry — worth having, because the
+            // failures seen here are transient (a dropped connection, antivirus holding the finished
+            // file). The link beside it is for when retrying keeps failing.
             _updating = false;
-            _shell.SetUpdateStatus(null); // back to the plain banner, which is also the retry
-            Log("Couldn't download the update — opening the download page instead.");
+            _shell.SetUpdateStatus($"Couldn't download version {info.Version} — click to try again, or",
+                                   clickable: true,
+                                   linkUrl: UpdateChecker.DownloadPageUrl, linkText: "download it yourself");
+            Log($"Couldn't download version {info.Version}: {DescribeDownloadFailure(ex)} You can click the banner to try "
+              + $"again, or install it yourself from {UpdateChecker.DownloadPageUrl}.");
             Log(ex.ToString(), detail: true);
-            OpenUrl(info.ReleaseUrl);
         }
     }
 
@@ -1521,6 +1534,26 @@ public sealed class MainForm : Form
 
         return ex.Message;
     }
+
+    /// <summary>
+    /// Turns a failed installer download into a sentence naming the likely cause. The user-level log
+    /// line is all most people will read, and "IOException: The process cannot access the file" tells
+    /// them nothing about what to do; the exception itself still goes out at the detail level.
+    ///
+    /// <para>Antivirus is called out by name because it is the one seen doing this here: security
+    /// software opens or quarantines a freshly written executable, and the write or the rename that
+    /// follows fails on a download that was otherwise complete and verified.</para>
+    /// </summary>
+    private static string DescribeDownloadFailure(Exception ex) => ex switch
+    {
+        HttpRequestException or TaskCanceledException =>
+            "the download was interrupted — check your connection and try again.",
+        UnauthorizedAccessException or IOException =>
+            "Windows wouldn't let the file be saved. Antivirus scanning the finished installer is the "
+          + "usual cause; trying again in a moment normally works.",
+        InvalidOperationException => ex.Message + ".",
+        _ => ex.Message,
+    };
 
     // The export carries the account's ENTIRE artifact vault with real stats since 2026-08-02 —
     // gear in `artifacts[]`, rings/cloaks/banners in `accessories[]`, equipped and vaulted alike.

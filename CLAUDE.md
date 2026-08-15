@@ -60,9 +60,21 @@ decided. The banner carries the percentage while the download runs and stops acc
 second click can't start a second download. `UpdateChecker` picks the version-stamped
 `…-Setup-<v>.exe` — the name the checksum file and the release notes refer to — and never the
 `.msix`, which is self-signed and cannot install onto a machine that hasn't already trusted the
-certificate. **Both dead ends fall back to the browser**: a packaged (MSIX/Store) build must never
-overwrite itself with an Inno install, and a failed download leaves the user somewhere they can
-finish by hand.
+certificate.
+
+**Neither dead end opens a browser — both report into the banner and offer a link.** A packaged
+(MSIX/Store) build must never overwrite itself with an Inno install, and a release with no installer
+asset has nothing to run; those say so and link the release page. A failed download says *why*
+(`DescribeDownloadFailure` names the likely cause — antivirus holding the finished file is the one
+seen in the wild), **stays clickable as its own retry**, and puts `UpdateChecker.DownloadPageUrl`
+(get.rslcompanion.com, the unversioned installer) beside it as the manual way out. Launching a
+browser instead was worse on both counts: it threw away the retry, and it answered a failure the user
+was never told about by opening a tab — which is indistinguishable from the banner just being a link
+to GitHub, and got reported as exactly that. The link is a child of the banner and stops the click
+propagating, so taking it doesn't also start the retry underneath. **A cancellation is only silent
+when the form's token actually cancelled it** — `HttpClient` reports its own 15-minute timeout as
+`TaskCanceledException` too, and swallowing that froze the banner mid-percentage with `_updating`
+stuck true, which no later click could clear.
 
 **Nothing is replaced until the user restarts, and both ways of restarting work.** A verified
 download is staged, and the banner says so while staying clickable; the click runs the installer

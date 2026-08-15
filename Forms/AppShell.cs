@@ -51,6 +51,7 @@ public sealed class AppShell : Panel
     private object? _update;                 // { version } or null
     private string? _updateStatus;           // download progress / "restart to install" text, or null
     private bool _updateStatusClickable;     // whether that text is still an offer rather than a status
+    private object? _updateLink;             // { url, text } shown beside the status, or null
     private string? _notice;                 // dismissible one-off notice text, or null
     private IReadOnlyList<Tile> _accounts = Array.Empty<Tile>();
     private int? _identified;
@@ -168,7 +169,7 @@ public sealed class AppShell : Panel
     public void SetUpdate(string? version)
     {
         _update = version is null ? null : new { version };
-        if (version is null) _updateStatus = null;
+        if (version is null) { _updateStatus = null; _updateLink = null; }
         PushState();
     }
 
@@ -180,11 +181,17 @@ public sealed class AppShell : Panel
     /// <para><paramref name="clickable"/> separates the two: a download in progress is a status line
     /// and must not accept a second click, while "downloaded — restart to install" is an offer and
     /// has to stay pressable.</para>
+    ///
+    /// <para><paramref name="linkUrl"/> adds a secondary way out beside the text — the manual download
+    /// page when the automatic route failed. It is a link the user may take, <b>not</b> a browser the
+    /// app opens on them: a failed update belongs in the banner that promised it, where the retry also
+    /// lives, rather than in a tab that appears while they are looking somewhere else.</para>
     /// </summary>
-    public void SetUpdateStatus(string? status, bool clickable = false)
+    public void SetUpdateStatus(string? status, bool clickable = false, string? linkUrl = null, string? linkText = null)
     {
         _updateStatus = status;
         _updateStatusClickable = clickable;
+        _updateLink = linkUrl is null ? null : new { url = linkUrl, text = linkText ?? linkUrl };
         PushState();
     }
 
@@ -261,6 +268,7 @@ public sealed class AppShell : Panel
             update = _update,
             updateStatus = _updateStatus,
             updateClickable = _updateStatusClickable,
+            updateLink = _updateLink,
             notice = _notice,
             accounts = _accounts,
             identifiedUserId = _identified,
@@ -415,10 +423,14 @@ public sealed class AppShell : Panel
   .banner { flex:none; display:none; padding:9px 16px; font-size:12px; font-weight:600; cursor:pointer;
             border-bottom:1px solid var(--line); }
   #updateBanner { color:var(--accent); background:var(--accentbg); }
-  .banner:hover { text-decoration:underline; }
+  .banner:hover .txt { text-decoration:underline; }
   /* While the update is downloading/installing the banner is a status line, not a target. */
   .banner.working { cursor:default; }
-  .banner.working:hover { text-decoration:none; }
+  .banner.working:hover .txt { text-decoration:none; }
+  /* The manual-download way out, shown when the automatic one failed. Its own target, so a click on
+     it opens the page rather than starting the retry the rest of the banner offers. */
+  .banner .alt { color:inherit; text-decoration:underline; cursor:pointer; opacity:.85; margin-left:6px; }
+  .banner .alt:hover { opacity:1; }
 
   .notice-banner { flex:none; display:none; align-items:center; justify-content:space-between; gap:12px;
                     padding:9px 16px; font-size:12px; font-weight:600; border-bottom:1px solid var(--line);
@@ -538,7 +550,7 @@ public sealed class AppShell : Panel
       <button id='signout' type='button' class='am-item'>Sign out</button>
     </div>
   </div>
-  <div id='updateBanner' class='banner'></div>
+  <div id='updateBanner' class='banner'><span class='txt'></span><a class='alt'></a></div>
   <div id='noticeBanner' class='notice-banner'><span class='txt'></span><button type='button' class='close' aria-label='Dismiss'>&times;</button></div>
 
   <div id='scroll'>
@@ -628,14 +640,21 @@ public sealed class AppShell : Panel
   // again once that finishes restarts into it. While the download runs it carries the percentage and
   // stops accepting clicks ('working'), so a second click can't start a second download over the
   // first — but the 'downloaded, restart to install' text that follows is an offer, and stays live.
+  //
+  // A download that failed reports itself here too, with 'updateLink' as the manual way out. That is
+  // the whole reason it lives in the banner: the banner is where the update was promised and where the
+  // retry still is, so the failure and both answers to it are in one place.
   function renderBanners() {
     var ub = $('updateBanner');
     if (state.update) {
       ub.style.display = 'block';
       ub.classList.toggle('working', !!state.updateStatus && !state.updateClickable);
-      ub.textContent = state.updateStatus
+      ub.querySelector('.txt').textContent = state.updateStatus
         ? state.updateStatus
         : 'A new version (' + esc(state.update.version) + ') is available — click to update';
+      var alt = ub.querySelector('.alt');
+      alt.style.display = state.updateLink ? 'inline' : 'none';
+      alt.textContent = state.updateLink ? state.updateLink.text : '';
     }
     else ub.style.display = 'none';
     var nb = $('noticeBanner');
@@ -780,6 +799,12 @@ public sealed class AppShell : Panel
   $('updateBanner').onclick = function(){
     if (state.update && (!state.updateStatus || state.updateClickable))
       window.chrome.webview.postMessage({ type:'installUpdate' });
+  };
+  // Stops the click reaching the banner: the link is the *other* answer to a failed update, so taking
+  // it must not also start the retry the banner underneath is offering.
+  $('updateBanner').querySelector('.alt').onclick = function(e){
+    e.stopPropagation();
+    if (state.updateLink) window.chrome.webview.postMessage({ type:'openUrl', url:state.updateLink.url });
   };
   $('noticeBanner').querySelector('.close').onclick = function(){ window.chrome.webview.postMessage({ type:'dismissNotice' }); };
 

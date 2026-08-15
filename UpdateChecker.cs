@@ -36,6 +36,13 @@ public static class UpdateChecker
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
+    /// <summary>
+    /// Where someone finishes an update by hand. It resolves to the release's unversioned installer,
+    /// so it is one download rather than the release page's six assets to choose between — which is
+    /// what the update banner offers as a link when the automatic download can't complete.
+    /// </summary>
+    public const string DownloadPageUrl = "https://get.rslcompanion.com";
+
     public static Version CurrentVersion =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
 
@@ -60,8 +67,8 @@ public static class UpdateChecker
                 return new UpdateCheckResult(UpdateCheckStatus.UpToDate);
 
             var releaseUrl = doc.RootElement.TryGetProperty("html_url", out var h)
-                ? h.GetString() ?? "https://get.rslcompanion.com"
-                : "https://get.rslcompanion.com";
+                ? h.GetString() ?? DownloadPageUrl
+                : DownloadPageUrl;
 
             var assets = ReadAssets(doc.RootElement);
             var installer = PickInstaller(assets, latest);
