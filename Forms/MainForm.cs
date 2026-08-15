@@ -1060,7 +1060,7 @@ public sealed class MainForm : Form
 
             _shell.SetAccounts(_loadedAccounts
                 .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName,
-                    a.HeroCount, a.ArtifactCount, LastSyncInstant(a.LastSyncDate)))
+                    a.HeroCount, a.ArtifactCount, LastSyncInstant(a.LastSyncDate), a.AccessoryCount))
                 .ToList());
 
             if (silent)

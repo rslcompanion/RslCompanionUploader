@@ -328,7 +328,8 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("clanName")] string? ClanName,
         [property: JsonPropertyName("heroCount")] int HeroCount,
         [property: JsonPropertyName("artifactCount")] int ArtifactCount,
-        [property: JsonPropertyName("lastSync")] string? LastSyncIso = null);
+        [property: JsonPropertyName("lastSync")] string? LastSyncIso = null,
+        [property: JsonPropertyName("accessoryCount")] int? AccessoryCount = null);
 
     private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
 
@@ -662,10 +663,16 @@ public sealed class AppShell : Panel
     else nb.style.display = 'none';
   }
 
-  // 'artifacts', not 'gear': the game counts Gear (slots 1-6) and Accessories (slots 7-9)
-  // separately, and artifactCount spans both. See docs/export-schema.md.
+  // Gear (slots 1-6) and accessories (slots 7-9) are the game's two separate counters, and the server
+  // counts them separately too - so this says 'gear', not 'artifacts'. The old label was 'artifacts'
+  // on the belief that artifactCount spanned both; it hasn't since schema 10, and the missing half is
+  // not a rounding error (2,851 gear vs 2,969 accessories on the reference account). accessoryCount
+  // is omitted rather than shown as 0 when the server didn't send it. See docs/export-schema.md.
   function tileMeta(a) {
-    return ""<div class='meta'><span>"" + a.heroCount + "" champions</span><span>"" + a.artifactCount + "" artifacts</span></div>"";
+    var meta = ""<span>"" + a.heroCount + "" champions</span><span>"" + a.artifactCount + "" gear</span>"";
+    if (a.accessoryCount !== null && a.accessoryCount !== undefined)
+      meta += ""<span>"" + a.accessoryCount + "" accessories</span>"";
+    return ""<div class='meta'>"" + meta + ""</div>"";
   }
 
   // The action row for the tile the running game is on. 'add' = the game is on an account that is
