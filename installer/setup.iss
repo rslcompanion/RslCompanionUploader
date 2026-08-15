@@ -101,6 +101,20 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; UninstallDelete is best-effort: a transiently-locked WebView2 file is skipped, not fatal.
 Type: filesandordirs; Name: "{localappdata}\RslCompanionUploader"
 
+; Preferences the app writes back (UserSettings.cs) live in a DIFFERENT folder from the one above —
+; %LocalAppData%\RslCompanion — which they share with the extraction engine's calibrated-offsets.json.
+; Without this line an uninstall left the answers behind, so a reinstall silently inherited them and
+; never re-asked: the stay-signed-in choice, the activity-log level, and whether the app may check for
+; updates on its own. Those are consent, and consent should not outlive the app that asked for it.
+;
+; ONLY settings.json is removed. calibrated-offsets.json is minutes of scanning per game build that
+; the user paid for once; it is keyed by build hash, so it stays correct across reinstalls and after
+; the game updates, and throwing it away would cost a ~35-50s rescan to recover something the
+; uninstall had no reason to touch. dirifempty then takes the folder itself, but only when nothing
+; else is left in it — i.e. exactly when no calibration was ever done.
+Type: files; Name: "{localappdata}\RslCompanion\settings.json"
+Type: dirifempty; Name: "{localappdata}\RslCompanion"
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 ; The in-app update banner downloads this installer, runs it with /SILENT /relaunch=1 and exits so

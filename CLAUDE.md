@@ -390,6 +390,13 @@ User preferences the app writes back live in `%LOCALAPPDATA%\RslCompanion\settin
 ([UserSettings.cs](UserSettings.cs)) — *not* in `appsettings.json`, which is install-time config next
 to the exe and part of the installer's signed file set.
 
+**Uninstall removes `settings.json`, and deliberately nothing else in that folder.** The answers it
+holds are consent — stay signed in, log level, may-we-check-for-updates — and consent should not
+outlive the app that asked for it; leaving it meant a reinstall inherited the answers and never
+re-asked. Its neighbour `calibrated-offsets.json` stays: it is minutes of scanning per game build,
+keyed by build hash so it survives reinstalls and game updates correctly, and no part of the
+uninstall's job. A `dirifempty` entry takes the folder only when that leaves nothing behind.
+
 ## Build & release
 
 ```
