@@ -307,8 +307,6 @@ public sealed class MainForm : Form
         _signIn = panel;
         _content.Controls.Add(panel);
         panel.BringToFront();
-
-        panel.Start();
     }
 
     private async Task OnSignInCompletedAsync(AuthSession session, SessionProtection protection)

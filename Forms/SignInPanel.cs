@@ -4,10 +4,18 @@ using RslCompanionUploader.Auth;
 namespace RslCompanionUploader.Forms;
 
 /// <summary>
-/// Sign-in: the app opens the user's real browser at rslcompanion.com's <c>/connect-extractor</c>,
-/// and this panel is what the window shows while that happens. The page mints a one-time handoff
-/// code, launches <c>rslcompanion-extractor://sync?code=…</c>, Windows routes it to this app, and the
+/// Sign-in: the user finishes in their real browser at rslcompanion.com's <c>/connect-extractor</c>,
+/// and this panel is what the window shows around that. The page mints a one-time handoff code,
+/// launches <c>rslcompanion-extractor://sync?code=…</c>, Windows routes it to this app, and the
 /// forwarded launch arrives here through <see cref="SingleInstance.SecondInstanceLaunched"/>.
+///
+/// <para><b>The panel opens on an invitation, and the user launches the browser themselves.</b>
+/// Clicking "Sign In" used to throw a browser window over the app immediately, which reads as the app
+/// doing something the user did not ask for — they pressed a button in a desktop app and a different
+/// program took the foreground, before anything explained why. The first state is therefore a still
+/// page that says what is about to happen and offers the button that does it. It also puts the
+/// stay-signed-in choice in front of the user <i>before</i> they leave for the browser, rather than
+/// behind the window that just covered this one.</para>
 ///
 /// <para><b>The browser, not an embedded one.</b> Hosting the page in a WebView2 was tried and
 /// abandoned: Google and Microsoft will not complete a consent flow in a chromeless embedded browser,
@@ -38,11 +46,16 @@ public sealed class SignInPanel : Panel
         Margin = new Padding(0),
     };
 
+    /// <summary>The invitation copy, replaced by progress and then by any error.</summary>
+    private const string InviteText =
+        "Signing in happens in your browser, where your password manager and 2FA already work.\n"
+      + "This window takes over as soon as you're done.";
+
     private readonly Label _status = new()
     {
-        Text = "Finish signing in in your browser…",
+        Text = InviteText,
         AutoSize = false,
-        Height = 44,
+        Height = 60,
         Dock = DockStyle.Fill,
         TextAlign = ContentAlignment.MiddleCenter,
         ForeColor = Color.DimGray,
@@ -53,13 +66,37 @@ public sealed class SignInPanel : Panel
         MarqueeAnimationSpeed = 30,
         Dock = DockStyle.Fill,
         Height = 6,
+        Visible = false,
     };
+
+    /// <summary>The action that leaves for the browser; hidden once it has been taken.</summary>
+    private readonly Button _openBrowser = new()
+    {
+        Text = "Open my browser to sign in",
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        Anchor = AnchorStyles.None,
+        Padding = new Padding(16, 7, 16, 7),
+        UseVisualStyleBackColor = true,
+    };
+
     private readonly LinkLabel _retry = new()
     {
         Text = "Open my browser again",
         AutoSize = true,
         LinkColor = Color.DimGray,
         ActiveLinkColor = Color.Black,
+    };
+
+    /// <summary>Holds the retry link and its separator so the pair hides together.</summary>
+    private readonly FlowLayoutPanel _retryGroup = new()
+    {
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        FlowDirection = FlowDirection.LeftToRight,
+        WrapContents = false,
+        Margin = new Padding(0),
+        Visible = false,
     };
     private readonly LinkLabel _cancel = new()
     {
@@ -92,14 +129,12 @@ public sealed class SignInPanel : Panel
 
         BuildLayout();
 
+        _openBrowser.Click += (_, _) => OpenBrowser();
         _retry.LinkClicked += (_, _) => OpenBrowser();
         _cancel.LinkClicked += (_, _) => Cancelled?.Invoke();
 
         SingleInstance.SecondInstanceLaunched += OnSecondInstance;
     }
-
-    /// <summary>Opens the browser. Called by the host once the panel is on screen.</summary>
-    public void Start() => OpenBrowser();
 
     private void BuildLayout()
     {
@@ -111,21 +146,26 @@ public sealed class SignInPanel : Panel
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 1,
-            RowCount = 5,
+            RowCount = 6,
             Width = 420,
         };
         centre.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 420));
-        for (var i = 0; i < 5; i++) centre.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        for (var i = 0; i < 6; i++) centre.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
         centre.Controls.Add(BuildBrand(), 0, 0);
 
         _status.Margin = new Padding(0, 18, 0, 10);
         centre.Controls.Add(_status, 0, 1);
 
-        _spinner.Margin = new Padding(4, 0, 4, 22);
+        _spinner.Margin = new Padding(4, 0, 4, 14);
         centre.Controls.Add(_spinner, 0, 2);
 
+        // The checkbox sits above the button, so the choice is made before the user leaves for the
+        // browser rather than behind the window that is about to cover this one.
         centre.Controls.Add(BuildStaySignedIn(), 0, 3);
+
+        _openBrowser.Margin = new Padding(0, 18, 0, 0);
+        centre.Controls.Add(_openBrowser, 0, 4);
 
         var links = new FlowLayoutPanel
         {
@@ -137,10 +177,11 @@ public sealed class SignInPanel : Panel
             Margin = new Padding(0, 18, 0, 0),
         };
         var sep = new Label { Text = "·", AutoSize = true, ForeColor = Color.Silver, Margin = new Padding(6, 0, 6, 0) };
-        links.Controls.Add(_retry);
-        links.Controls.Add(sep);
+        _retryGroup.Controls.Add(_retry);
+        _retryGroup.Controls.Add(sep);
+        links.Controls.Add(_retryGroup);
         links.Controls.Add(_cancel);
-        centre.Controls.Add(links, 0, 4);
+        centre.Controls.Add(links, 0, 5);
 
         // A host panel with the column anchored to nothing is what centres it both ways.
         var host = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
@@ -236,19 +277,40 @@ public sealed class SignInPanel : Panel
         }
     }
 
+    /// <summary>
+    /// Leaves for the browser — only ever from a click, never on its own. On failure the panel drops
+    /// back to the invitation rather than stranding the user on a waiting state for a browser that
+    /// never opened.
+    /// </summary>
     private void OpenBrowser()
     {
-        SetStatus("Finish signing in in your browser, and this window will take over.", isError: false);
-        _spinner.Visible = true;
+        ShowWaiting("Finish signing in in your browser, and this window will take over.");
         try
         {
             Process.Start(new ProcessStartInfo(_config.ConnectExtractorUrl) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
-            SetStatus("Could not open your browser: " + ex.Message, isError: true);
-            _spinner.Visible = false;
+            ShowInvitation("Could not open your browser: " + ex.Message, isError: true);
         }
+    }
+
+    /// <summary>The waiting state: the browser has the user, so this window only reports progress.</summary>
+    private void ShowWaiting(string message)
+    {
+        _openBrowser.Visible = false;
+        _retryGroup.Visible = true;
+        _spinner.Visible = true;
+        SetStatus(message, isError: false);
+    }
+
+    /// <summary>The opening state, and the one a failed launch returns to: nothing has happened yet.</summary>
+    private void ShowInvitation(string message, bool isError)
+    {
+        _openBrowser.Visible = true;
+        _retryGroup.Visible = false;
+        _spinner.Visible = false;
+        SetStatus(message, isError);
     }
 
     // Fires on the single-instance pipe thread — marshal onto the UI thread before touching anything.

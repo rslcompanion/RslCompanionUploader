@@ -216,11 +216,21 @@ This repo is **public**; the extraction engine is **private** and optional at bu
 
 ## Sign-in: the real browser, always
 
-Clicking Sign In shows [SignInPanel](Forms/SignInPanel.cs) — an in-window "finish this in your
-browser" state — and opens the user's **real default browser** at `/connect-extractor`. That page
-mints a one-time handoff code and launches `rslcompanion-extractor://sync?code=…`; Windows routes it
-to this app, `SingleInstance` forwards it to the waiting panel, and
-[Auth/ExtractorHandoff.cs](Auth/ExtractorHandoff.cs) redeems it for a Firebase **custom token**.
+Clicking Sign In shows [SignInPanel](Forms/SignInPanel.cs), and **the panel opens on an invitation —
+it does not launch anything.** It explains that sign-in finishes in the browser, carries the
+stay-signed-in checkbox, and offers an "Open my browser to sign in" button; the user's **real default
+browser** goes to `/connect-extractor` only on that click. That page mints a one-time handoff code
+and launches `rslcompanion-extractor://sync?code=…`; Windows routes it to this app, `SingleInstance`
+forwards it to the waiting panel, and [Auth/ExtractorHandoff.cs](Auth/ExtractorHandoff.cs) redeems it
+for a Firebase **custom token**.
+
+**Do not put the browser launch back on `Sign In` itself.** Pressing a button in a desktop app and
+having a different program take the foreground — before anything on screen has said why — reads as
+the app acting on its own. The invitation state also puts the stay-signed-in choice in front of the
+user *before* they leave, instead of behind the window that just covered this one. Once the browser
+has been opened the panel switches to the waiting state (spinner, "Open my browser again"); a launch
+that throws drops back to the invitation rather than stranding the user waiting for a browser that
+never opened.
 
 **Hosting that page in an embedded WebView2 was built, tested and abandoned. Do not rebuild it.** It
 looks obviously better — one window, no browser bounce, and the handoff code never touches a command
