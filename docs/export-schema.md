@@ -136,7 +136,7 @@ mapping consumer-side either.
   "empowerLevel": 2,
   "locked": true, "inStorage": false, "inBathhouse": false,
   "awakeningLevel": 4,            // int32 0–6 (the game calls Awakening "DoubleAscend" internally)
-  "blessingChosen": true,         // bool — a blessing is equipped; only ever true when awakeningLevel > 0
+  "blessingId": 1202,             // int32 — equipped blessing id (0 = none); only ever non-zero when awakeningLevel > 0
   "roleId": 0,                    // int32 0–5 or NULL — champion role; null, never 0, when unresolved
   "skills": [ … ],                // array, always present — see below
   "masteries": { … },             // object, always present — see below

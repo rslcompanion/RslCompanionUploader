@@ -119,7 +119,7 @@
           "inStorage": { "type": "boolean" },
           "inBathhouse": { "type": "boolean" },
           "awakeningLevel": { "type": "integer", "minimum": 0, "maximum": 6, "description": "The game calls Awakening 'DoubleAscend' internally." },
-          "blessingChosen": { "type": "boolean", "description": "A blessing is equipped. Only ever true when awakeningLevel > 0." },
+          "blessingId": { "type": "integer", "description": "Equipped blessing, as the game's BlessingType id; 0 = none. Only ever non-zero when awakeningLevel > 0. Replaced the blessingChosen boolean, which reported the Nullable hasValue flag as if it were the id." },
           "isFactionGuardian": { "type": "boolean", "description": "This copy is placed in an Academy guardian slot." },
           "skills": {
             "type": "array",
