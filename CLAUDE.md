@@ -349,6 +349,57 @@ tables, but they ship here because the payload's ids are opaque without them:
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
+**`heroes[].baseStats` (schema 15) is the one field that is *computed*, and it is deliberately
+computed here rather than left to consumers.** It is the game's own **Basic Stats** column — the
+numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area
+bonus — keyed by the same `statKindId` the artifact bonuses use. It exists because an artifact bonus
+with `isAbsolute: false` carries a *fraction* (0.18 = +18%), so without a base stat there is nothing
+to take 18% of and every percentage roll has to be dropped from a displayed total.
+
+**Unlike `roleId`, it is not champion-constant**, which is the whole argument for resolving it at
+export: the stored value depends on the copy's *ascension*, the displayed one additionally on its
+*rank* and *level*. A consumer cannot recover it from a catalog keyed on `baseTypeId`, so this is not
+plain denormalization and consumers should prefer it over their own catalog for champions a player
+owns. They still need the catalog for champions the player does *not* own — the two are
+complementary, not alternatives.
+
+The engine side is `HeroBaseStatsCatalog` (extraction submodule), reading the bundled
+`exports/hero_base_stats.json`. **Every coefficient comes out of that file — the growth multipliers,
+the level caps, the health ×15, even which stat kinds scale — and none is hardcoded**, because a
+Plarium rebalance changes them and the swappable file is the point. Two things it must keep getting
+right: the key is `baseTypeId + ascension` (base stats differ per ascension on 1,021 of 1,040
+champions, so a `baseTypeId` lookup reads unascended numbers for every ascended copy), and the level
+term is **exponential**, not linear — both forms agree at level 1 and at the cap, and the linear one
+is wrong by 3–5% in between.
+
+**The payload says which catalog produced the numbers** — top-level `baseStatsCatalog`
+`{generatedAt, gameVersion}`, absent exactly when no hero carries base stats. **This is not the
+top-level `gameVersion`**: that is the build the export *ran against*, this is the build the numbers
+were *computed from*, and they come apart in the ordinary case — a user who updates Raid before a
+refreshed catalog ships sends the new `gameVersion` with stats from the old catalog. A computed stat
+is a snapshot, so without this a stale block is indistinguishable from a fresh one, and a rebalance
+invalidates every stored block until each user re-exports. The consumer rule stated in the schema doc
+is that a trailing catalog build makes a block **suspect, not wrong** — flag it for re-sync, never
+discard it. Logging which catalog loaded answers whoever is debugging the run; this answers the
+consumer holding the block months later, which is where the question actually gets asked.
+
+**Absent is not zero, anywhere in that block.** The property is omitted when the copy's level or star
+rank could not be read — `Stars` silently falls back to 5, which is fine for a star count but would
+feed the growth multiplier — when the level exceeds its rank's cap, and when the catalog predates the
+champion. A `0` that *is* present is a real zero: base Accuracy is genuinely 0 on 6,806 of the 7,166
+variants.
+
+**The catalog updates without a rebuild**, on the `KnownOffsets` pattern: a copy downloaded to
+`%LOCALAPPDATA%\RslCompanion\hero_base_stats.json` beats the one beside the exe when its
+`generatedAt` is newer. **One file wins whole; the two are never blended** — unlike offset entries,
+which describe one build and merge per field, two base-stat catalogs can be cut from different game
+builds, and mixing one's champion stats with the other's growth table yields plausible wrong numbers.
+[HeroBaseStatsUpdate.cs](HeroBaseStatsUpdate.cs) validates a served catalog by parsing it with the
+same code that would have to read it, and **every failure degrades to the bundled copy silently** —
+an export without base stats is an export missing one optional property, never a failed export.
+**Nothing serves `Endpoints.HeroBaseStats` yet**; the client half is built against the config key so
+the server half is a deployment rather than a release, and until then it 404s harmlessly.
+
 A third pair runs the **other way** — it is what the uploader *receives*:
 [docs/build-certification-schema.md](docs/build-certification-schema.md) / [.json](docs/build-certification-schema.json)
 is the response to `GET /api/extractor/offsets/{gameAssemblyHash}`, the memory map for a game build
@@ -405,6 +456,7 @@ them optional for that reason).
 | `ApiBaseUrl` | RSL Companion API origin | `https://api.rslcompanion.com` |
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
 | `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
+| `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `heroes[].baseStats`; nothing serves it yet | `/api/metadata/hero-base-stats` |
 | `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
 | `Endpoints.Logout` | Revokes the session server-side, for "sign out everywhere" only | `/api/auth/logout` |
 
@@ -412,12 +464,16 @@ User preferences the app writes back live in `%LOCALAPPDATA%\RslCompanion\settin
 ([UserSettings.cs](UserSettings.cs)) — *not* in `appsettings.json`, which is install-time config next
 to the exe and part of the installer's signed file set.
 
-**Uninstall removes `settings.json`, and deliberately nothing else in that folder.** The answers it
+**Uninstall removes `settings.json` and a downloaded `hero_base_stats.json`, and deliberately
+nothing else in that folder.** The answers it
 holds are consent — stay signed in, log level, may-we-check-for-updates — and consent should not
 outlive the app that asked for it; leaving it meant a reinstall inherited the answers and never
 re-asked. Its neighbour `calibrated-offsets.json` stays: it is minutes of scanning per game build,
 keyed by build hash so it survives reinstalls and game updates correctly, and no part of the
-uninstall's job. A `dirifempty` entry takes the folder only when that leaves nothing behind.
+uninstall's job. A downloaded `hero_base_stats.json` goes for the opposite reason to the one that
+keeps the offsets: it is a ~2.2 MB catalog the app *fetched* rather than work the user paid for, and
+every install ships its own copy beside the exe — so a reinstall loses nothing and a leftover is only
+an orphan. A `dirifempty` entry takes the folder only when that leaves nothing behind.
 
 ## Build & release
 

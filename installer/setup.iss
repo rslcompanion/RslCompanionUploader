@@ -65,9 +65,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Package the whole publish output: exe, appsettings.json, and — when built with the private
 ; extraction submodule — the engine's runtime data (known-offsets.json, resource-allowlist.json)
-; and the bundled metadata catalogs under exports\ (champion_index.json, mastery_index.json). Those
-; are shipped as plain JSON so refreshing them after a game patch is a file swap in {app}\exports,
-; not a rebuild; champion_index.json gives each hero a real name, faction and role.
+; and the bundled metadata catalogs under exports\ (champion_index.json, mastery_index.json,
+; hero_base_stats.json). Those are shipped as plain JSON so refreshing them after a game patch is a
+; file swap in {app}\exports, not a rebuild; champion_index.json gives each hero a real name, faction
+; and role, and hero_base_stats.json (~2.2 MB) is what turns a percentage gear bonus into a number —
+; it carries every champion variant's base stats plus the client's own growth coefficients. The app
+; prefers a newer copy downloaded to %LocalAppData%\RslCompanion over this one, so a rebalance can
+; reach users without a release; this copy is the floor, not the ceiling.
 ; champion_index.json is a verbatim copy of the one in RslCompanionMetadata/exports — one file, one
 ; shape (~0.7 MB). The slim/full pair this line used to describe is gone: types[] was folded into the
 ; champion, so the single catalog is smaller than the old slim copy was. It carries PLAYABLE
@@ -107,12 +111,19 @@ Type: filesandordirs; Name: "{localappdata}\RslCompanionUploader"
 ; never re-asked: the stay-signed-in choice, the activity-log level, and whether the app may check for
 ; updates on its own. Those are consent, and consent should not outlive the app that asked for it.
 ;
-; ONLY settings.json is removed. calibrated-offsets.json is minutes of scanning per game build that
-; the user paid for once; it is keyed by build hash, so it stays correct across reinstalls and after
-; the game updates, and throwing it away would cost a ~35-50s rescan to recover something the
-; uninstall had no reason to touch. dirifempty then takes the folder itself, but only when nothing
-; else is left in it — i.e. exactly when no calibration was ever done.
+; ONLY settings.json and the downloaded hero_base_stats.json are removed. calibrated-offsets.json is
+; minutes of scanning per game build that the user paid for once; it is keyed by build hash, so it
+; stays correct across reinstalls and after the game updates, and throwing it away would cost a
+; ~35-50s rescan to recover something the uninstall had no reason to touch. dirifempty then takes the
+; folder itself, but only when nothing else is left in it — i.e. exactly when no calibration was ever
+; done.
+;
+; hero_base_stats.json goes for the opposite reason to the one that keeps calibrated-offsets.json: it
+; is a ~2.2 MB catalog the app DOWNLOADED, not work the user paid for, and every install ships its own
+; copy in {app}\exports — so a reinstall loses nothing and a leftover is just an orphan big enough to
+; notice. It is only ever present when the app fetched a newer one than it shipped with.
 Type: files; Name: "{localappdata}\RslCompanion\settings.json"
+Type: files; Name: "{localappdata}\RslCompanion\hero_base_stats.json"
 Type: dirifempty; Name: "{localappdata}\RslCompanion"
 
 [Run]

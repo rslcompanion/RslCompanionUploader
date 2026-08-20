@@ -3,12 +3,13 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 14,
-  "x-uploaderVersion": "1.8.0",
-  "x-lastUpdated": "2026-08-07",
+  "schemaVersion": 15,
+  "x-uploaderVersion": "1.13.0",
+  "x-lastUpdated": "2026-08-21",
   "x-relatedCatalogs": {
     "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
+    "heroBaseStats": "hero_base_stats.json — every champion ASCENSION VARIANT's stored base stats plus the client's growth coefficients, the catalog heroes[].baseStats is computed from. Bundled with the uploader (extraction/exports/) rather than here because it is 2.2 MB; a consumer needs it only for champions the player does NOT own, since an owned copy's numbers arrive on this payload already resolved. Produced by RslCompanionMetadata; contract in its docs/hero-base-stats-findings.md.",
     "relics": "relic-enums.json — relics[].sockets[].shapeKindId to socket shape. Relic and gemstone typeId are NOT named there: they are a catalog of the game (name, rarity, group, skill, stat bonuses) and belong in a champion-metadata-style catalog keyed on typeId."
   },
   "type": "object",
@@ -33,8 +34,27 @@
     },
     "gameVersion": {
       "type": ["string", "null"],
-      "description": "Live Raid build the snapshot was read from. Null when it could not be determined.",
+      "description": "Live Raid build the snapshot was read from — the build the export RAN AGAINST. Null when it could not be determined. NOT the provenance of heroes[].baseStats; see baseStatsCatalog.",
       "examples": ["11.67.0"]
+    },
+    "baseStatsCatalog": {
+      "type": "object",
+      "description": "Which cut of the champion base-stat catalog produced every heroes[].baseStats block in this payload. Top level rather than per hero because one export uses exactly one catalog. ABSENT when no catalog was loaded — in which case no hero carries baseStats either. THIS IS NOT gameVersion, and the two come apart in the ordinary case: gameVersion is the build the export ran against, this is the build the numbers were computed from, and a user who updates Raid before a refreshed catalog ships exports with the new gameVersion and stats from the old catalog. CONSUMER RULE: a baseStats block whose catalog gameVersion trails the payload's gameVersion is SUSPECT, NOT WRONG — most rebalances touch few champions — so flag it for re-sync, never discard it. Without this field a stale computed block is indistinguishable from a fresh one, which matters because a rebalance silently invalidates every block already stored server-side until each user re-exports.",
+      "required": ["generatedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "generatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO-8601 UTC instant the producer generated the catalog. The catalog's version identity — compare these to tell two cuts apart.",
+          "examples": ["2026-08-20T18:12:14Z"]
+        },
+        "gameVersion": {
+          "type": ["string", "null"],
+          "description": "Game build the CATALOG was cut from. Null when the catalog does not state one. Compare against the payload's top-level gameVersion, not against it as an equal.",
+          "examples": ["11.71.0"]
+        }
+      }
     },
     "account": {
       "type": "object",
@@ -108,6 +128,13 @@
             "minimum": 0,
             "maximum": 5,
             "description": "Champion role: 0 Attack, 1 Defense, 2 Health (shown as 'HP'), 3 Support, 4 Evolve, 5 Xp. NULL — never 0 — when unresolved, because 0 is a real role. Static per champion, NOT per copy: it is the game's HeroRole enum on the shared champion type, so every copy of a champion reports the same value and the id table is game metadata (role-names.json), not account data. Null on roughly a fifth of a mature roster because the client hydrates a champion's type lazily; prefer a champion metadata catalog keyed on baseTypeId as the authoritative source, and treat this field as a convenience copy."
+          },
+          "baseStats": {
+            "type": "object",
+            "description": "This copy's BASIC STATS — the game's own name for the first column of its Total Stats breakdown, i.e. the numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area bonus. Keys are the game's StatKindId AS STRINGS, the same ids artifacts[].primaryBonus.statKindId uses (1 Health, 2 Attack, 3 Defence, 4 Speed, 5 Resistance, 6 Accuracy, 7 CriticalChance, 8 CriticalDamage, 9 CriticalHeal, 10 IgnoreDefence) — no translation table needed. THIS IS WHAT A PERCENTAGE ARTIFACT BONUS IS A PERCENTAGE OF: a bonus with isAbsolute=false carries a FRACTION (0.18 = +18%), and without these numbers there is nothing to take 18% of. Percentage bonuses are percentages of these values and are ADDED, never compounded off each other. NOT CHAMPION-CONSTANT, unlike roleId: it is derived from this copy's ascension, stars and level, so a consumer CANNOT recover it from a champion catalog keyed on baseTypeId and should prefer this rather than treating it as a fallback. ABSENT MEANS UNKNOWN — never coalesce to 0. Omitted entirely when level or stars could not be read, when level exceeds its rank's cap, or when the catalog predates the champion; an individual stat kind missing from the catalog entry is likewise absent. A 0 that IS present is a real zero: base Accuracy is genuinely 0 on 6,806 of 7,166 champion variants, while base Resistance is never below 30.",
+            "propertyNames": { "pattern": "^[0-9]+$" },
+            "additionalProperties": { "type": "number" },
+            "examples": [{ "1": 5100, "2": 426, "3": 367, "4": 103, "5": 30, "6": 0, "7": 15, "8": 50, "9": 50, "10": 0 }]
           },
           "stars": { "type": "integer" },
           "ascensionLevel": { "type": "integer" },

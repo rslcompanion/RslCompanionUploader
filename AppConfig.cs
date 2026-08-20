@@ -36,6 +36,20 @@ public sealed class AppConfig
     public string BuildCertificationEndpoint { get; init; } = "/api/extractor/offsets";
 
     /// <summary>
+    /// Server-relative path a newer champion base-stat catalog is GETed from, so
+    /// <c>heroes[].baseStats</c> can follow a game rebalance without shipping a build. A copy is
+    /// bundled beside the exe, and the downloaded one only replaces it when its <c>generatedAt</c> is
+    /// newer; every failure — offline, 404, malformed — falls back to the bundled copy silently,
+    /// because the catalog is an enrichment and an export without it is an export missing one
+    /// optional property.
+    ///
+    /// <para><b>Nothing serves this yet.</b> The client side is built against the config key
+    /// deliberately, so pointing it at whatever path the server settles on is an
+    /// <c>appsettings.json</c> edit rather than a release. Until then it 404s harmlessly.</para>
+    /// </summary>
+    public string HeroBaseStatsEndpoint { get; init; } = "/api/metadata/hero-base-stats";
+
+    /// <summary>
     /// Server-relative path that ends the session everywhere: it blacklists the presented ID token
     /// and calls Firebase Admin's <c>RevokeRefreshTokens</c> for the user. Only reached from "sign out
     /// everywhere", because Firebase revocation is per-user and not per-device — it takes the
@@ -88,6 +102,7 @@ public sealed class AppConfig
                 SyncConsolidatedEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "SyncConsolidated", def.SyncConsolidatedEndpoint) : def.SyncConsolidatedEndpoint,
                 HandoffExchangeEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "HandoffExchange", def.HandoffExchangeEndpoint) : def.HandoffExchangeEndpoint,
                 BuildCertificationEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "BuildCertification", def.BuildCertificationEndpoint) : def.BuildCertificationEndpoint,
+                HeroBaseStatsEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "HeroBaseStats", def.HeroBaseStatsEndpoint) : def.HeroBaseStatsEndpoint,
                 LogoutEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "Logout", def.LogoutEndpoint) : def.LogoutEndpoint,
                 ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };

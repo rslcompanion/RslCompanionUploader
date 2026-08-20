@@ -131,6 +131,38 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
+    /// Fetches the champion base-stat catalog RSL Companion currently publishes, so
+    /// <c>heroes[].baseStats</c> can follow a game rebalance without shipping a build.
+    ///
+    /// <para>Returns the body verbatim; validating and installing it is
+    /// <see cref="HeroBaseStatsUpdate"/>'s job, because the shape is the extraction engine's and only
+    /// the engine defines it. A 404 is the normal answer while nothing serves this endpoint yet, so it
+    /// is a distinct outcome rather than a failure.</para>
+    ///
+    /// <para>Sends the <c>generatedAt</c> this PC already holds as <c>since</c>, so a server that
+    /// wants to can answer 304/404 rather than shipping 2.2 MB the client would then discard. The
+    /// client re-checks anyway — the parameter is an optimisation, never the guard.</para>
+    /// </summary>
+    public async Task<CertificationResult> GetHeroBaseStatsAsync(
+        DateTimeOffset? since, CancellationToken ct = default)
+    {
+        var path = _config.HeroBaseStatsEndpoint +
+                   (since is { } s ? $"?since={Uri.EscapeDataString(s.UtcDateTime.ToString("O"))}" : "");
+
+        using var req = await BuildRequestAsync(HttpMethod.Get, path, ct);
+        using var resp = await _http.SendAsync(req, ct);
+
+        if (resp.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.NotModified)
+            return CertificationResult.NotPublished();
+
+        if (!resp.IsSuccessStatusCode)
+            return CertificationResult.Fail(
+                $"Base-stat catalog lookup failed ({(int)resp.StatusCode} {resp.ReasonPhrase}).");
+
+        return CertificationResult.Found(await resp.Content.ReadAsStringAsync(ct));
+    }
+
+    /// <summary>
     /// Ends the session server-side: the API blacklists the ID token we present and asks Firebase to
     /// revoke the user's refresh tokens, so the copy saved on this disk stops working immediately
     /// rather than whenever it happens to be noticed.

@@ -6,13 +6,17 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 14** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 15** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
   rank / set ids in [`artifact-enums.json`](artifact-enums.json), and relic socket shapes plus the
   relic upgrade currencies in [`relic-enums.json`](relic-enums.json) — static game metadata, not
   account data (see `heroes[].roleId`, `artifacts[]` and `relics[]` below).
+- `heroes[].baseStats` uses the **same `statKindId` space** as the artifact bonuses, so no extra
+  table is needed to read it. The catalog it is computed from (`hero_base_stats.json`) ships with the
+  uploader rather than here, and a consumer needs it only for champions the player does *not* own —
+  see `heroes[].baseStats` below.
 
 > **Maintenance rule:** any change to the emitted JSON — a new field, a renamed field, a changed type,
 > a new resource id, a changed resource *name* — must update this file **and** `export-schema.json`
@@ -50,6 +54,8 @@ there is no partial/patch mode.
   "gemstones":  [ … ],                      // array — ALL gemstones owned, socketed or not
   "factionGuardians": [ … ],                // array
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
+  "clanName":   "Bastion" | null,           // string|null — display only; null is "says nothing"
+  "baseStatsCatalog": { … },                // object or ABSENT — provenance of heroes[].baseStats
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
 }
@@ -59,6 +65,31 @@ there is no partial/patch mode.
 ([`MainForm.SerializeWithProvenance`](../Forms/MainForm.cs)), so they exist on the wire but **not**
 on the engine's own `ConsolidatedProfile` model. Consumers reading a payload captured straight from
 the engine (e.g. a probe dump) will not see them — treat both as optional.
+
+### `baseStatsCatalog` — which catalog the computed stats came from
+
+```jsonc
+"baseStatsCatalog": { "generatedAt": "2026-08-20T18:12:14Z", "gameVersion": "11.71.0" }
+```
+
+Top level rather than per hero, because one export uses exactly one catalog. **Absent when no catalog
+was loaded** — in which case no hero carries `baseStats` either.
+
+> ⚠️ **This is not the top-level `gameVersion`, and the two come apart in the ordinary case.**
+> `gameVersion` is the build the export **ran against**; this is the build the numbers were
+> **computed from**. A user who updates Raid before a refreshed catalog ships exports with
+> `gameVersion: "11.72.0"` and stats derived from an 11.71.0 catalog — **a payload that looks current
+> and is not.**
+
+It exists because a computed `baseStats` block is a *snapshot*, and without this field a stale one is
+indistinguishable from a fresh one. Plarium rebalances base stats; when that happens every block
+already stored server-side is wrong until each user re-exports, and nothing else in the payload says
+so. Two cuts are told apart by `generatedAt` — that is the catalog's version identity.
+
+**Consumer rule: a `baseStats` block whose catalog `gameVersion` trails the payload's `gameVersion`
+is _suspect, not wrong_.** Most rebalances touch few champions, so flag it for re-sync — surface it,
+schedule a refresh, prefer a newer payload — but do **not** discard the numbers. Discarding trades a
+small, bounded error for no data at all.
 
 ### `account`
 
@@ -138,6 +169,11 @@ mapping consumer-side either.
   "awakeningLevel": 4,            // int32 0–6 (the game calls Awakening "DoubleAscend" internally)
   "blessingId": 1202,             // int32 — equipped blessing id (0 = none); only ever non-zero when awakeningLevel > 0
   "roleId": 0,                    // int32 0–5 or NULL — champion role; null, never 0, when unresolved
+  "baseStats": {                  // object or ABSENT — this copy's Basic Stats, keyed by statKindId
+    "1": 5100, "2": 426, "3": 367,  //   HP / ATK / DEF — scaled by this copy's rank and level
+    "4": 103, "5": 30, "6": 0,      //   SPD / RES / ACC — rank- and level-invariant
+    "7": 15, "8": 50, "9": 50, "10": 0
+  },
   "skills": [ … ],                // array, always present — see below
   "masteries": { … },             // object, always present — see below
   "isFactionGuardian": false      // bool — this copy is placed in an Academy guardian slot
@@ -204,6 +240,85 @@ copy cannot be resolved from the account's memory at all.
 **So for complete coverage, join a champion metadata catalog on `baseTypeId` and treat that as
 authoritative** — it covers every champion in the game rather than the subset this account has had
 rendered. Use this field as a fallback, not the other way round.
+
+### `heroes[].baseStats` — the game's **Basic Stats** column, resolved for this copy
+
+```jsonc
+"baseStats": { "1": 5100, "2": 426, "3": 367, "4": 103, "5": 30,
+               "6": 0, "7": 15, "8": 50, "9": 50, "10": 0 }
+```
+
+Keys are the game's **`StatKindId` as strings** — the same ids `artifacts[].primaryBonus.statKindId`
+and every other bonus record already carry, named in [`artifact-enums.json`](artifact-enums.json):
+
+| id | stat | id | stat |
+|---:|---|---:|---|
+| 1 | Health | 6 | Accuracy |
+| 2 | Attack | 7 | Critical Rate |
+| 3 | Defence | 8 | Critical Damage |
+| 4 | Speed | 9 | Critical Heal |
+| 5 | Resistance | 10 | Ignore Defence |
+
+**This is what a percentage artifact bonus is a percentage of.** A bonus with `isAbsolute: false`
+carries a *fraction* (`0.18` = +18%), and without a base stat there is nothing to take 18% of — so
+before this field every percentage HP/ATK/DEF roll had to be dropped from a displayed total, which on
+a geared champion is most of its stats.
+
+**Basic Stats is the game's own name for it**, not an invented scope. Raid's champion screen breaks
+a Total down into columns:
+
+```
+Basic Stats | Artifacts | Affinity Bonuses | Classic Arena | Masteries |
+Faction Guardians | Empowerment | Blessing | Relic | Area Bonuses | Total
+```
+
+This field is **the first column and nothing else**. Great Hall (the game calls it Affinity Bonuses),
+arena, masteries, guardians, empowerment, blessings, relics and area bonuses are separate columns in
+the game and separate data in this payload — the export already carries the vault, the masteries and
+the blessing id — so folding any of them in here would double-count for every consumer that also
+reads those.
+
+That same screen also settles **how the bonuses combine: they are percentages of Basic Stats, and
+they add rather than compound.** For Incubus at 3★ 21 with Basic Stats 3,285 / 328 / 274, the game
+shows Affinity Bonuses `+657 / +66 / +55` (20%) and Classic Arena `+723 / +72 / +60` (22%), and the
+Total is `3285 + 657 + 723 = 4,665` — neither percentage computes off the other's result.
+
+> ⚠️ **Absent means unknown. Never coalesce a missing `baseStats` — or a missing key inside one — to
+> `0`.** A `0` that *is* present is a real zero: base Accuracy is genuinely 0 on 6,806 of the 7,166
+> champion variants, while base Resistance is never below 30.
+
+**Which catalog these numbers came from is stated on the payload**, as the top-level
+[`baseStatsCatalog`](#basestatscatalog--which-catalog-the-computed-stats-came-from) — read it before
+trusting a stored block, because a computed stat is a snapshot and a rebalance invalidates it
+silently.
+
+The property is omitted entirely when the copy's **level or star rank could not be read** (`level: 0`
+has always meant "unreadable", and `stars` silently falls back to 5, which would otherwise feed the
+growth multiplier and emit confident nonsense), when the level exceeds its rank's cap, and when the
+catalog predates the champion — a game update can add champions before the catalog is re-cut.
+
+#### Unlike `roleId`, this is **not** champion-constant — prefer it, don't treat it as a fallback
+
+`roleId` above is a property of the champion, so it is pure denormalization and a catalog keyed on
+`baseTypeId` is the better source. **`baseStats` is not.** The stored base value depends on the
+copy's **ascension**, and the displayed value additionally on its **star rank** and **level**:
+
+```
+m     = rank[stars] × level[stars] ^ ((L − 1) / (maxLevel[stars] − 1))
+
+HP    = round(base[1] × m) × 15      ATK = round(base[2] × m)      DEF = round(base[3] × m)
+SPD, RES, ACC, C.RATE, C.DMG, C.HEAL, IGN.DEF = the stored value, unchanged at every rank and level
+```
+
+So a consumer **cannot** recover this from a champion catalog alone; it would need the copy's rank and
+level too, plus the growth table. The export carries all three and resolves it in one place, against
+the client the model was validated on — which is why this field is the preferred source for a champion
+the player owns, not a convenience copy of something better available elsewhere.
+
+A consumer still wants the underlying catalog (`hero_base_stats.json`, shipped with the uploader and
+produced by RslCompanionMetadata) for champions the player does **not** own — champion pages, planning,
+"what would this champion look like". The two are complementary: this field reaches a correct number
+sooner for owned copies, and the catalog covers everything else.
 
 ### `heroes[].skills`
 
@@ -604,6 +719,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 15 | v1.13.0 | 2026-08-21 | **New `heroes[].baseStats` — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 14. Each owned copy now carries the game's own **Basic Stats** column — the numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area bonus — keyed by the same `StatKindId` the artifact bonuses already use, so no new id table is involved. **This is the number a percentage artifact bonus is a percentage of.** A bonus with `isAbsolute: false` carries a fraction (`0.18` = +18%), so until now every percentage HP/ATK/DEF roll had to be dropped from a displayed total — on a geared champion, most of its stats. It is resolved at export rather than left to the consumer because **it is not champion-constant**: the stored value depends on the copy's ascension and the displayed one on its rank and level (`m = rank[stars] × level[stars] ^ ((L−1)/(cap−1))`, then `×15` for HP after rounding, and only Health/Attack/Defence scale at all). The export already carries all three, so it is the one place that can resolve it without a second join, and the formula sits next to the data it was validated against instead of being reimplemented per consumer. **Consumer impact: prefer this over a champion catalog for owned copies** — unlike `roleId`, it cannot be recovered from a catalog keyed on `baseTypeId`. The catalog (`hero_base_stats.json`, bundled with the uploader) is still wanted for champions the player does *not* own; the two are complementary, not alternatives. **Absent means unknown and must never be coalesced to `0`** — the property is omitted when the copy's level or star rank could not be read (`stars` silently falls back to 5, which would otherwise feed the growth multiplier and emit confident nonsense), when the level exceeds its rank's cap, and when the catalog predates the champion; individual stat keys are omitted on the same terms. A `0` that *is* present is a real zero: base Accuracy is genuinely 0 on 6,806 of 7,166 champion variants, while base Resistance is never below 30. **A second new field comes with it: top-level `baseStatsCatalog` `{generatedAt, gameVersion}`, the provenance of every `baseStats` block in the payload** — absent exactly when no hero carries base stats. It is not redundant with the top-level `gameVersion`, and the two come apart in the ordinary case: `gameVersion` is the build the export *ran against*, `baseStatsCatalog.gameVersion` is the build the numbers were *computed from*, so a user who updates Raid before a refreshed catalog ships sends `gameVersion: "11.72.0"` with stats derived from an 11.71.0 catalog — a payload that looks current and is not. It exists because a computed stat is a **snapshot**: a Plarium rebalance silently invalidates every block already stored server-side until each user re-exports, and without this field a stale block is indistinguishable from a fresh one. **Consumer rule: a block whose catalog build trails the payload's `gameVersion` is _suspect, not wrong_** — most rebalances touch few champions, so flag it for re-sync rather than discarding numbers that are almost certainly still right. The model was validated to zero error against the client's own computed stat blocks on ten champions across seven factions and four rarities. |
 | 14 | v1.8.0 | 2026-08-07 | **New top-level `clanName` (string or `null`) — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 13. This closes the gap schema 13 opened: with the clan export withdrawn, no export named a clan at all, so a clan with no other source of a name displayed as `Clan #<id>` permanently. **The interesting part is the cost, because the previous entry in this file was wrong about it.** Both this file and the engine held that the clan's name needed an 18–31 s full-memory scan and was therefore unaffordable on a ~4 s export. It does not. The clan cache hangs off `AppModel`, the client-root **static singleton** that sits *above* the account object — `klass → static_fields → instance → AllianceNotes → Dictionary<clanId, AllianceNote>` — so the name is a pointer walk keyed by the `clanId` this payload already carried: **measured 5 ms warm, 3.3 s the first time a game build is seen** (a one-off klass lookup, then cached in the shipped offset catalog). The old figure came from searching for the record by class identity across all of memory, having concluded it was unreachable because a breadth-first walk *downward* from the account object finds nothing — which is true, and irrelevant, because the owner is upstream. Verified end to end on a client that had been open for minutes with no actions taken and the clan screen never opened, so the record is not populated on demand. **Consumer impact: `null` is not "no name"** — it is "this export says nothing", so never overwrite a stored name with it. Names are not unique and are editable by the clan leader: join and group on `clanId`, and use `clanName` for display only. Absent key (schema ≤13) and explicit `null` mean the same thing. **The member roster is still not emitted and this does not reopen that** — it is now equally cheap and remains excluded because it describes people other than the user; see "What is *not* here" above. |
 | 13 | v1.8.0 | 2026-08-07 | **No wire change to this payload — but the *other* payload is gone.** The uploader's second export, `POST /api/sync/clan/raw` (the clan record plus the member roster with clanmates' display names), has been **removed from the app**: the button, the endpoint config, and the code path. `clan-export-schema.md` / `.json` are deleted with it. Nothing here gains or loses a field; `clanId` is unchanged and is now the only clan data the uploader emits anywhere. Why: RSL Companion stopped ingesting the roster. It described **other people** — clanmates who never installed this app and never agreed to anything — and clan membership is now built from each member importing their own account instead, which reaches the same list by consent rather than by one player's client reporting on everyone else's. Continuing to scan for it would have been ~25 s of work per run for data the server discards. **Consumer impact:** a consumer that also read the clan payload must stop expecting it — accounts sharing a clan are found by grouping on `clanId`, and a clan's *name* now comes from the consumer's own store, not from an export. A consumer that only ever read this payload is unaffected and needs no change. |
 | 12 | v1.6.2 | 2026-08-03 | **Every artifact and accessory stat value was DOUBLE the game's in schemas 9–11; this halves them to the truth.** No field changes shape, name or type — only the numbers in `artifacts[]` and `accessories[]` `primaryBonus.value`, `secondaryBonuses[].value` and `ascendBonus.value` change, and they change for every record. The engine read the game's `BonusValue._value` as fixed point scaled by 2³¹; it is **Q32.32**, so the divisor is 2³². The error was uniform, which is why nothing downstream flagged it: a 6★ +16 speed boot exported `90` (game: 45), a maxed glove `1.6` C.DMG (game: 80%), the strongest C.RATE substat 64% (real cap 32%), the largest ascension SPD bonus 24 (real cap 12). Corrected, all thirteen 6★ +16 main-stat maxima reproduce the game's table exactly. **Consumer impact: every artifact stat stored from schemas 9–11 is wrong and must be re-synced, not patched in place** — the payload carries nothing that distinguishes a doubled row from a corrected one, so a consumer cannot tell which of its stored rows to halve. Any derived figure computed off those stats — champion totals, gear scores, build rankings, "best piece" sorts — is invalid for the same window. The bug ran from schema 9 (2026-08-02), i.e. from the first release that shipped artifact stats at all; no correct artifact stat has ever been published before this. Reported by a user who recognised 90 SPD as physically impossible. |

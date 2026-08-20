@@ -5,6 +5,7 @@ using System.Text.Json;
 using NewParserOpus;
 using NewParserOpus.Il2Cpp;
 using NewParserOpus.Models;
+using NewParserOpus.StaticData;
 #endif
 using RslCompanionUploader.Api;
 using RslCompanionUploader.Auth;
@@ -412,9 +413,61 @@ public sealed class MainForm : Form
             _accountRefreshStarted = true;
             _ = PollAccountsAsync(_refreshCts.Token);
         }
+
+#if EXTRACTION
+        _ = RefreshHeroBaseStatsAsync(_refreshCts.Token);
+#endif
     }
 
     private bool _accountRefreshStarted;
+
+#if EXTRACTION
+    /// <summary>Guards the base-stat refresh to once per app session; a re-sign-in must not re-fetch 2.2 MB.</summary>
+    private bool _baseStatsChecked;
+
+    /// <summary>
+    /// Picks up a newer champion base-stat catalog if RSL Companion is publishing one, so
+    /// <c>heroes[].baseStats</c> follows a game rebalance without waiting for a release.
+    ///
+    /// <para><b>Silent in every direction, deliberately.</b> Offline, 404, malformed, endpoint not
+    /// deployed — none of it is worth a line in front of a player, because the bundled catalog is
+    /// already correct for the build this release shipped against and the export loses nothing. It
+    /// runs after sign-in rather than at export time for the same reason the update check does not
+    /// block anything: an export must never wait on a download it can do without.</para>
+    /// </summary>
+    private async Task RefreshHeroBaseStatsAsync(CancellationToken token)
+    {
+        if (_baseStatsChecked || !_api.IsAuthenticated) return;
+        _baseStatsChecked = true;
+
+        try
+        {
+            // Both of these parse a 2.2 MB catalog — ~200 ms each, and this method's awaits resume on
+            // the UI thread, so left inline they would freeze the window twice on the sign-in path.
+            // The parse stays whole rather than skimming for the timestamp because "newer" has to mean
+            // newer than a catalog that actually LOADS: a corrupt local file with a future date would
+            // otherwise block every update forever while Load quietly used the bundled copy instead.
+            var since = await Task.Run(HeroBaseStatsCatalog.EffectiveGeneratedAt, token);
+
+            var response = await _api.GetHeroBaseStatsAsync(since, token);
+            if (response.Status != CertificationStatus.Found)
+            {
+                Log(response.Error ?? "Champion base stats: nothing newer published.", detail: true);
+                return;
+            }
+
+            var applied = await Task.Run(() => HeroBaseStatsUpdate.Apply(response.Body!), token);
+            Log($"Champion base stats: {applied.Outcome} — {applied.Message}", detail: true);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            Log("Champion base-stat refresh failed: " + ex.Message, detail: true);
+        }
+    }
+#endif
 
     // Stops the account refresh when the window closes. Its own source rather than the game poll's:
     // the tiles refresh in every build, including the public one with no extraction engine.
