@@ -398,7 +398,14 @@ builds, and mixing one's champion stats with the other's growth table yields pla
 same code that would have to read it, and **every failure degrades to the bundled copy silently** —
 an export without base stats is an export missing one optional property, never a failed export.
 **Nothing serves `Endpoints.HeroBaseStats` yet**; the client half is built against the config key so
-the server half is a deployment rather than a release, and until then it 404s harmlessly.
+the server half is a deployment rather than a release, and until then it 404s harmlessly. **The path
+is nonetheless the one RaidTools will really use** — its read routes are flat (`api/blessing-index`,
+`api/hero-progression`), with no `api/metadata/*` namespace; `api/admin/metadata` is the upload side.
+A placeholder under a namespace that does not exist would 404 *permanently*, and every already-installed
+client would carry it. The server must serve the catalog's own top-level shape (`growth`, `champions`,
+`statKinds`, `generatedAt`), since that is exactly what `HeroBaseStatsCatalog.Parse` validates and what
+is written to disk verbatim; extra sibling fields are fine, nesting the catalog under a property is not.
+On the write side `MetadataType.All` needs a `HeroBaseStats` constant or the admin upload 400s it.
 
 A third pair runs the **other way** — it is what the uploader *receives*:
 [docs/build-certification-schema.md](docs/build-certification-schema.md) / [.json](docs/build-certification-schema.json)
@@ -456,7 +463,7 @@ them optional for that reason).
 | `ApiBaseUrl` | RSL Companion API origin | `https://api.rslcompanion.com` |
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
 | `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
-| `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `heroes[].baseStats`; nothing serves it yet | `/api/metadata/hero-base-stats` |
+| `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `heroes[].baseStats`; nothing serves it yet | `/api/hero-base-stats` |
 | `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
 | `Endpoints.Logout` | Revokes the session server-side, for "sign out everywhere" only | `/api/auth/logout` |
 

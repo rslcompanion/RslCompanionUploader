@@ -43,11 +43,21 @@ public sealed class AppConfig
     /// because the catalog is an enrichment and an export without it is an export missing one
     /// optional property.
     ///
-    /// <para><b>Nothing serves this yet.</b> The client side is built against the config key
-    /// deliberately, so pointing it at whatever path the server settles on is an
-    /// <c>appsettings.json</c> edit rather than a release. Until then it 404s harmlessly.</para>
+    /// <para><b>Nothing serves this yet</b>, but the path is the one RaidTools will actually use:
+    /// its read routes are flat — <c>api/blessing-index</c>, <c>api/hero-progression</c>,
+    /// <c>api/champion-stats</c> — and there is no <c>api/metadata/*</c> namespace
+    /// (<c>api/admin/metadata</c> is the upload side). A placeholder under one would have 404ed
+    /// permanently rather than until the server landed, and every already-installed client would
+    /// carry the wrong default. The config key still exists so a change of mind is an
+    /// <c>appsettings.json</c> edit rather than a release.</para>
+    ///
+    /// <para>The response must keep the catalog's own top-level shape — <c>growth</c>,
+    /// <c>champions</c>, <c>statKinds</c> and the producer's <c>generatedAt</c> — since that is what
+    /// <c>HeroBaseStatsCatalog.Parse</c> validates and what gets written to disk verbatim. Wrapping
+    /// fields alongside them (as <c>HeroProgressionController</c> does with <c>isLoaded</c> and
+    /// <c>revisionNumber</c>) is fine; nesting the catalog under a property is not.</para>
     /// </summary>
-    public string HeroBaseStatsEndpoint { get; init; } = "/api/metadata/hero-base-stats";
+    public string HeroBaseStatsEndpoint { get; init; } = "/api/hero-base-stats";
 
     /// <summary>
     /// Server-relative path that ends the session everywhere: it blacklists the presented ID token
