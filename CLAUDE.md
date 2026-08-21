@@ -411,15 +411,20 @@ builds, and mixing one's champion stats with the other's growth table yields pla
 [HeroBaseStatsUpdate.cs](HeroBaseStatsUpdate.cs) validates a served catalog by parsing it with the
 same code that would have to read it, and **every failure degrades to the bundled copy silently** —
 an export without base stats is an export missing one optional property, never a failed export.
-**Nothing serves `Endpoints.HeroBaseStats` yet**; the client half is built against the config key so
-the server half is a deployment rather than a release, and until then it 404s harmlessly. **The path
-is nonetheless the one RaidTools will really use** — its read routes are flat (`api/blessing-index`,
-`api/hero-progression`), with no `api/metadata/*` namespace; `api/admin/metadata` is the upload side.
-A placeholder under a namespace that does not exist would 404 *permanently*, and every already-installed
-client would carry it. The server must serve the catalog's own top-level shape (`growth`, `champions`,
-`statKinds`, `generatedAt`), since that is exactly what `HeroBaseStatsCatalog.Parse` validates and what
-is written to disk verbatim; extra sibling fields are fine, nesting the catalog under a property is not.
-On the write side `MetadataType.All` needs a `HeroBaseStats` constant or the admin upload 400s it.
+**`Endpoints.HeroBaseStats` is `/api/hero-base-stats/catalog`, and the suffix is load-bearing.** The
+bare route serves nothing: RaidTools' `HeroBaseStatsController` answers *per champion* (`/resolve`,
+`/meta`) precisely so a browser never fetches 2.2 MB or re-implements the growth rounding. **This app
+is the documented exception** — it computes a whole roster on the user's desktop against a live game
+process, and writes the file so a later export needs no network at all, so per-champion resolution is
+~900 round trips it may not be able to make. `/catalog` exists for exactly this caller.
+
+**The response must keep the producer's top-level keys** (`growth`, `champions`, `statKinds`,
+`generatedAt`), because `HeroBaseStatsCatalog.Parse` validates them and the body is then written to
+disk verbatim. Extra sibling fields are fine; wrapping the catalog in an envelope the way `/meta` does
+breaks this **silently** — the client rejects it, falls back to the bundled copy, and the symptom is
+indistinguishable from "the endpoint isn't deployed". A test in RaidTools
+(`HeroBaseStatsTests.The_catalog_response_keeps_the_producers_top_level_shape`) pins that shape from
+the other side.
 
 A third pair runs the **other way** — it is what the uploader *receives*:
 [docs/build-certification-schema.md](docs/build-certification-schema.md) / [.json](docs/build-certification-schema.json)

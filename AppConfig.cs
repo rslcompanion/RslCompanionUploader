@@ -43,13 +43,13 @@ public sealed class AppConfig
     /// because the catalog is an enrichment and an export without it is an export missing one
     /// optional property.
     ///
-    /// <para><b>Nothing serves this yet</b>, but the path is the one RaidTools will actually use:
-    /// its read routes are flat — <c>api/blessing-index</c>, <c>api/hero-progression</c>,
-    /// <c>api/champion-stats</c> — and there is no <c>api/metadata/*</c> namespace
-    /// (<c>api/admin/metadata</c> is the upload side). A placeholder under one would have 404ed
-    /// permanently rather than until the server landed, and every already-installed client would
-    /// carry the wrong default. The config key still exists so a change of mind is an
-    /// <c>appsettings.json</c> edit rather than a release.</para>
+    /// <para><b>Live since 2026-08-21</b>, on the path RaidTools actually serves:
+    /// its read routes are flat (<c>api/blessing-index</c>, <c>api/hero-progression</c>) and there is
+    /// no <c>api/metadata/*</c> namespace — <c>api/admin/metadata</c> is the upload side. The
+    /// <c>/catalog</c> suffix is load-bearing: the bare route serves nothing, because that controller
+    /// deliberately answers per champion (<c>/resolve</c>) for browser callers rather than shipping
+    /// 2.2 MB. This app is the exception it documents — it computes a whole roster offline against a
+    /// live game process — so <c>/catalog</c> exists for exactly this caller.</para>
     ///
     /// <para>The response must keep the catalog's own top-level shape — <c>growth</c>,
     /// <c>champions</c>, <c>statKinds</c> and the producer's <c>generatedAt</c> — since that is what
@@ -57,7 +57,7 @@ public sealed class AppConfig
     /// fields alongside them (as <c>HeroProgressionController</c> does with <c>isLoaded</c> and
     /// <c>revisionNumber</c>) is fine; nesting the catalog under a property is not.</para>
     /// </summary>
-    public string HeroBaseStatsEndpoint { get; init; } = "/api/hero-base-stats";
+    public string HeroBaseStatsEndpoint { get; init; } = "/api/hero-base-stats/catalog";
 
     /// <summary>
     /// Server-relative path that ends the session everywhere: it blacklists the presented ID token
