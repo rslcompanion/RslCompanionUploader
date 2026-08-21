@@ -1478,6 +1478,31 @@ public sealed class MainForm : Form
         }
     }
 
+    // Deliberately OUTSIDE the #if EXTRACTION region below, beside the update code that calls it.
+    // It lived inside for a while and broke the engine-less build outright: the update banner is
+    // engine-independent by design — a public clone must still be able to update itself — but its
+    // failure path called a helper that compiled out with the engine. Nothing here touches the
+    // engine; it maps exception types to a sentence. Keep it on this side of the guard.
+    /// <summary>
+    /// Turns a failed installer download into a sentence naming the likely cause. The user-level log
+    /// line is all most people will read, and "IOException: The process cannot access the file" tells
+    /// them nothing about what to do; the exception itself still goes out at the detail level.
+    ///
+    /// <para>Antivirus is called out by name because it is the one seen doing this here: security
+    /// software opens or quarantines a freshly written executable, and the write or the rename that
+    /// follows fails on a download that was otherwise complete and verified.</para>
+    /// </summary>
+    private static string DescribeDownloadFailure(Exception ex) => ex switch
+    {
+        HttpRequestException or TaskCanceledException =>
+            "the download was interrupted — check your connection and try again.",
+        UnauthorizedAccessException or IOException =>
+            "Windows wouldn't let the file be saved. Antivirus scanning the finished installer is the "
+          + "usual cause; trying again in a moment normally works.",
+        InvalidOperationException => ex.Message + ".",
+        _ => ex.Message,
+    };
+
 #if EXTRACTION
     /// <summary>
     /// Extracts the live account from the game, checks it against the accounts already created by
@@ -1585,26 +1610,6 @@ public sealed class MainForm : Form
 
         return ex.Message;
     }
-
-    /// <summary>
-    /// Turns a failed installer download into a sentence naming the likely cause. The user-level log
-    /// line is all most people will read, and "IOException: The process cannot access the file" tells
-    /// them nothing about what to do; the exception itself still goes out at the detail level.
-    ///
-    /// <para>Antivirus is called out by name because it is the one seen doing this here: security
-    /// software opens or quarantines a freshly written executable, and the write or the rename that
-    /// follows fails on a download that was otherwise complete and verified.</para>
-    /// </summary>
-    private static string DescribeDownloadFailure(Exception ex) => ex switch
-    {
-        HttpRequestException or TaskCanceledException =>
-            "the download was interrupted — check your connection and try again.",
-        UnauthorizedAccessException or IOException =>
-            "Windows wouldn't let the file be saved. Antivirus scanning the finished installer is the "
-          + "usual cause; trying again in a moment normally works.",
-        InvalidOperationException => ex.Message + ".",
-        _ => ex.Message,
-    };
 
     // The export carries the account's ENTIRE artifact vault with real stats since 2026-08-02 —
     // gear in `artifacts[]`, rings/cloaks/banners in `accessories[]`, equipped and vaulted alike.
