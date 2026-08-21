@@ -3,8 +3,8 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 15,
-  "x-uploaderVersion": "1.13.0",
+  "schemaVersion": 16,
+  "x-uploaderVersion": "1.14.0",
   "x-lastUpdated": "2026-08-21",
   "x-relatedCatalogs": {
     "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
@@ -13,7 +13,7 @@
     "relics": "relic-enums.json — relics[].sockets[].shapeKindId to socket shape. Relic and gemstone typeId are NOT named there: they are a catalog of the game (name, rarity, group, skill, stat bonuses) and belong in a champion-metadata-style catalog keyed on typeId."
   },
   "type": "object",
-  "required": ["accountId", "account", "timestamp", "resources", "heroes", "artifacts", "accessories", "relics", "gemstones", "factionGuardians"],
+  "required": ["accountId", "account", "timestamp", "resources", "champions", "artifacts", "accessories", "relics", "gemstones", "factionGuardians"],
   "additionalProperties": true,
   "properties": {
     "accountId": {
@@ -110,10 +110,10 @@
         }
       }
     },
-    "heroes": {
+    "champions": {
       "type": "array",
       "minItems": 1,
-      "description": "The owned champion roster. NEVER EMPTY: the game gives every new player a starter champion, so there is no such thing as an account with zero. A zero-length array is therefore a failed read, not an empty roster — the uploader refuses to send one, and this constraint makes a consumer reject it rather than faithfully applying it and wiping the account's champions. Treat a validation failure here as 'discard this payload and keep what you have'.",
+      "description": "The owned champion roster. RENAMED from `heroes` in schema 16; `heroes` is still emitted as a byte-identical copy and will be removed in schema 17. NEVER EMPTY: the game gives every new player a starter champion, so there is no such thing as an account with zero. A zero-length array is therefore a failed read, not an empty roster — the uploader refuses to send one, and this constraint makes a consumer reject it rather than faithfully applying it and wiping the account's champions. Treat a validation failure here as 'discard this payload and keep what you have'.",
       "items": {
         "type": "object",
         "required": ["instanceId", "baseTypeId", "masteries", "skills"],
@@ -178,6 +178,13 @@
           }
         }
       }
+    },
+    "heroes": {
+      "deprecated": true,
+      "type": "array",
+      "minItems": 1,
+      "description": "DEPRECATED in schema 16, REMOVED in schema 17. A byte-identical copy of `champions` under the old name, emitted only so a consumer reading `heroes` keeps working across the rename. Same content, same constraints, same never-empty invariant — validate against `champions` and ignore this. NEW CONSUMERS MUST READ `champions`. Absent on a schema-17 payload, which is why it is not in `required`: this schema validates both a 16 and a 17 payload, deliberately. A consumer supporting both should read `champions ?? heroes` — that ordering is the migration, and it also handles pre-16 payloads, which carry `heroes` alone. NOTE THE ASYMMETRY: the producer stops emitting this in schema 17, but a CONSUMER's `heroes` fallback must outlive that by a wide margin, because the uploader is installed on user machines and updates opt-in — old installs keep sending `heroes` alone for as long as they exist. Dropping the fallback is gated on refusing pre-1.14 uploaders, a separate decision.",
+      "items": { "$ref": "#/properties/champions/items" }
     },
     "factionGuardians": {
       "type": "array",

@@ -343,13 +343,27 @@ described. Old links to them in the changelog rows are left unlinked on purpose.
 
 Alongside them, two **static game metadata** files — not payloads, since every account sees the same
 tables, but they ship here because the payload's ids are opaque without them:
-[docs/role-names.json](docs/role-names.json) for `heroes[].roleId`, and
+[docs/role-names.json](docs/role-names.json) for `champions[].roleId`, and
 [docs/artifact-enums.json](docs/artifact-enums.json) for the artifact `kindId` (slot), `statKindId`,
 `rankId`, `rarityId` and `setKindId`. Same rule applies: if one of those enums gains a member, that
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
-**`heroes[].baseStats` (schema 15) is the one field that is *computed*, and it is deliberately
+**The roster array is `champions[]` since schema 16, with `heroes[]` emitted alongside it byte for
+byte until schema 17.** Every other surface already said champion — the game's UI, this app's log
+lines, RaidTools' `playable_champions`, and the consumer's own `ParserChampion` element type read out
+of a field called `Heroes`. "Hero" is the game's *internal* class name, which is why the engine's C#
+types keep it: they mirror the IL2CPP metadata so memory-layout work stays diffable against a type
+dump. **The two-step is not optional** — emitting `champions` alone would leave RaidTools'
+`data.Heroes` null on every import, which is an empty roster rather than an error, and that is the
+silent wipe the never-empty invariant exists to prevent. Consumers migrate with
+`payload.champions ?? payload.heroes`. **The consumer's fallback outlives the producer's field by a
+long way**, because installs update opt-in and old ones keep sending `heroes` alone; retiring it
+there is gated on refusing pre-1.14 uploaders, a separate decision. The `*HeroId` join keys
+(`equippedByHeroId`, `heroTypeId`, `heroBaseTypeId`, `first`/`secondHeroInstanceId`) deliberately keep
+their names: they name the game's own fields and join onto `instanceId`, not the roster.
+
+**`champions[].baseStats` (schema 15) is the one field that is *computed*, and it is deliberately
 computed here rather than left to consumers.** It is the game's own **Basic Stats** column — the
 numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area
 bonus — keyed by the same `statKindId` the artifact bonuses use. It exists because an artifact bonus
@@ -463,7 +477,7 @@ them optional for that reason).
 | `ApiBaseUrl` | RSL Companion API origin | `https://api.rslcompanion.com` |
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
 | `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
-| `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `heroes[].baseStats`; nothing serves it yet | `/api/hero-base-stats` |
+| `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `champions[].baseStats`; nothing serves it yet | `/api/hero-base-stats` |
 | `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
 | `Endpoints.Logout` | Revokes the session server-side, for "sign out everywhere" only | `/api/auth/logout` |
 

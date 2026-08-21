@@ -1511,7 +1511,7 @@ public sealed class MainForm : Form
             // Counts, in the names the game uses on screen — they are the one thing here a player can
             // check against their own account, which is what makes them worth a plain-level line. The
             // in-game id and the resource tally are bookkeeping, so they go to the detail level.
-            Log($"Read {gameName}'s account: {profile.Heroes.Count} champions" +
+            Log($"Read {gameName}'s account: {profile.Champions.Count} champions" +
                 (ExportArtifacts
                     ? $", {profile.Artifacts.Count} pieces of gear and {profile.Accessories.Count} accessories."
                     : ". (Gear isn't included in this version.)"));

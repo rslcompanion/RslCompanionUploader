@@ -6,17 +6,17 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 15** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 16** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
   rank / set ids in [`artifact-enums.json`](artifact-enums.json), and relic socket shapes plus the
   relic upgrade currencies in [`relic-enums.json`](relic-enums.json) — static game metadata, not
-  account data (see `heroes[].roleId`, `artifacts[]` and `relics[]` below).
-- `heroes[].baseStats` uses the **same `statKindId` space** as the artifact bonuses, so no extra
+  account data (see `champions[].roleId`, `artifacts[]` and `relics[]` below).
+- `champions[].baseStats` uses the **same `statKindId` space** as the artifact bonuses, so no extra
   table is needed to read it. The catalog it is computed from (`hero_base_stats.json`) ships with the
   uploader rather than here, and a consumer needs it only for champions the player does *not* own —
-  see `heroes[].baseStats` below.
+  see `champions[].baseStats` below.
 
 > **Maintenance rule:** any change to the emitted JSON — a new field, a renamed field, a changed type,
 > a new resource id, a changed resource *name* — must update this file **and** `export-schema.json`
@@ -47,7 +47,8 @@ there is no partial/patch mode.
   "account":    { … },                      // object — see below
   "timestamp":  "2026-07-29T07:44:24.990Z", // string — ISO-8601 UTC, when the snapshot was taken
   "resources":  [ … ],                      // array — always the full allowlist, see below
-  "heroes":     [ … ],                      // array
+  "champions":  [ … ],                      // array — RENAMED from "heroes" in schema 16
+  "heroes":     [ … ],                      // array — DEPRECATED byte-identical copy; gone in 17
   "artifacts":  [ … ],                      // array — ALL gear owned (kindId 1-6), with stats
   "accessories": [ … ],                     // array — ALL rings/cloaks/banners (kindId 7-9)
   "relics":     [ … ],                      // array — ALL relics owned, with their gemstone sockets
@@ -55,7 +56,7 @@ there is no partial/patch mode.
   "factionGuardians": [ … ],                // array
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "clanName":   "Bastion" | null,           // string|null — display only; null is "says nothing"
-  "baseStatsCatalog": { … },                // object or ABSENT — provenance of heroes[].baseStats
+  "baseStatsCatalog": { … },                // object or ABSENT — provenance of champions[].baseStats
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
 }
@@ -154,7 +155,7 @@ mapping consumer-side either.
 
 ---
 
-## `heroes[]`
+## `champions[]`
 
 ```jsonc
 {
@@ -183,12 +184,51 @@ mapping consumer-side either.
 `instanceId` identifies an owned copy; `baseTypeId` identifies the champion. Two copies of the same
 champion share `baseTypeId` and differ in `instanceId`.
 
-### `heroes[]` is never empty — treat a zero-length array as a corrupt payload
+### Renamed from `heroes[]` in schema 16 — read `champions ?? heroes`
+
+**Both arrays are emitted, byte for byte identical**, and `heroes[]` is removed in schema 17. Every
+consumer's migration is one expression:
+
+```js
+const roster = payload.champions ?? payload.heroes;   // handles 16, 17, and every schema before 16
+```
+
+Why the rename: every other surface already said *champion* — the game's UI, the uploader's own log
+lines, RaidTools' `playable_champions` table, and the consumer's own element type, which is literally
+called `ParserChampion` and read out of a field called `Heroes`. Only this array said *hero*.
+"Hero" is the game's **internal class name** (`Hero`, `HeroType`, `HeroForm`), which is why the
+extraction engine's own types keep it: those mirror the IL2CPP metadata so memory-layout work stays
+diffable against a type dump. A wire contract is not memory layout, and it should read the way the
+player's screen does.
+
+> ⚠️ **This could not be done in one step, and the reason is worth stating.** Emitting `champions`
+> alone today would leave RaidTools' `data.Heroes` **null** on every import — not an error, an *empty
+> roster*, which is exactly the silent wipe the never-empty invariant above exists to prevent. So the
+> producer emits both, the consumer moves, and only then does the producer drop the old name.
+
+**The two halves retire on very different clocks.** The producer stops emitting `heroes` in schema
+17. A **consumer's `heroes` fallback must outlive that by a wide margin**, because the uploader is
+installed on user machines and updates are opt-in — old installs keep sending `heroes` alone for as
+long as they run. Dropping the fallback is gated on refusing pre-1.14 uploaders, which is a separate
+decision from this one and should not be bundled with it.
+
+#### What did **not** get renamed, and why
+
+`factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.firstHeroInstanceId` / `.secondHeroInstanceId`
+and `artifacts[].equippedByHeroId` **keep their names.** Two reasons, and they point the same way:
+those fields name the *game's own* fields (`HeroBaseTypeId` is documented below precisely because the
+game's name for it is misleading), and they are join keys onto `instanceId` rather than the roster
+itself. Renaming them would multiply the breaking surface of this change several times over for no
+gain in clarity — the thing a reader has to understand about `equippedByHeroId` is what it joins to,
+which is stated where it is defined. If you want them renamed, that is its own schema bump with its
+own deprecation window, not a rider on this one.
+
+### `champions[]` is never empty — treat a zero-length array as a corrupt payload
 
 The game gives every new player a starter champion, so **an account with zero champions does not
-exist**. A zero-length `heroes[]` is always a failed read, never an empty roster.
+exist**. A zero-length `champions[]` is always a failed read, never an empty roster.
 
-That distinction matters because the failure is otherwise silent: `heroes: []` is structurally valid,
+That distinction matters because the failure is otherwise silent: `champions: []` is structurally valid,
 so a consumer applying it faithfully would **wipe the account's entire champion roster** on what was
 really a bad memory read. Two causes are known — a game that hadn't finished loading its roster, and
 a recalibration that rediscovered the roster's memory offset wrongly.
@@ -213,7 +253,7 @@ Both guards exist because these two sections are the ones with a provable "this 
 invariant. Other sections have no equivalent, so a corrupt read there is still only detectable by
 comparison against previous data.
 
-### `heroes[].roleId` — champion **metadata**, carried here for convenience
+### `champions[].roleId` — champion **metadata**, carried here for convenience
 
 The champion's role: **0 Attack, 1 Defense, 2 Health, 3 Support, 4 Evolve, 5 Xp**. Names, display
 labels and localization keys are in [`role-names.json`](role-names.json). The ids and their order are
@@ -241,7 +281,7 @@ copy cannot be resolved from the account's memory at all.
 authoritative** — it covers every champion in the game rather than the subset this account has had
 rendered. Use this field as a fallback, not the other way round.
 
-### `heroes[].baseStats` — the game's **Basic Stats** column, resolved for this copy
+### `champions[].baseStats` — the game's **Basic Stats** column, resolved for this copy
 
 ```jsonc
 "baseStats": { "1": 5100, "2": 426, "3": 367, "4": 103, "5": 30,
@@ -320,7 +360,7 @@ produced by RslCompanionMetadata) for champions the player does **not** own — 
 "what would this champion look like". The two are complementary: this field reaches a correct number
 sooner for owned copies, and the catalog covers everything else.
 
-### `heroes[].skills`
+### `champions[].skills`
 
 ```jsonc
 "skills": [
@@ -332,7 +372,7 @@ sooner for owned copies, and the catalog covers everything else.
 
 This copy's skills and how far the player has upgraded each. Always present and sorted by `typeId`,
 so two snapshots diff cleanly. Every champion has at least one skill — an **empty array is a failed
-read**, though unlike `heroes[]` itself there is no schema constraint enforcing it.
+read**, though unlike `champions[]` itself there is no schema constraint enforcing it.
 
 - **`typeId` is the skill's identity and the catalog join key.** It is stable across every copy and
   every ascension of a champion. **Treat it as opaque — join it, don't derive it** (see below).
@@ -361,10 +401,10 @@ silently drops transformation skills. Join on `typeId` and let the catalog say w
 > `masteries.selected` (ids here, node metadata in `mastery_index.json`).
 
 Note the engine cannot read the cap either: the static `SkillType` object each `Skill` would point at
-is null on the live account graph (`_allSkillTypes` was populated for 18 of 957 heroes), so this is a
+is null on the live account graph (`_allSkillTypes` was populated for 18 of 957 champions), so this is a
 genuine boundary, not an omission that could be filled in later on this path.
 
-### `heroes[].masteries`
+### `champions[].masteries`
 
 Always present, and **deliberately verbose so consumers never null-check**:
 
@@ -396,7 +436,7 @@ table if needed.
 {
   "factionId": 1, "rarityId": 4, "slotIndex": 0,
   "heroTypeId": 366,          // champion type WITH ascension digit (366 = base 360 at ascension 6)
-  "heroBaseTypeId": 360,      // ascension stripped — THIS is what joins to heroes[].baseTypeId
+  "heroBaseTypeId": 360,      // ascension stripped — THIS is what joins to champions[].baseTypeId
   "firstHeroInstanceId": 50325,
   "secondHeroInstanceId": 3948,  // either may be null when that half of the slot is empty
   "consumed": false
@@ -406,7 +446,7 @@ table if needed.
 A slot fuses up to **two copies** of one champion, hence the First/Second pair.
 
 **Join on `heroBaseTypeId`, not `heroTypeId`.** The game's own field is named `HeroBaseTypeId` but
-carries the ascension digit, which is a misnomer; joining the raw value onto `heroes[].baseTypeId`
+carries the ascension digit, which is a misnomer; joining the raw value onto `champions[].baseTypeId`
 silently matches only unascended champions. Both are published so consumers don't have to guess.
 
 ---
@@ -466,9 +506,9 @@ lets each be stored and served on its own (see [Storage and read APIs](#storage-
   "rarityId": 4,              // int32 1..6 — quality tier
   "level": 12,                // int32 0..16 — upgrade level
   "ascendLevel": 0,           // int32 0..6 — ascension
-  "requiredFactionId": 0,     // int32 — faction lock; 0 = none. Same ids as heroes[].factionId
+  "requiredFactionId": 0,     // int32 — faction lock; 0 = none. Same ids as champions[].factionId
   "isActivated": true,        // bool
-  "equippedByHeroId": 48444,  // int64|null — joins heroes[].instanceId; null = in the vault
+  "equippedByHeroId": 48444,  // int64|null — joins champions[].instanceId; null = in the vault
   "sellPrice": 8550,          // int32 — silver from selling
   "price": 136800,            // int32 — silver cost of the next upgrade
   "failedUpgrades": 0,        // int32 — failures since the last success (the game's pity counter)
@@ -589,7 +629,7 @@ plausible while missing two thirds of the data.
     "rank": 4,                  // 1-5 observed; Rank N Basalt (19000+N) raises N to N+1
     "level": 12,                // Starstone (4000) levels it; steps by 3 — 0,3,6,9,12,15
     "isActivated": true,
-    "equippedByHeroId": 52004,  // int64 → heroes[].instanceId, or null when in storage
+    "equippedByHeroId": 52004,  // int64 → champions[].instanceId, or null when in storage
     "sockets": [
       { "shapeKindId": 5, "stoneId": 202 },   // stoneId → gemstones[].id
       { "shapeKindId": 1, "stoneId": 23  }
@@ -612,7 +652,7 @@ plausible while missing two thirds of the data.
 bonuses hang off the shared `RelicType`, and a gemstone's off `RelicStoneType` — those describe the
 game, not the account, exactly like champion skill names and mastery-node metadata. They belong in a
 catalog keyed on `typeId`. Reading them per record would also be unsafe: the client hydrates shared
-type objects **lazily**, the same trap that silently exported `heroes[].factionId` as `0` for 340 of
+type objects **lazily**, the same trap that silently exported `champions[].factionId` as `0` for 340 of
 957 champions before 2026-08-01.
 
 ### The two ends of the socket join agree by construction
@@ -648,7 +688,7 @@ Measured live 2026-08-03 (account Magikwolf, game 11.67.0):
 Same caveat as the artifact counters above: **a snapshot, not constants.** Test the relationship
 against counters read at the same moment.
 
-One relic per champion is what this account shows — 137 relics across 137 heroes, none with two —
+One relic per champion is what this account shows — 137 relics across 137 champions, none with two —
 but that is an observation about the game's current rules, not something the payload enforces. The
 field is a per-relic hero reference, so handle a hero appearing more than once.
 
@@ -680,7 +720,7 @@ tombstone: reconcile by replacing the account's set, or deletes will never land.
 
 ## Consumer guidance
 
-1. **Join on ids, never names.** `resources[].name`, `heroes[].name` are display labels and do change.
+1. **Join on ids, never names.** `resources[].name`, `champions[].name` are display labels and do change.
 2. **Treat `resources[]` as complete.** Every allowlisted id is present; `0` means zero owned. A
    missing id means the allowlist changed.
 3. **Additive changes are expected.** New resource ids and new hero fields get added without a major
@@ -690,7 +730,7 @@ tombstone: reconcile by replacing the account's set, or deletes will never land.
    never treat `null` as "unknown wearer". Both may be empty on a brand-new account, and
    `gameVersion` may be `null`. Unlike schema 7–8, a `0` in a stat field is now a **real** `0`.
 5. **`account.accountId` == top-level `accountId`.** Route on the top-level one.
-5b. **`heroes[].roleId` is nullable and `0` is a real value** (Attack). Never coalesce `null → 0`.
+5b. **`champions[].roleId` is nullable and `0` is a real value** (Attack). Never coalesce `null → 0`.
     Roles and skill metadata are *game* data joined by id — `role-names.json` here, a skill catalog
     for `skills[].typeId`; this payload carries ids and levels only.
 6. **Clan rosters do not arrive from this uploader at all**, and there is no second payload that
@@ -719,6 +759,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 16 | v1.14.0 | 2026-08-21 | **`heroes[]` is renamed to `champions[]`. BOTH are emitted, byte for byte identical, and `heroes[]` is removed in schema 17.** Nothing else changes: same items, same constraints, same never-empty invariant. **Migration is one expression — `payload.champions ?? payload.heroes`** — which also handles every schema before 16, so a consumer can adopt it now and be correct on all three eras at once. Why: every other surface already said *champion*. The game's UI says it, the uploader's own log lines say it, RaidTools' table is `playable_champions`, and the consumer's own element type is literally `ParserChampion` — read out of a field called `Heroes`. Only this array said *hero*, which is the game's INTERNAL class name (`Hero`, `HeroType`, `HeroForm`). The extraction engine's own C# types keep that name deliberately, because they mirror the IL2CPP metadata so memory-layout work stays diffable against a type dump; a wire contract is not memory layout. **Why it takes two schemas rather than one:** emitting `champions` alone today would leave RaidTools' `data.Heroes` null on every import — not an error, an *empty roster*, which is exactly the silent wipe the never-empty invariant exists to prevent. Producer emits both, consumer moves, then producer drops the old name. **The two halves retire on different clocks, and this is the part to get right.** The producer stops emitting `heroes` in schema 17; a **consumer's `heroes` fallback must outlive that by a wide margin**, because the uploader is installed on user machines and updates are opt-in — old installs keep sending `heroes` alone for as long as they run. Dropping the fallback is gated on refusing pre-1.14 uploaders, a separate decision. **Not renamed:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.firstHeroInstanceId` / `.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and are join keys onto `instanceId`, not the roster, so renaming them would multiply the breaking surface for no gain in clarity. **Cost, stated plainly:** the roster is duplicated on the wire for one schema — roughly +800 KB on a ~900-champion account, against a payload already several MB of artifact vault. That is the price of not breaking a live consumer, and it is temporary. |
 | 15 | v1.13.0 | 2026-08-21 | **New `heroes[].baseStats` — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 14. Each owned copy now carries the game's own **Basic Stats** column — the numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area bonus — keyed by the same `StatKindId` the artifact bonuses already use, so no new id table is involved. **This is the number a percentage artifact bonus is a percentage of.** A bonus with `isAbsolute: false` carries a fraction (`0.18` = +18%), so until now every percentage HP/ATK/DEF roll had to be dropped from a displayed total — on a geared champion, most of its stats. It is resolved at export rather than left to the consumer because **it is not champion-constant**: the stored value depends on the copy's ascension and the displayed one on its rank and level (`m = rank[stars] × level[stars] ^ ((L−1)/(cap−1))`, then `×15` for HP after rounding, and only Health/Attack/Defence scale at all). The export already carries all three, so it is the one place that can resolve it without a second join, and the formula sits next to the data it was validated against instead of being reimplemented per consumer. **Consumer impact: prefer this over a champion catalog for owned copies** — unlike `roleId`, it cannot be recovered from a catalog keyed on `baseTypeId`. The catalog (`hero_base_stats.json`, bundled with the uploader) is still wanted for champions the player does *not* own; the two are complementary, not alternatives. **Absent means unknown and must never be coalesced to `0`** — the property is omitted when the copy's level or star rank could not be read (`stars` silently falls back to 5, which would otherwise feed the growth multiplier and emit confident nonsense), when the level exceeds its rank's cap, and when the catalog predates the champion; individual stat keys are omitted on the same terms. A `0` that *is* present is a real zero: base Accuracy is genuinely 0 on 6,806 of 7,166 champion variants, while base Resistance is never below 30. **A second new field comes with it: top-level `baseStatsCatalog` `{generatedAt, gameVersion}`, the provenance of every `baseStats` block in the payload** — absent exactly when no hero carries base stats. It is not redundant with the top-level `gameVersion`, and the two come apart in the ordinary case: `gameVersion` is the build the export *ran against*, `baseStatsCatalog.gameVersion` is the build the numbers were *computed from*, so a user who updates Raid before a refreshed catalog ships sends `gameVersion: "11.72.0"` with stats derived from an 11.71.0 catalog — a payload that looks current and is not. It exists because a computed stat is a **snapshot**: a Plarium rebalance silently invalidates every block already stored server-side until each user re-exports, and without this field a stale block is indistinguishable from a fresh one. **Consumer rule: a block whose catalog build trails the payload's `gameVersion` is _suspect, not wrong_** — most rebalances touch few champions, so flag it for re-sync rather than discarding numbers that are almost certainly still right. The model was validated to zero error against the client's own computed stat blocks on ten champions across seven factions and four rarities. |
 | 14 | v1.8.0 | 2026-08-07 | **New top-level `clanName` (string or `null`) — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 13. This closes the gap schema 13 opened: with the clan export withdrawn, no export named a clan at all, so a clan with no other source of a name displayed as `Clan #<id>` permanently. **The interesting part is the cost, because the previous entry in this file was wrong about it.** Both this file and the engine held that the clan's name needed an 18–31 s full-memory scan and was therefore unaffordable on a ~4 s export. It does not. The clan cache hangs off `AppModel`, the client-root **static singleton** that sits *above* the account object — `klass → static_fields → instance → AllianceNotes → Dictionary<clanId, AllianceNote>` — so the name is a pointer walk keyed by the `clanId` this payload already carried: **measured 5 ms warm, 3.3 s the first time a game build is seen** (a one-off klass lookup, then cached in the shipped offset catalog). The old figure came from searching for the record by class identity across all of memory, having concluded it was unreachable because a breadth-first walk *downward* from the account object finds nothing — which is true, and irrelevant, because the owner is upstream. Verified end to end on a client that had been open for minutes with no actions taken and the clan screen never opened, so the record is not populated on demand. **Consumer impact: `null` is not "no name"** — it is "this export says nothing", so never overwrite a stored name with it. Names are not unique and are editable by the clan leader: join and group on `clanId`, and use `clanName` for display only. Absent key (schema ≤13) and explicit `null` mean the same thing. **The member roster is still not emitted and this does not reopen that** — it is now equally cheap and remains excluded because it describes people other than the user; see "What is *not* here" above. |
 | 13 | v1.8.0 | 2026-08-07 | **No wire change to this payload — but the *other* payload is gone.** The uploader's second export, `POST /api/sync/clan/raw` (the clan record plus the member roster with clanmates' display names), has been **removed from the app**: the button, the endpoint config, and the code path. `clan-export-schema.md` / `.json` are deleted with it. Nothing here gains or loses a field; `clanId` is unchanged and is now the only clan data the uploader emits anywhere. Why: RSL Companion stopped ingesting the roster. It described **other people** — clanmates who never installed this app and never agreed to anything — and clan membership is now built from each member importing their own account instead, which reaches the same list by consent rather than by one player's client reporting on everyone else's. Continuing to scan for it would have been ~25 s of work per run for data the server discards. **Consumer impact:** a consumer that also read the clan payload must stop expecting it — accounts sharing a clan are found by grouping on `clanId`, and a clan's *name* now comes from the consumer's own store, not from an export. A consumer that only ever read this payload is unaffected and needs no change. |
