@@ -349,17 +349,18 @@ tables, but they ship here because the payload's ids are opaque without them:
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
-**The roster array is `champions[]` since schema 16, with `heroes[]` emitted alongside it byte for
-byte until schema 17.** Every other surface already said champion — the game's UI, this app's log
+**The roster array is `champions[]`, and since schema 17 that is the only name — `heroes[]` was
+emitted alongside it byte for byte in schema 16 and is now gone.** Every other surface already said champion — the game's UI, this app's log
 lines, RaidTools' `playable_champions`, and the consumer's own `ParserChampion` element type read out
 of a field called `Heroes`. "Hero" is the game's *internal* class name, which is why the engine's C#
 types keep it: they mirror the IL2CPP metadata so memory-layout work stays diffable against a type
-dump. **The two-step is not optional** — emitting `champions` alone would leave RaidTools'
-`data.Heroes` null on every import, which is an empty roster rather than an error, and that is the
-silent wipe the never-empty invariant exists to prevent. Consumers migrate with
-`payload.champions ?? payload.heroes`. **The consumer's fallback outlives the producer's field by a
-long way**, because installs update opt-in and old ones keep sending `heroes` alone; retiring it
-there is gated on refusing pre-1.14 uploaders, a separate decision. The `*HeroId` join keys
+dump. **The two-step was not optional** — emitting `champions` alone at the rename would have left
+RaidTools' `data.Heroes` null on every import, which is an empty roster rather than an error, and
+that is the silent wipe the never-empty invariant exists to prevent. So 16 emitted both, the consumer
+moved, and 17 dropped the alias. Consumers read `payload.champions ?? payload.heroes`. **Only the
+producer's half has happened: the consumer's fallback outlives it by a long way**, because installs
+update opt-in and pre-1.14 ones keep sending `heroes` alone; retiring it there is gated on refusing
+those uploaders, a separate decision. The `*HeroId` join keys
 (`equippedByHeroId`, `heroTypeId`, `heroBaseTypeId`, `first`/`secondHeroInstanceId`) deliberately keep
 their names: they name the game's own fields and join onto `instanceId`, not the roster.
 

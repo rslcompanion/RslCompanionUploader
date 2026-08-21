@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 16** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 17** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -47,8 +47,7 @@ there is no partial/patch mode.
   "account":    { … },                      // object — see below
   "timestamp":  "2026-07-29T07:44:24.990Z", // string — ISO-8601 UTC, when the snapshot was taken
   "resources":  [ … ],                      // array — always the full allowlist, see below
-  "champions":  [ … ],                      // array — RENAMED from "heroes" in schema 16
-  "heroes":     [ … ],                      // array — DEPRECATED byte-identical copy; gone in 17
+  "champions":  [ … ],                      // array — the roster; was "heroes" before schema 16
   "artifacts":  [ … ],                      // array — ALL gear owned (kindId 1-6), with stats
   "accessories": [ … ],                     // array — ALL rings/cloaks/banners (kindId 7-9)
   "relics":     [ … ],                      // array — ALL relics owned, with their gemstone sockets
@@ -184,14 +183,19 @@ mapping consumer-side either.
 `instanceId` identifies an owned copy; `baseTypeId` identifies the champion. Two copies of the same
 champion share `baseTypeId` and differ in `instanceId`.
 
-### Renamed from `heroes[]` in schema 16 — read `champions ?? heroes`
+### Renamed from `heroes[]` — read `champions ?? heroes`
 
-**Both arrays are emitted, byte for byte identical**, and `heroes[]` is removed in schema 17. Every
-consumer's migration is one expression:
+**`heroes[]` is gone as of schema 17.** Schema 16 emitted both arrays byte for byte identical so
+consumers could move; 17 removes the old name. Every consumer's migration is still one expression,
+and it is correct on every schema era at once:
 
 ```js
-const roster = payload.champions ?? payload.heroes;   // handles 16, 17, and every schema before 16
+const roster = payload.champions ?? payload.heroes;   // 17, 16, and everything before 16
 ```
+
+> ⚠️ **A consumer still reading `heroes` alone is broken by schema 17**, and broken silently:
+> `payload.heroes` is `undefined`, which is not an error but an **empty roster** — apply it and the
+> account's champions are wiped. Read `champions` first.
 
 Why the rename: every other surface already said *champion* — the game's UI, the uploader's own log
 lines, RaidTools' `playable_champions` table, and the consumer's own element type, which is literally
@@ -201,16 +205,17 @@ extraction engine's own types keep it: those mirror the IL2CPP metadata so memor
 diffable against a type dump. A wire contract is not memory layout, and it should read the way the
 player's screen does.
 
-> ⚠️ **This could not be done in one step, and the reason is worth stating.** Emitting `champions`
-> alone today would leave RaidTools' `data.Heroes` **null** on every import — not an error, an *empty
-> roster*, which is exactly the silent wipe the never-empty invariant above exists to prevent. So the
-> producer emits both, the consumer moves, and only then does the producer drop the old name.
+**Why it took two schemas.** Emitting `champions` alone at the rename would have left RaidTools'
+`data.Heroes` **null** on every import — not an error, an *empty roster*, exactly the silent wipe the
+never-empty invariant above exists to prevent. So the producer emitted both (16), the consumer moved,
+and only then did the producer drop the old name (17).
 
-**The two halves retire on very different clocks.** The producer stops emitting `heroes` in schema
-17. A **consumer's `heroes` fallback must outlive that by a wide margin**, because the uploader is
-installed on user machines and updates are opt-in — old installs keep sending `heroes` alone for as
-long as they run. Dropping the fallback is gated on refusing pre-1.14 uploaders, which is a separate
-decision from this one and should not be bundled with it.
+**The two halves retire on very different clocks, and only one of them has happened.** The producer
+has stopped emitting `heroes`. A **consumer's `heroes` fallback must outlive that by a wide margin**,
+because the uploader is installed on user machines and updates are opt-in — installs older than
+v1.14 keep sending `heroes` **alone** for as long as they run. Dropping the fallback is gated on
+refusing pre-1.14 uploaders, which is a separate decision from this one and should not be bundled
+with it.
 
 #### What did **not** get renamed, and why
 
@@ -759,6 +764,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 17 | v1.15.0 | 2026-08-21 | **`heroes[]` is removed. `champions[]` is the only roster field.** The other half of the schema-16 rename, and the deliberately boring one: nothing changes shape, nothing is added, the duplicate array simply stops being sent. A consumer already reading `champions` — or the migration expression `payload.champions ?? payload.heroes` — needs no change at all and will not notice. **A consumer still reading `heroes` alone breaks completely**, and breaks in the worst way available: `payload.heroes` is `undefined`, which is not an error but an *empty roster*, and applying it wipes the account's champions. That is precisely the failure schema 16 existed to prevent, which is why the two shipped as separate schemas with the consumer migrated in between rather than as one rename. **The reverse deprecation is untouched and runs much longer.** This stops the PRODUCER emitting `heroes`; it says nothing about a consumer's fallback, which must outlive it by a wide margin, because the uploader is installed on user machines and updates are opt-in — installs older than v1.14 keep sending `heroes` **alone** for as long as they run. Retiring the fallback is gated on refusing pre-1.14 uploaders, a separate decision that is not this one. **What this buys:** the roster stops being duplicated on the wire, roughly −800 KB on a ~900-champion account. **Unchanged, again:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.first`/`.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and join onto `instanceId`, not onto the roster. |
 | 16 | v1.14.0 | 2026-08-21 | **`heroes[]` is renamed to `champions[]`. BOTH are emitted, byte for byte identical, and `heroes[]` is removed in schema 17.** Nothing else changes: same items, same constraints, same never-empty invariant. **Migration is one expression — `payload.champions ?? payload.heroes`** — which also handles every schema before 16, so a consumer can adopt it now and be correct on all three eras at once. Why: every other surface already said *champion*. The game's UI says it, the uploader's own log lines say it, RaidTools' table is `playable_champions`, and the consumer's own element type is literally `ParserChampion` — read out of a field called `Heroes`. Only this array said *hero*, which is the game's INTERNAL class name (`Hero`, `HeroType`, `HeroForm`). The extraction engine's own C# types keep that name deliberately, because they mirror the IL2CPP metadata so memory-layout work stays diffable against a type dump; a wire contract is not memory layout. **Why it takes two schemas rather than one:** emitting `champions` alone today would leave RaidTools' `data.Heroes` null on every import — not an error, an *empty roster*, which is exactly the silent wipe the never-empty invariant exists to prevent. Producer emits both, consumer moves, then producer drops the old name. **The two halves retire on different clocks, and this is the part to get right.** The producer stops emitting `heroes` in schema 17; a **consumer's `heroes` fallback must outlive that by a wide margin**, because the uploader is installed on user machines and updates are opt-in — old installs keep sending `heroes` alone for as long as they run. Dropping the fallback is gated on refusing pre-1.14 uploaders, a separate decision. **Not renamed:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.firstHeroInstanceId` / `.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and are join keys onto `instanceId`, not the roster, so renaming them would multiply the breaking surface for no gain in clarity. **Cost, stated plainly:** the roster is duplicated on the wire for one schema — roughly +800 KB on a ~900-champion account, against a payload already several MB of artifact vault. That is the price of not breaking a live consumer, and it is temporary. |
 | 15 | v1.13.0 | 2026-08-21 | **New `heroes[].baseStats` — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 14. Each owned copy now carries the game's own **Basic Stats** column — the numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area bonus — keyed by the same `StatKindId` the artifact bonuses already use, so no new id table is involved. **This is the number a percentage artifact bonus is a percentage of.** A bonus with `isAbsolute: false` carries a fraction (`0.18` = +18%), so until now every percentage HP/ATK/DEF roll had to be dropped from a displayed total — on a geared champion, most of its stats. It is resolved at export rather than left to the consumer because **it is not champion-constant**: the stored value depends on the copy's ascension and the displayed one on its rank and level (`m = rank[stars] × level[stars] ^ ((L−1)/(cap−1))`, then `×15` for HP after rounding, and only Health/Attack/Defence scale at all). The export already carries all three, so it is the one place that can resolve it without a second join, and the formula sits next to the data it was validated against instead of being reimplemented per consumer. **Consumer impact: prefer this over a champion catalog for owned copies** — unlike `roleId`, it cannot be recovered from a catalog keyed on `baseTypeId`. The catalog (`hero_base_stats.json`, bundled with the uploader) is still wanted for champions the player does *not* own; the two are complementary, not alternatives. **Absent means unknown and must never be coalesced to `0`** — the property is omitted when the copy's level or star rank could not be read (`stars` silently falls back to 5, which would otherwise feed the growth multiplier and emit confident nonsense), when the level exceeds its rank's cap, and when the catalog predates the champion; individual stat keys are omitted on the same terms. A `0` that *is* present is a real zero: base Accuracy is genuinely 0 on 6,806 of 7,166 champion variants, while base Resistance is never below 30. **A second new field comes with it: top-level `baseStatsCatalog` `{generatedAt, gameVersion}`, the provenance of every `baseStats` block in the payload** — absent exactly when no hero carries base stats. It is not redundant with the top-level `gameVersion`, and the two come apart in the ordinary case: `gameVersion` is the build the export *ran against*, `baseStatsCatalog.gameVersion` is the build the numbers were *computed from*, so a user who updates Raid before a refreshed catalog ships sends `gameVersion: "11.72.0"` with stats derived from an 11.71.0 catalog — a payload that looks current and is not. It exists because a computed stat is a **snapshot**: a Plarium rebalance silently invalidates every block already stored server-side until each user re-exports, and without this field a stale block is indistinguishable from a fresh one. **Consumer rule: a block whose catalog build trails the payload's `gameVersion` is _suspect, not wrong_** — most rebalances touch few champions, so flag it for re-sync rather than discarding numbers that are almost certainly still right. The model was validated to zero error against the client's own computed stat blocks on ten champions across seven factions and four rarities. |
 | 14 | v1.8.0 | 2026-08-07 | **New top-level `clanName` (string or `null`) — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 13. This closes the gap schema 13 opened: with the clan export withdrawn, no export named a clan at all, so a clan with no other source of a name displayed as `Clan #<id>` permanently. **The interesting part is the cost, because the previous entry in this file was wrong about it.** Both this file and the engine held that the clan's name needed an 18–31 s full-memory scan and was therefore unaffordable on a ~4 s export. It does not. The clan cache hangs off `AppModel`, the client-root **static singleton** that sits *above* the account object — `klass → static_fields → instance → AllianceNotes → Dictionary<clanId, AllianceNote>` — so the name is a pointer walk keyed by the `clanId` this payload already carried: **measured 5 ms warm, 3.3 s the first time a game build is seen** (a one-off klass lookup, then cached in the shipped offset catalog). The old figure came from searching for the record by class identity across all of memory, having concluded it was unreachable because a breadth-first walk *downward* from the account object finds nothing — which is true, and irrelevant, because the owner is upstream. Verified end to end on a client that had been open for minutes with no actions taken and the clan screen never opened, so the record is not populated on demand. **Consumer impact: `null` is not "no name"** — it is "this export says nothing", so never overwrite a stored name with it. Names are not unique and are editable by the clan leader: join and group on `clanId`, and use `clanName` for display only. Absent key (schema ≤13) and explicit `null` mean the same thing. **The member roster is still not emitted and this does not reopen that** — it is now equally cheap and remains excluded because it describes people other than the user; see "What is *not* here" above. |

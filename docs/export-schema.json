@@ -3,13 +3,13 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 16,
-  "x-uploaderVersion": "1.14.0",
+  "schemaVersion": 17,
+  "x-uploaderVersion": "1.15.0",
   "x-lastUpdated": "2026-08-21",
   "x-relatedCatalogs": {
-    "roles": "role-names.json — heroes[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
+    "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
-    "heroBaseStats": "hero_base_stats.json — every champion ASCENSION VARIANT's stored base stats plus the client's growth coefficients, the catalog heroes[].baseStats is computed from. Bundled with the uploader (extraction/exports/) rather than here because it is 2.2 MB; a consumer needs it only for champions the player does NOT own, since an owned copy's numbers arrive on this payload already resolved. Produced by RslCompanionMetadata; contract in its docs/hero-base-stats-findings.md.",
+    "heroBaseStats": "hero_base_stats.json — every champion ASCENSION VARIANT's stored base stats plus the client's growth coefficients, the catalog champions[].baseStats is computed from. Bundled with the uploader (extraction/exports/) rather than here because it is 2.2 MB; a consumer needs it only for champions the player does NOT own, since an owned copy's numbers arrive on this payload already resolved. Produced by RslCompanionMetadata; contract in its docs/hero-base-stats-findings.md.",
     "relics": "relic-enums.json — relics[].sockets[].shapeKindId to socket shape. Relic and gemstone typeId are NOT named there: they are a catalog of the game (name, rarity, group, skill, stat bonuses) and belong in a champion-metadata-style catalog keyed on typeId."
   },
   "type": "object",
@@ -34,12 +34,12 @@
     },
     "gameVersion": {
       "type": ["string", "null"],
-      "description": "Live Raid build the snapshot was read from — the build the export RAN AGAINST. Null when it could not be determined. NOT the provenance of heroes[].baseStats; see baseStatsCatalog.",
+      "description": "Live Raid build the snapshot was read from — the build the export RAN AGAINST. Null when it could not be determined. NOT the provenance of champions[].baseStats; see baseStatsCatalog.",
       "examples": ["11.67.0"]
     },
     "baseStatsCatalog": {
       "type": "object",
-      "description": "Which cut of the champion base-stat catalog produced every heroes[].baseStats block in this payload. Top level rather than per hero because one export uses exactly one catalog. ABSENT when no catalog was loaded — in which case no hero carries baseStats either. THIS IS NOT gameVersion, and the two come apart in the ordinary case: gameVersion is the build the export ran against, this is the build the numbers were computed from, and a user who updates Raid before a refreshed catalog ships exports with the new gameVersion and stats from the old catalog. CONSUMER RULE: a baseStats block whose catalog gameVersion trails the payload's gameVersion is SUSPECT, NOT WRONG — most rebalances touch few champions — so flag it for re-sync, never discard it. Without this field a stale computed block is indistinguishable from a fresh one, which matters because a rebalance silently invalidates every block already stored server-side until each user re-exports.",
+      "description": "Which cut of the champion base-stat catalog produced every champions[].baseStats block in this payload. Top level rather than per hero because one export uses exactly one catalog. ABSENT when no catalog was loaded — in which case no hero carries baseStats either. THIS IS NOT gameVersion, and the two come apart in the ordinary case: gameVersion is the build the export ran against, this is the build the numbers were computed from, and a user who updates Raid before a refreshed catalog ships exports with the new gameVersion and stats from the old catalog. CONSUMER RULE: a baseStats block whose catalog gameVersion trails the payload's gameVersion is SUSPECT, NOT WRONG — most rebalances touch few champions — so flag it for re-sync, never discard it. Without this field a stale computed block is indistinguishable from a fresh one, which matters because a rebalance silently invalidates every block already stored server-side until each user re-exports.",
       "required": ["generatedAt"],
       "additionalProperties": false,
       "properties": {
@@ -113,7 +113,7 @@
     "champions": {
       "type": "array",
       "minItems": 1,
-      "description": "The owned champion roster. RENAMED from `heroes` in schema 16; `heroes` is still emitted as a byte-identical copy and will be removed in schema 17. NEVER EMPTY: the game gives every new player a starter champion, so there is no such thing as an account with zero. A zero-length array is therefore a failed read, not an empty roster — the uploader refuses to send one, and this constraint makes a consumer reject it rather than faithfully applying it and wiping the account's champions. Treat a validation failure here as 'discard this payload and keep what you have'.",
+      "description": "The owned champion roster. RENAMED from `heroes` in schema 16, and THE ONLY NAME since schema 17, which removed the alias. A consumer that also reads older payloads uses `champions ?? heroes`; that fallback must outlive this removal by a wide margin, because the uploader is installed on user machines and updates opt-in, so pre-v1.14 installs keep sending `heroes` alone for as long as they run. NEVER EMPTY: the game gives every new player a starter champion, so there is no such thing as an account with zero. A zero-length array is therefore a failed read, not an empty roster — the uploader refuses to send one, and this constraint makes a consumer reject it rather than faithfully applying it and wiping the account's champions. Treat a validation failure here as 'discard this payload and keep what you have'.",
       "items": {
         "type": "object",
         "required": ["instanceId", "baseTypeId", "masteries", "skills"],
@@ -179,13 +179,6 @@
         }
       }
     },
-    "heroes": {
-      "deprecated": true,
-      "type": "array",
-      "minItems": 1,
-      "description": "DEPRECATED in schema 16, REMOVED in schema 17. A byte-identical copy of `champions` under the old name, emitted only so a consumer reading `heroes` keeps working across the rename. Same content, same constraints, same never-empty invariant — validate against `champions` and ignore this. NEW CONSUMERS MUST READ `champions`. Absent on a schema-17 payload, which is why it is not in `required`: this schema validates both a 16 and a 17 payload, deliberately. A consumer supporting both should read `champions ?? heroes` — that ordering is the migration, and it also handles pre-16 payloads, which carry `heroes` alone. NOTE THE ASYMMETRY: the producer stops emitting this in schema 17, but a CONSUMER's `heroes` fallback must outlive that by a wide margin, because the uploader is installed on user machines and updates opt-in — old installs keep sending `heroes` alone for as long as they exist. Dropping the fallback is gated on refusing pre-1.14 uploaders, a separate decision.",
-      "items": { "$ref": "#/properties/champions/items" }
-    },
     "factionGuardians": {
       "type": "array",
       "description": "Academy guardian slots. Each slot fuses up to TWO copies of one champion, hence the First/Second pair.",
@@ -197,8 +190,8 @@
           "factionId": { "type": "integer" },
           "rarityId": { "type": "integer" },
           "slotIndex": { "type": "integer" },
-          "heroTypeId": { "type": "integer", "description": "Champion type WITH the ascension digit (366 = base 360 at ascension 6). Do NOT join this onto heroes[].baseTypeId." },
-          "heroBaseTypeId": { "type": "integer", "description": "Ascension stripped. THIS is what joins to heroes[].baseTypeId. The game's own field is misleadingly named HeroBaseTypeId but carries the ascension digit; both forms are published so consumers need not guess." },
+          "heroTypeId": { "type": "integer", "description": "Champion type WITH the ascension digit (366 = base 360 at ascension 6). Do NOT join this onto champions[].baseTypeId." },
+          "heroBaseTypeId": { "type": "integer", "description": "Ascension stripped. THIS is what joins to champions[].baseTypeId. The game's own field is misleadingly named HeroBaseTypeId but carries the ascension digit; both forms are published so consumers need not guess." },
           "firstHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty." },
           "secondHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty." },
           "consumed": { "type": "boolean" }
@@ -217,7 +210,7 @@
     },
     "relics": {
       "type": "array",
-      "description": "Every RELIC the account owns, equipped AND in storage, each with its gemstone sockets. New in schema 11; nothing resembling it existed before, so there is no migration - a consumer that ignores the array is exactly as correct as it was in schema 10. Its own array rather than part of artifacts[] because relics are a separate inventory in game, with their own counters, their own id space and their own upgrade currencies (Basalt and Starstone, both new resource ids in this schema). RECONCILING WITH THE GAME: length equals the in-game relic total and the count with equippedByHeroId == null equals the in-game unequipped total - measured live 2026-08-03 at 377 total / 240 unequipped / 137 equipped. A SNAPSHOT, not constants: check the relationship against counters read at the same moment, never the literals. One relic per champion is what this account shows (137 relics across 137 heroes, none with two), but that is an observation about the game's current rules, not a guarantee the payload enforces - the field is a per-relic hero reference, so handle a hero appearing twice.",
+      "description": "Every RELIC the account owns, equipped AND in storage, each with its gemstone sockets. New in schema 11; nothing resembling it existed before, so there is no migration - a consumer that ignores the array is exactly as correct as it was in schema 10. Its own array rather than part of artifacts[] because relics are a separate inventory in game, with their own counters, their own id space and their own upgrade currencies (Basalt and Starstone, both new resource ids in this schema). RECONCILING WITH THE GAME: length equals the in-game relic total and the count with equippedByHeroId == null equals the in-game unequipped total - measured live 2026-08-03 at 377 total / 240 unequipped / 137 equipped. A SNAPSHOT, not constants: check the relationship against counters read at the same moment, never the literals. One relic per champion is what this account shows (137 relics across 137 champions, none with two), but that is an observation about the game's current rules, not a guarantee the payload enforces - the field is a per-relic hero reference, so handle a hero appearing twice.",
       "items": { "$ref": "#/$defs/relic" }
     },
     "gemstones": {
@@ -251,9 +244,9 @@
         "rarityId": { "type": "integer", "minimum": 1, "maximum": 6, "description": "Quality tier, 1-6." },
         "level": { "type": "integer", "minimum": 0, "maximum": 16, "description": "Upgrade level. 0 is a real, common value (an un-upgraded drop)." },
         "ascendLevel": { "type": "integer", "minimum": 0, "maximum": 6, "description": "Ascension level. ascendBonus is non-null exactly when this is > 0." },
-        "requiredFactionId": { "type": "integer", "minimum": 0, "description": "Faction the piece is locked to; 0 = unrestricted. Same id space as heroes[].factionId. Non-zero on every accessory, zero on gear." },
+        "requiredFactionId": { "type": "integer", "minimum": 0, "description": "Faction the piece is locked to; 0 = unrestricted. Same id space as champions[].factionId. Non-zero on every accessory, zero on gear." },
         "isActivated": { "type": "boolean" },
-        "equippedByHeroId": { "type": ["integer", "null"], "description": "int64. The hero instance id wearing this piece, joining to heroes[].instanceId - or NULL when it sits in the vault, which is the majority of records. Null means 'not equipped', never 'wearer unknown'. This replaces schema 8's heroInstanceId, which was non-null on every record because only equipped artifacts were exported." },
+        "equippedByHeroId": { "type": ["integer", "null"], "description": "int64. The hero instance id wearing this piece, joining to champions[].instanceId - or NULL when it sits in the vault, which is the majority of records. Null means 'not equipped', never 'wearer unknown'. This replaces schema 8's heroInstanceId, which was non-null on every record because only equipped artifacts were exported." },
         "sellPrice": { "type": "integer", "description": "Silver received for selling it." },
         "price": { "type": "integer", "description": "Silver cost of the next upgrade." },
         "failedUpgrades": { "type": "integer", "description": "Failed upgrade attempts since the last success - the game's pity counter." },
@@ -269,14 +262,14 @@
       "type": "object",
       "additionalProperties": true,
       "required": ["id", "typeId", "rank", "level", "sockets"],
-      "description": "One owned relic. ACCOUNT STATE ONLY: a relic's name, rarity, group, skill and stat bonuses live on the shared RelicType, which is a catalog of the game rather than anything about this player - the same split that keeps skill names and mastery-node metadata out of heroes[]. Join those on typeId.",
+      "description": "One owned relic. ACCOUNT STATE ONLY: a relic's name, rarity, group, skill and stat bonuses live on the shared RelicType, which is a catalog of the game rather than anything about this player - the same split that keeps skill names and mastery-node metadata out of champions[]. Join those on typeId.",
       "properties": {
         "id": { "type": "integer", "description": "Instance id, unique within the account and stable across upgrades and re-equips - the join key for change detection, and what a socket's stoneId is NOT (that is a gemstone id, a different space)." },
         "typeId": { "type": "integer", "description": "The shared RelicType this is a copy of; the join key into a relic catalog. Opaque - 57 distinct values in range 1-86 on the reference account. NOT named in relic-enums.json: the game ships l10n:relic/name?id=N keys but this client build has no localized strings behind them and falls back to placeholder text ('Relic 12 name'), so no honest name table can be built from memory today. Gemstone type names DO resolve." },
         "rank": { "type": "integer", "minimum": 1, "description": "1-5 observed. Raising a relic from rank N to N+1 is paid for in Rank N Basalt, resource id 19000+N - which is why there are exactly five Basalt ranks. Rank 6 exists as an upgrade target ('Used to upgrade a Rank 5 Relic to Rank 6') but no rank-6 relic occurred on the reference account, so the upper bound is deliberately not constrained here." },
         "level": { "type": "integer", "minimum": 0, "description": "Upgrade level, paid for in Starstone (resource id 4000). Observed 0, 3, 6, 9, 12, 15 - it steps by 3, and 0 is a real and common value (213 of 377). Do not assume every integer in the range occurs." },
         "isActivated": { "type": "boolean" },
-        "equippedByHeroId": { "type": ["integer", "null"], "description": "int64. Hero instance id wearing this relic, joining to heroes[].instanceId - or NULL when it is in storage, which is most of them. Null means 'not equipped', never 'wearer unknown'." },
+        "equippedByHeroId": { "type": ["integer", "null"], "description": "int64. Hero instance id wearing this relic, joining to champions[].instanceId - or NULL when it is in storage, which is most of them. Null means 'not equipped', never 'wearer unknown'." },
         "sockets": {
           "type": "array",
           "description": "The relic's gemstone sockets in the game's own order. 1-4 per relic (170/149/55/3 on the reference account). Count and shapes are fixed by the relic's type; what varies per copy is which are filled.",
