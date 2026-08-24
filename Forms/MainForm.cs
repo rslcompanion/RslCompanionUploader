@@ -1451,10 +1451,14 @@ public sealed class MainForm : Form
 
         if (PackagedAppInfo.IsPackaged || info.InstallerUrl is null)
         {
+            // get.rslcompanion.com, never the GitHub release page. The release page hands someone six
+            // assets and asks them to pick — including a self-signed .msix that cannot install on a
+            // machine which has not already trusted the certificate — and it is a developer surface
+            // shown to a player who only wanted the new version. The download URL is one file.
             _shell.SetUpdateStatus($"Version {info.Version} has to be installed by hand from here:",
                                    clickable: false,
-                                   linkUrl: info.ReleaseUrl, linkText: "open the release page");
-            Log($"Version {info.Version} can't be installed from here — get it from {info.ReleaseUrl}.");
+                                   linkUrl: UpdateChecker.DownloadPageUrl, linkText: "download it yourself");
+            Log($"Version {info.Version} can't be installed from here — get it from {UpdateChecker.DownloadPageUrl}.");
             return;
         }
 

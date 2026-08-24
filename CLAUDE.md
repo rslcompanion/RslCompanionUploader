@@ -62,9 +62,12 @@ second click can't start a second download. `UpdateChecker` picks the version-st
 `.msix`, which is self-signed and cannot install onto a machine that hasn't already trusted the
 certificate.
 
-**Neither dead end opens a browser — both report into the banner and offer a link.** A packaged
-(MSIX/Store) build must never overwrite itself with an Inno install, and a release with no installer
-asset has nothing to run; those say so and link the release page. A failed download says *why*
+**Neither dead end opens a browser — both report into the banner and offer a link, and that link is
+always `UpdateChecker.DownloadPageUrl`.** A packaged (MSIX/Store) build must never overwrite itself
+with an Inno install, and a release with no installer asset has nothing to run; those say so and link
+get.rslcompanion.com. **Never the GitHub release page** — it hands a player six assets and asks them
+to pick, one of which is a self-signed `.msix` that cannot install on a machine which has not already
+trusted the certificate. `UpdateInfo.ReleaseUrl` still exists for diagnostics and is not surfaced. A failed download says *why*
 (`DescribeDownloadFailure` names the likely cause — antivirus holding the finished file is the one
 seen in the wild), **stays clickable as its own retry**, and puts `UpdateChecker.DownloadPageUrl`
 (get.rslcompanion.com, the unversioned installer) beside it as the manual way out. Launching a

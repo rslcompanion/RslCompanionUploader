@@ -7,10 +7,13 @@ namespace RslCompanionUploader;
 /// <summary>
 /// A newer release than the one running.
 ///
-/// <para><paramref name="ReleaseUrl"/> is the human-readable release page — the fallback for when
-/// there is nothing to install automatically (a release with no installer asset, an MSIX build, or a
-/// download that failed). <paramref name="InstallerUrl"/> is the setup exe itself, which is what the
-/// update banner actually uses: the user asked for a new version, not for a GitHub page.</para>
+/// <para><paramref name="InstallerUrl"/> is the setup exe itself, which is what the update banner
+/// actually uses: the user asked for a new version, not for a GitHub page.</para>
+///
+/// <para><paramref name="ReleaseUrl"/> is the human-readable release page, kept for diagnostics and
+/// <b>never shown to a user</b>. Every manual way out points at <see cref="DownloadPageUrl"/>
+/// instead — one file rather than a release page's six assets, one of which is a self-signed
+/// <c>.msix</c> that cannot install on a machine that has not already trusted the certificate.</para>
 /// </summary>
 public sealed record UpdateInfo(
     Version Version,
