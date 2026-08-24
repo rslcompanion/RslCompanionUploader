@@ -88,12 +88,15 @@ public sealed class RslCompanionApiClient
         if (resp.StatusCode == HttpStatusCode.NotFound)
             return UploadResult.Fail(
                 "RSL Companion isn't accepting uploads at the moment — nothing is wrong on your side. "
-              + "Please try again later.",
+              + "Please try again later. If it's still happening after a while, use Help → Check for "
+              + "updates: a newer version of this app may be sending to a route this one doesn't know.",
                 $"404 from {endpoint}: {Trim(body)}");
 
         if (!resp.IsSuccessStatusCode)
             return UploadResult.Fail(
-                "RSL Companion couldn't accept your data. Please try again in a few minutes.",
+                "RSL Companion couldn't accept your data. Please try again in a few minutes. If it "
+              + "keeps being rejected, use Help → Check for updates — a rejection that doesn't clear "
+              + "on its own is usually this app sending something the server has moved on from.",
                 $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
 
         return UploadResult.Ok(

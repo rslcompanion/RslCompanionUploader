@@ -34,7 +34,12 @@ public static class UpdateChecker
     private const string LatestReleaseApiUrl =
         "https://api.github.com/repos/rslcompanion/RslCompanionUploader/releases/latest";
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    // 10 s, not 5: the check that matters most runs seconds after launch, against a connection that
+    // may still be coming up, and a cold DNS + TLS handshake to api.github.com can eat most of a
+    // five-second budget on its own. Timing out there reports "no internet" to someone who has it —
+    // and on the background poll that answer is invisible, so the session simply never learns a
+    // release exists. Nothing waits on this call but a background poll and one menu item.
+    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
     /// <summary>
     /// Where someone finishes an update by hand. It resolves to the release's unversioned installer,

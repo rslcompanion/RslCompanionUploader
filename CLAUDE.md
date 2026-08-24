@@ -96,6 +96,26 @@ no leaves Help ▸ Check for updates working, so it costs discovery, not the abi
 who never signed in was never told a release existed — including the release covering the Raid build
 about to block them.
 
+**The first check of a session says what it found; the hourly ones after it only speak up when
+something changed.** "Silent" used to mean a background check left no trace at all — so a startup
+that was up to date, one that couldn't reach GitHub, and one that never ran looked identical, and
+"it never told me about a new version" is what that gets reported as by someone who was already on
+the newest build. Now the first check logs its outcome at the user level, later ones log at the
+detail level, and an update is announced once per release rather than once per hour (the banner is
+what keeps saying it). **A failed check is a missing answer, not an answer**: it retries after 5
+minutes, up to three times, before dropping back to the hourly cadence — the check most likely to
+fail is the first, seconds after launch with the network still coming up, and waiting an hour for
+the next one is how a whole session never learns a release exists. `UpdateChecker`'s HTTP timeout is
+10 s for the same reason; 5 s was inside the range a cold DNS + TLS handshake can take on its own.
+
+**A run of rejected uploads triggers a check by itself.** `POST /api/sync/consolidated/raw` failing
+once is a moment and the message says to try again; failing twice in a row is usually an uploader the
+server has moved on from, so `ExportAccountAsync` counts consecutive rejections (`_uploadRejections`,
+reset by the first accepted upload) and the second one runs a non-silent `CheckForUpdateAsync`. That
+either lights the banner or logs "you're on the latest version", which rules the theory out instead of
+leaving the user to guess. Both rejection messages in `RslCompanionApiClient` name Help → Check for
+updates for the same reason — including the 404 one, which otherwise reads as purely server-side.
+
 The app opens its main window **before authenticating** (like Postman). [Program.cs](Program.cs) now
 does *no* authentication at all — it hands `MainForm` the launch code (if any) and starts the message
 loop. `MainForm.RestoreSessionAsync` runs on Load: redeem the launch code, else restore the saved
@@ -179,6 +199,20 @@ notice or click a banner first. Both the certify check and the calibration own a
 once-per-build-per-session guard, so re-running this on every poll tick is safe. It stops re-triggering
 once *any* local map exists, certified or self-calibrated — `CoveredByShippedCatalog` alone would keep
 firing for a user who already fixed it.
+
+**The "don't scan while an update is waiting" rule lives in `TrySelfCalibrateAsync`, not at the call
+sites.** `UpdateReportPrompt` had it and the status poll's own `NeedsCalibration` branch did not, so
+the poll routed straight around it and an out-of-date uploader still paid ~35–50 s deriving a map the
+release in its own banner may already ship. **The two read `_isLatestUploader` differently on purpose,
+and it is a three-valued field.** The prompt starts the flow only on `true` — unknown means the check
+hasn't landed, and it re-runs when it does. The scan declines only on `false`: by then a poll has
+already found the build uncovered, and GitHub rate-limits by IP, so treating "couldn't ask GitHub" as
+"don't calibrate" would make reading the local game process depend on a service it has nothing to do
+with. A deferral logs one line per build (`_calibrationDeferred`, deliberately not
+`_calibrationAttempted` — a deferral is not an attempt and must not consume the one attempt the build
+gets) pointing at the banner and at Help → Set up this Raid version, which passes `force` and
+overrides all of this. The cheap certify lookup is never gated: it is a GET, and its
+`NeedsNewerUploader` answer is itself a reason to update.
 
 **A calibration result is only trusted if it looks like a real account.** `ExtractionService.CalibrateAsync`
 extracts without throwing even when the offsets are wrong — a bad scan can read zeroed or garbage

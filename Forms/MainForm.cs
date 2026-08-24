@@ -94,8 +94,14 @@ public sealed class MainForm : Form
     /// <summary>
     /// Whether this is the newest uploader — null until the check succeeds. Gates auto-recalibration
     /// for an uncovered build: if the user is behind, the release they haven't installed may already
-    /// cover their game, so calibrating would just repeat work a plain update fixes. Unknown (offline,
-    /// GitHub down) is treated as "don't act" — calibrating on a stale premise costs more than waiting.
+    /// cover their game, so calibrating would just repeat work a plain update fixes.
+    ///
+    /// <para>Three values, read two different ways. <see cref="UpdateReportPrompt"/> starts the cover
+    /// flow only on <c>true</c>: unknown (check pending, offline, GitHub rate-limited) is "don't act
+    /// yet", and it re-runs when the check lands. <see cref="TrySelfCalibrateAsync"/> declines only on
+    /// <c>false</c>: by then a poll has already found the build uncovered, and refusing to scan
+    /// because GitHub couldn't be reached would strand a user whose game and connection are both
+    /// fine.</para>
     /// </summary>
     private bool? _isLatestUploader;
 
@@ -112,6 +118,14 @@ public sealed class MainForm : Form
     /// app unusable while a build stays uncovered.
     /// </summary>
     private readonly HashSet<string> _certificationOffered = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Game builds whose local scan was skipped because a newer release is waiting in the banner.
+    /// Separate from <see cref="_calibrationAttempted"/> on purpose: a deferral is not an attempt, so
+    /// it must not consume the one attempt this build gets. Its only job is to keep the explanation
+    /// to one line per build rather than one per poll tick.
+    /// </summary>
+    private readonly HashSet<string> _calibrationDeferred = new(StringComparer.OrdinalIgnoreCase);
 
     // Stops the status poll when the window closes.
     private readonly CancellationTokenSource _statusCts = new();
@@ -602,6 +616,12 @@ public sealed class MainForm : Form
     /// A build that genuinely cannot be calibrated — or a game still mid-load — must cost one ~35s
     /// scan, not one every poll. <paramref name="force"/> is how the user retries once the game has
     /// finished loading.
+    ///
+    /// <para>Also declined while a newer release is known to be waiting — the same reasoning
+    /// <see cref="UpdateReportPrompt"/> applies before it starts this flow, enforced here so the
+    /// status poll's own <c>NeedsCalibration</c> branch can't route around it. It lives in the method
+    /// rather than at the two call sites because it is a property of the scan, not of who asked for
+    /// it.</para>
     /// </summary>
     private async Task TrySelfCalibrateAsync(string cachePath, CancellationToken token, bool force = false)
     {
@@ -610,6 +630,27 @@ public sealed class MainForm : Form
         // Identify the build so one failure doesn't licence an endless retry loop. Cheap: the hash
         // is memoized in the engine, and this is the same file the probe already stat'd.
         string buildKey = GameBuildKey();
+
+        // Not while a newer release is sitting in the banner: this scan costs the user ~35-50 s, and
+        // the release they haven't installed may already ship this build's map — in which case they
+        // pay for it and then throw the result away on the next update.
+        //
+        // Only a KNOWN-newer release declines it. `_isLatestUploader` is null while the check hasn't
+        // finished, and stays null when it couldn't run at all — GitHub rate-limits by IP, so that
+        // happens on a perfectly good connection — and treating "couldn't ask GitHub" as "don't
+        // calibrate" would make reading the local game process depend on a service it has nothing to
+        // do with. That is why this is `== false` where UpdateReportPrompt is `== true`: the prompt is
+        // deciding whether to START this on its own, and re-runs when the check lands; this is the
+        // work itself, reached by a poll that has already found the build uncovered.
+        if (!force && _isLatestUploader == false)
+        {
+            if (_calibrationDeferred.Add(buildKey))
+                Log("A newer version of RSL Companion is available, and it may already know this Raid "
+                  + "version — installing it from the banner at the top is quicker than the setup this "
+                  + "PC would otherwise run. To set it up here anyway, use Help → Set up this Raid version.");
+            return;
+        }
+
         if (!force && !_calibrationAttempted.Add(buildKey)) return;
         if (force) _calibrationAttempted.Add(buildKey);
 
@@ -1176,6 +1217,17 @@ public sealed class MainForm : Form
     /// <summary>How often the app re-checks for a release while it is open, once enabled.</summary>
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(1);
 
+    /// <summary>
+    /// How long to wait before retrying a check that couldn't reach GitHub at all, and how many such
+    /// retries to make before dropping back to the hourly cadence.
+    ///
+    /// <para>A failed check is a missing answer, not an answer — and the one that fails is usually the
+    /// first, seconds after launch, with the network not up yet. Waiting the full hour for the next
+    /// one is how a session that started offline never learns a release exists.</para>
+    /// </summary>
+    private static readonly TimeSpan UpdateRetryInterval = TimeSpan.FromMinutes(5);
+    private const int UpdateRetryAttempts = 3;
+
     /// <summary>Stops the update poll when it is switched off. Null whenever the poll isn't running.</summary>
     private CancellationTokenSource? _updatePollCts;
 
@@ -1217,12 +1269,25 @@ public sealed class MainForm : Form
     {
         try
         {
+            bool first = true;
+            int retries = 0;
             while (!token.IsCancellationRequested)
             {
-                // Silent: a background check that found nothing has nothing to say, and an hourly
-                // "you're up to date" would be noise in a console the user reads for exports.
-                await CheckForUpdateAsync(silent: true);
-                await Task.Delay(UpdateCheckInterval, token);
+                // The FIRST check of a session says what it found even when that is "nothing to do".
+                // It is the one people go looking for at startup, and a check that says nothing is
+                // indistinguishable from a check that never ran — which is exactly how "it never told
+                // me about a new version" gets reported by someone who was already on it. The hourly
+                // ones after it stay silent: a repeating "you're up to date" would be noise in a
+                // console the user reads for exports.
+                var status = await CheckForUpdateAsync(silent: !first);
+                first = false;
+
+                // Retry a failed check in minutes rather than in an hour, a few times, then settle
+                // back to the normal cadence — a machine that is simply offline must not poll forever
+                // on the short timer.
+                bool retry = status == UpdateCheckStatus.Failed && retries < UpdateRetryAttempts;
+                retries = status == UpdateCheckStatus.Failed ? retries + 1 : 0;
+                await Task.Delay(retry ? UpdateRetryInterval : UpdateCheckInterval, token);
             }
         }
         catch (OperationCanceledException)
@@ -1294,16 +1359,25 @@ public sealed class MainForm : Form
 
     /// <summary>
     /// On a background check (<paramref name="silent"/> = true) failures and "already up to date" are
-    /// not reported — only a real update lights up the banner. A manual check always logs the outcome.
+    /// not reported at the user level — only a real update lights up the banner. A manual check always
+    /// logs the outcome. Either way the outcome goes out at the detail level, so "did it even check?"
+    /// is answerable after the fact rather than only while someone is watching.
+    ///
+    /// <para>Returns the outcome so the caller can tell "nothing to do" from "couldn't ask", which
+    /// are the same silence on screen and very different things to do next.</para>
     /// </summary>
-    private async Task CheckForUpdateAsync(bool silent)
+    private async Task<UpdateCheckStatus> CheckForUpdateAsync(bool silent)
     {
+        var status = UpdateCheckStatus.Failed;
         try
         {
             var result = await UpdateChecker.CheckForUpdateAsync();
+            status = result.Status;
             switch (result.Status)
             {
                 case UpdateCheckStatus.UpdateAvailable:
+                    // Once per release, not once per hourly check: the banner is what keeps saying it.
+                    bool announced = _pendingUpdate?.Version == result.Info!.Version;
                     _pendingUpdate = result.Info;
                     _shell.SetUpdate(result.Info!.Version.ToString());
 #if EXTRACTION
@@ -1311,7 +1385,7 @@ public sealed class MainForm : Form
                     // out-of-date uploader burning 35 s calibrating a build the next release covers.
                     _isLatestUploader = false;
 #endif
-                    if (!silent) Log($"Update available: {result.Info.Version}.");
+                    if (!silent || !announced) Log($"Update available: {result.Info.Version}.");
                     break;
                 case UpdateCheckStatus.UpToDate:
                     _pendingUpdate = null;
@@ -1319,10 +1393,13 @@ public sealed class MainForm : Form
 #if EXTRACTION
                     _isLatestUploader = true;
 #endif
-                    if (!silent) Log($"You're on the latest version ({UpdateChecker.CurrentVersion}).");
+                    Log($"You're on the latest version ({AboutForm.DisplayVersion}).", detail: silent);
                     break;
                 case UpdateCheckStatus.Failed:
-                    if (!silent) Log("Could not check for updates — no internet connection or GitHub is unreachable.");
+                    // Detail level when silent, but never nothing: a check that left no trace at all
+                    // is one nobody can rule out afterwards.
+                    Log("Could not check for updates — no internet connection or GitHub is unreachable.",
+                        detail: silent);
                     break;
             }
         }
@@ -1334,6 +1411,7 @@ public sealed class MainForm : Form
             UpdateReportPrompt();
 #endif
         }
+        return status;
     }
 
     /// <summary>
@@ -1505,6 +1583,12 @@ public sealed class MainForm : Form
 
 #if EXTRACTION
     /// <summary>
+    /// Consecutive uploads RSL Companion refused, reset by the first one it takes. A single rejection
+    /// is a moment; a run of them is a symptom, and this is what tells the two apart.
+    /// </summary>
+    private int _uploadRejections;
+
+    /// <summary>
     /// Extracts the live account from the game, checks it against the accounts already created by
     /// this uploader, and exports it to RSL Companion. The consolidated profile carries the in-game
     /// account id — the "handle" identity, deliberately distinct from the signed-in uploader — and
@@ -1567,6 +1651,19 @@ public sealed class MainForm : Form
             var result = await _api.UploadConsolidatedAsync(json);
             Log(result.Message);
             if (result.Detail is string detail) Log($"Sync response: {detail}", detail: true);
+
+            // "Try again in a few minutes" is the right answer to one rejection and the wrong answer
+            // to a run of them: a server that keeps refusing this app's uploads is usually one this
+            // app is out of date for. So the second consecutive rejection stops advising patience and
+            // goes and looks — the check lights the banner if a release exists, and says so in the log
+            // if it doesn't, which also rules the theory out instead of leaving the user to wonder.
+            _uploadRejections = result.Success ? 0 : _uploadRejections + 1;
+            if (_uploadRejections >= 2)
+            {
+                Log($"That's {_uploadRejections} uploads in a row RSL Companion wouldn't take — "
+                  + "checking whether a newer version of this app is available…");
+                await CheckForUpdateAsync(silent: false);
+            }
 
             // Refresh the tiles (a new account now exists). LoadAccountsAsync reconciles the live
             // account against them, so the exported one comes back highlighted as the in-game tile.
