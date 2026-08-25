@@ -378,6 +378,18 @@ One doc pair, prose + JSON Schema 2020-12:
 `docs/clan-export-schema.md` / `.json` are **deleted** (schema 13), with the clan export they
 described. Old links to them in the changelog rows are left unlinked on purpose.
 
+**The Great Hall is two tables on the wire, and they are account data (schema 18).**
+`affinityBonuses[]` (per affinity) and `areaBonuses[]` (per location, internally the Observatory) are
+the building's two tabs, and they are not one table keyed differently: the area table adds Speed and
+Ignore Defence to the affinity table's six stats, its per-level curve is linear where the affinity
+one steps unevenly, and *which* stats a location grants varies by location. Both carry `level`
+beside `value` because neither derives the other without the static per-level table, which stays in
+the client. **`isAbsolute` is not constant inside either table** — HP/ATK/DEF/C.DMG/IGN.DEF are
+fractions of the Basic Stat, RES/ACC/SPD are flat amounts — and reading the whole table as
+percentages computes `baseResistance × 80` where the game adds 80. **`areaBonuses[]` will never join
+`statBreakdownSources`**: the game applies it for one location the player picks from a dropdown, so
+there is no per-champion number; account level is the only place it is well defined.
+
 Alongside them, two **static game metadata** files — not payloads, since every account sees the same
 tables, but they ship here because the payload's ids are opaque without them:
 [docs/role-names.json](docs/role-names.json) for `champions[].roleId`, and

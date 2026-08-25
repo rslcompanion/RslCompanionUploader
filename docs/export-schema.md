@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 17** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 18** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -53,6 +53,9 @@ there is no partial/patch mode.
   "relics":     [ … ],                      // array — ALL relics owned, with their gemstone sockets
   "gemstones":  [ … ],                      // array — ALL gemstones owned, socketed or not
   "factionGuardians": [ … ],                // array
+  "statBreakdownSources": [ … ],            // array or ABSENT — which statBreakdown columns are real
+  "affinityBonuses": [ … ],                 // array or ABSENT — Great Hall ▸ Affinity Bonuses
+  "areaBonuses": [ … ],                     // array or ABSENT — Great Hall ▸ Area Bonuses
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "clanName":   "Bastion" | null,           // string|null — display only; null is "says nothing"
   "baseStatsCatalog": { … },                // object or ABSENT — provenance of champions[].baseStats
@@ -365,6 +368,54 @@ produced by RslCompanionMetadata) for champions the player does **not** own — 
 "what would this champion look like". The two are complementary: this field reaches a correct number
 sooner for owned copies, and the catalog covers everything else.
 
+### `champions[].elementId` — the copy's affinity, and `null` means unknown
+
+The game's `Element` — Magic / Force / Spirit / Void — as a **raw id**, deliberately unnamed here.
+The frontend already renders affinity from icons keyed by that id, so a name table would be one more
+thing to keep in sync for no consumer benefit; the same decision `forms[].element` makes in the
+champion index.
+
+**`null` is "could not read", not "has no affinity".** Every champion has one. The client hydrates a
+champion's shared type lazily, so a copy the player has never rendered has nothing to read it from —
+the same mechanism that leaves `roleId` null on part of a mature roster. The exporter backfills from
+another copy of the same `baseTypeId` first, which is legitimate because affinity is
+champion-constant, and only then gives up.
+
+Consumers need it for exactly one thing: selecting this champion's row out of `affinityBonuses[]`.
+
+### `champions[].statBreakdown` — the game's own Total Stats table
+
+Per stat, the total plus one entry per contributing source, keyed by `StatKindId` **as strings** —
+the same ids as `baseStats`:
+
+```jsonc
+"statBreakdown": {
+  "1": { "isPercentage": false, "total": 19650, "sources": { "basic": 14865, "artifacts": 4488, "greatHall": 297 } },
+  "8": { "isPercentage": true,  "total": 158,   "sources": { "basic": 63, "artifacts": 85, "greatHall": 10 } }
+}
+```
+
+**An absent source means "contributes nothing", never zero.** This is the client's own distinction,
+not a convention invented here: the game builds one `StatBonusContext` per stat row, every cell
+carries a `_hasValue` flag, and a cell without one renders **blank** rather than `0`. Reproducing it
+as `0` throws away information the game keeps.
+
+**A source absent from `statBreakdownSources` is a third thing again: not modelled yet.** The columns
+are landing one at a time, and the per-champion object cannot express the difference — both cases look
+like a missing key. So the top-level list is what tells them apart, and **a consumer must not draw
+either as a real zero**, nor present a Total as complete without noting which columns went into it.
+
+`isPercentage` marks the stats the game displays as percentages (C.RATE, C.DMG, C.HEAL, IGN.DEF). For
+those, a non-absolute bonus is **percentage points**, not a fraction of the base: 15% base plus 37%
+from gear shows as 57%, not 21%.
+
+`total` is the number on the game's screen. It is rounded the way the client rounds — once per column,
+half to even — so a consumer that re-sums `sources` under a different rule can legitimately land one
+off; prefer the field.
+
+Absent entirely on a champion whose `baseStats` could not be computed, because there is then no base
+for a percentage to apply to and a breakdown of the bonuses alone would silently disagree with the game.
+
 ### `champions[].skills`
 
 ```jsonc
@@ -434,6 +485,54 @@ game data, not account data. Join `selected` ids against the mastery catalog
 table if needed.
 
 ---
+
+## `affinityBonuses[]` and `areaBonuses[]` — the Great Hall's two tabs
+
+The Great Hall building has two tabs and they are **two different tables**, so they are two arrays.
+Both are **account data**: one purchase feeds every champion it applies to, so neither is repeated per
+champion.
+
+```jsonc
+"affinityBonuses": [ { "elementId": 4, "statKindId": 2, "level": 3,  "value": 0.04, "isAbsolute": false },
+                     { "elementId": 4, "statKindId": 5, "level": 10, "value": 80,   "isAbsolute": true  } ],
+"areaBonuses":     [ { "locationId": 3, "statKindId": 1, "level": 6,  "value": 0.12, "isAbsolute": false },
+                     { "locationId": 3, "statKindId": 4, "level": 10, "value": 20,   "isAbsolute": true  } ]
+```
+
+**Absent means level 0**, in both. That is the blank cell the game draws, and it is never a `0` entry.
+An absent *array*, on the other hand, means the table could not be read — which is **not** the same as
+an account that has bought nothing, and must not be rendered as an empty Great Hall.
+
+**Both the level and the value are carried, and neither derives the other.** The level is what the
+player sees and plans against ("3/10"); the value is what arithmetic needs. Recovering one from the
+other requires the static per-level table, which stays in the client and is not on the wire — so
+dropping either half would make this array strictly less useful than the screen it describes.
+
+**`isAbsolute` is not constant within a table.** Health, Attack, Defence, Critical Damage and Ignore
+Defence are **fractions** of the champion's Basic Stat; **Resistance, Accuracy and Speed are flat
+amounts**. Assuming percentages throughout computes `baseResistance × 80` where the game simply adds
+80. Same field, same meaning, as on an artifact bonus.
+
+**The two tables are not the same table keyed differently**, and a consumer that treats them as one
+will be wrong in three separate ways:
+
+| | `affinityBonuses[]` | `areaBonuses[]` |
+| --- | --- | --- |
+| keyed by | `elementId` — join on `champions[].elementId` | `locationId` — raw id, 1–13 on game build 11.71.0 |
+| stat tracks | six: 1 HP, 2 ATK, 3 DEF, 5 RES, 6 ACC, 8 C.DMG | eight: those (bar none) plus **4 SPD** and **10 IGN.DEF** |
+| per-level curve | uneven steps (…14, 17, 20 %) | linear (2, 4, 6 … 20 %) |
+| which tracks exist | the same six for every affinity | **varies by location** — one grants two stats, another eight |
+
+C.RATE (7) is genuinely absent from the affinity table: the Great Hall has no Critical Rate track.
+
+**`areaBonuses[]` is the one bonus table that will never appear in `statBreakdownSources`.** The game's
+own Total Stats overlay applies it only for a location the player picks from a dropdown ("Showing Area
+Bonuses for:"), so there is no single per-champion number to publish — collapsing it to one would be
+meaningless. At account level it is perfectly well defined, which is why it lives here instead.
+
+Location ids ship raw for the same reason `elementId` does. On game build 11.71.0 they run 1–13 in
+three tiers (1+8, 2–5+9+10, 6+7+11–13); the tier is an internal grouping and is not on the wire, since
+all three currently carry identical values.
 
 ## `factionGuardians[]`
 
@@ -764,6 +863,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 18 | v1.16.0 | 2026-08-24 | **Four new fields, all additive: `champions[].statBreakdown`, `champions[].elementId`, top-level `statBreakdownSources`, and the two account-level Great Hall tables `affinityBonuses[]` / `areaBonuses[]`.** A consumer that ignores every one of them is exactly as correct as it was on schema 17. **`statBreakdown` is the game's own Total Stats table per copy** — per stat, the total plus one entry per source — and it reproduces the client's own blank-vs-zero distinction: an absent source contributes nothing and must never be drawn as `0`. **`statBreakdownSources` exists because a third state is possible**: a column this producer does not compute yet looks identical, from the per-champion object, to one that contributes nothing. The list says which columns are real in *this* export, so an old payload keeps describing what it modelled; today it is `basic, artifacts, greatHall, arena`. **`elementId` is the copy's affinity** (raw id, `null` = could not read, never "no affinity"), and it is what joins a champion to its `affinityBonuses[]` row. **The two Great Hall tables are account data and are two tables, not one**: the affinity table has six stat tracks with an uneven curve, the area table has eight (adding Speed and Ignore Defence) with a linear one, and which tracks a *location* grants varies by location. Both carry `level` alongside `value` because neither derives the other without the static per-level table, which is not on the wire. **`isAbsolute` is not constant inside either table** — HP/ATK/DEF/C.DMG/IGN.DEF are fractions, RES/ACC/SPD are flat — and reading it as "percentage throughout" computes `baseResistance × 80` where the game adds 80; that was a real bug in the first implementation, and it survived verification against the client because the account it was checked on held level 0 in exactly those two stats. **`areaBonuses[]` will never appear in `statBreakdownSources`**: the game applies it per a location the player picks from a dropdown, so there is no per-champion number — account level is the only place it is well defined. **Also documented, not new to the wire:** `artifacts[].powerUpValue` (the glyph, a separate addend to `value`, previously in the JSON Schema only). |
 | 17 | v1.15.0 | 2026-08-21 | **`heroes[]` is removed. `champions[]` is the only roster field.** The other half of the schema-16 rename, and the deliberately boring one: nothing changes shape, nothing is added, the duplicate array simply stops being sent. A consumer already reading `champions` — or the migration expression `payload.champions ?? payload.heroes` — needs no change at all and will not notice. **A consumer still reading `heroes` alone breaks completely**, and breaks in the worst way available: `payload.heroes` is `undefined`, which is not an error but an *empty roster*, and applying it wipes the account's champions. That is precisely the failure schema 16 existed to prevent, which is why the two shipped as separate schemas with the consumer migrated in between rather than as one rename. **The reverse deprecation is untouched and runs much longer.** This stops the PRODUCER emitting `heroes`; it says nothing about a consumer's fallback, which must outlive it by a wide margin, because the uploader is installed on user machines and updates are opt-in — installs older than v1.14 keep sending `heroes` **alone** for as long as they run. Retiring the fallback is gated on refusing pre-1.14 uploaders, a separate decision that is not this one. **What this buys:** the roster stops being duplicated on the wire, roughly −800 KB on a ~900-champion account. **Unchanged, again:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.first`/`.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and join onto `instanceId`, not onto the roster. |
 | 16 | v1.14.0 | 2026-08-21 | **`heroes[]` is renamed to `champions[]`. BOTH are emitted, byte for byte identical, and `heroes[]` is removed in schema 17.** Nothing else changes: same items, same constraints, same never-empty invariant. **Migration is one expression — `payload.champions ?? payload.heroes`** — which also handles every schema before 16, so a consumer can adopt it now and be correct on all three eras at once. Why: every other surface already said *champion*. The game's UI says it, the uploader's own log lines say it, RaidTools' table is `playable_champions`, and the consumer's own element type is literally `ParserChampion` — read out of a field called `Heroes`. Only this array said *hero*, which is the game's INTERNAL class name (`Hero`, `HeroType`, `HeroForm`). The extraction engine's own C# types keep that name deliberately, because they mirror the IL2CPP metadata so memory-layout work stays diffable against a type dump; a wire contract is not memory layout. **Why it takes two schemas rather than one:** emitting `champions` alone today would leave RaidTools' `data.Heroes` null on every import — not an error, an *empty roster*, which is exactly the silent wipe the never-empty invariant exists to prevent. Producer emits both, consumer moves, then producer drops the old name. **The two halves retire on different clocks, and this is the part to get right.** The producer stops emitting `heroes` in schema 17; a **consumer's `heroes` fallback must outlive that by a wide margin**, because the uploader is installed on user machines and updates are opt-in — old installs keep sending `heroes` alone for as long as they run. Dropping the fallback is gated on refusing pre-1.14 uploaders, a separate decision. **Not renamed:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.firstHeroInstanceId` / `.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and are join keys onto `instanceId`, not the roster, so renaming them would multiply the breaking surface for no gain in clarity. **Cost, stated plainly:** the roster is duplicated on the wire for one schema — roughly +800 KB on a ~900-champion account, against a payload already several MB of artifact vault. That is the price of not breaking a live consumer, and it is temporary. |
 | 15 | v1.13.0 | 2026-08-21 | **New `heroes[].baseStats` — additive; nothing else changes.** A consumer that ignores it is exactly as correct as it was on schema 14. Each owned copy now carries the game's own **Basic Stats** column — the numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area bonus — keyed by the same `StatKindId` the artifact bonuses already use, so no new id table is involved. **This is the number a percentage artifact bonus is a percentage of.** A bonus with `isAbsolute: false` carries a fraction (`0.18` = +18%), so until now every percentage HP/ATK/DEF roll had to be dropped from a displayed total — on a geared champion, most of its stats. It is resolved at export rather than left to the consumer because **it is not champion-constant**: the stored value depends on the copy's ascension and the displayed one on its rank and level (`m = rank[stars] × level[stars] ^ ((L−1)/(cap−1))`, then `×15` for HP after rounding, and only Health/Attack/Defence scale at all). The export already carries all three, so it is the one place that can resolve it without a second join, and the formula sits next to the data it was validated against instead of being reimplemented per consumer. **Consumer impact: prefer this over a champion catalog for owned copies** — unlike `roleId`, it cannot be recovered from a catalog keyed on `baseTypeId`. The catalog (`hero_base_stats.json`, bundled with the uploader) is still wanted for champions the player does *not* own; the two are complementary, not alternatives. **Absent means unknown and must never be coalesced to `0`** — the property is omitted when the copy's level or star rank could not be read (`stars` silently falls back to 5, which would otherwise feed the growth multiplier and emit confident nonsense), when the level exceeds its rank's cap, and when the catalog predates the champion; individual stat keys are omitted on the same terms. A `0` that *is* present is a real zero: base Accuracy is genuinely 0 on 6,806 of 7,166 champion variants, while base Resistance is never below 30. **A second new field comes with it: top-level `baseStatsCatalog` `{generatedAt, gameVersion}`, the provenance of every `baseStats` block in the payload** — absent exactly when no hero carries base stats. It is not redundant with the top-level `gameVersion`, and the two come apart in the ordinary case: `gameVersion` is the build the export *ran against*, `baseStatsCatalog.gameVersion` is the build the numbers were *computed from*, so a user who updates Raid before a refreshed catalog ships sends `gameVersion: "11.72.0"` with stats derived from an 11.71.0 catalog — a payload that looks current and is not. It exists because a computed stat is a **snapshot**: a Plarium rebalance silently invalidates every block already stored server-side until each user re-exports, and without this field a stale block is indistinguishable from a fresh one. **Consumer rule: a block whose catalog build trails the payload's `gameVersion` is _suspect, not wrong_** — most rebalances touch few champions, so flag it for re-sync rather than discarding numbers that are almost certainly still right. The model was validated to zero error against the client's own computed stat blocks on ten champions across seven factions and four rarities. |

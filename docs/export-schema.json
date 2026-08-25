@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 17,
+  "schemaVersion": 18,
   "x-uploaderVersion": "1.15.0",
-  "x-lastUpdated": "2026-08-21",
+  "x-lastUpdated": "2026-08-24",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -129,6 +129,24 @@
             "maximum": 5,
             "description": "Champion role: 0 Attack, 1 Defense, 2 Health (shown as 'HP'), 3 Support, 4 Evolve, 5 Xp. NULL — never 0 — when unresolved, because 0 is a real role. Static per champion, NOT per copy: it is the game's HeroRole enum on the shared champion type, so every copy of a champion reports the same value and the id table is game metadata (role-names.json), not account data. Null on roughly a fifth of a mature roster because the client hydrates a champion's type lazily; prefer a champion metadata catalog keyed on baseTypeId as the authoritative source, and treat this field as a convenience copy."
           },
+          "elementId": {
+            "type": ["integer", "null"],
+            "description": "This copy's AFFINITY (the game calls it Element), off HeroForm.Element. Raw id, deliberately unnamed here for the same reason forms[].element is raw in the champion index: the frontend renders affinity from icons keyed by the id, so a name table would be one more thing to keep in sync. NULL MEANS UNKNOWN, NOT 'no affinity' — every champion has one, but the client hydrates a champion's shared type lazily, so a copy the player has never rendered has nothing to read it from; the exporter backfills from another copy of the same baseTypeId (affinity is champion-constant) before giving up. Consumers need it to select a champion's row out of affinityBonuses[]."
+          },
+          "statBreakdown": {
+            "type": "object",
+            "description": "The game's own TOTAL STATS table for this copy: per stat, the total plus one entry per contributing source. Keys are StatKindId AS STRINGS, same as baseStats. AN ABSENT SOURCE MEANS 'CONTRIBUTES NOTHING', NEVER ZERO — the client itself distinguishes the two (every cell carries a _hasValue flag) and draws a blank cell rather than a 0. Which columns this producer actually computed is stated by top-level statBreakdownSources, and a source missing from THAT list is 'not modelled yet', which is a different thing again; a consumer must render neither as a real zero. Absent on a champion whose baseStats could not be computed, since there is then no base for a percentage to apply to.",
+            "propertyNames": { "pattern": "^[0-9]+$" },
+            "additionalProperties": {
+              "type": "object",
+              "required": ["total", "sources"],
+              "properties": {
+                "isPercentage": { "type": "boolean", "description": "True for the stats the game shows as percentages (C.RATE, C.DMG, C.HEAL, IGN.DEF). For these a non-absolute bonus is PERCENTAGE POINTS, not a fraction of the base: 15% base + 37% from artifacts shows as 57%, not 21%." },
+                "total": { "type": "integer", "description": "The number on the game's screen. Rounded as the client rounds — once per column, half to even — so it is not always the sum a consumer would compute from the sources by another rule." },
+                "sources": { "type": "object", "description": "source name -> rounded contribution. Names match statBreakdownSources exactly.", "additionalProperties": { "type": "integer" } }
+              }
+            }
+          },
           "baseStats": {
             "type": "object",
             "description": "This copy's BASIC STATS — the game's own name for the first column of its Total Stats breakdown, i.e. the numbers before any gear, Great Hall, arena, mastery, guardian, empowerment, blessing, relic or area bonus. Keys are the game's StatKindId AS STRINGS, the same ids artifacts[].primaryBonus.statKindId uses (1 Health, 2 Attack, 3 Defence, 4 Speed, 5 Resistance, 6 Accuracy, 7 CriticalChance, 8 CriticalDamage, 9 CriticalHeal, 10 IgnoreDefence) — no translation table needed. THIS IS WHAT A PERCENTAGE ARTIFACT BONUS IS A PERCENTAGE OF: a bonus with isAbsolute=false carries a FRACTION (0.18 = +18%), and without these numbers there is nothing to take 18% of. Percentage bonuses are percentages of these values and are ADDED, never compounded off each other. NOT CHAMPION-CONSTANT, unlike roleId: it is derived from this copy's ascension, stars and level, so a consumer CANNOT recover it from a champion catalog keyed on baseTypeId and should prefer this rather than treating it as a fallback. ABSENT MEANS UNKNOWN — never coalesce to 0. Omitted entirely when level or stars could not be read, when level exceeds its rank's cap, or when the catalog predates the champion; an individual stat kind missing from the catalog entry is likewise absent. A 0 that IS present is a real zero: base Accuracy is genuinely 0 on 6,806 of 7,166 champion variants, while base Resistance is never below 30.",
@@ -178,6 +196,44 @@
           }
         }
       }
+    },
+    "statBreakdownSources": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Which statBreakdown sources THIS PRODUCER modelled, in the game's own column order. It exists because a per-champion breakdown cannot express the difference between 'this source contributes nothing to this champion' and 'this producer does not compute this source yet' — both look like an absent key, and only one of them may be drawn as a zero. The game's full set is basic, artifacts, greatHall, arena, masteries, factionGuardians, empowerment, blessing, relic. AREA BONUSES WILL NEVER APPEAR HERE: they depend on a location the player picks from a dropdown, so there is no single per-champion number — they are published at account level as areaBonuses[] instead. Absent when no champion carries a statBreakdown.",
+      "examples": [["basic", "artifacts", "greatHall", "arena"]]
+    },
+    "affinityBonuses": {
+      "type": "array",
+      "description": "The Great Hall's AFFINITY BONUSES tab, as account data: what this account has bought, per affinity and stat. The same table feeds every champion of that affinity, which is why it is here once rather than repeated per champion — join it on champions[].elementId. A (affinity, stat) pair the account has not bought is ABSENT, which is the level 0 the game draws as a blank cell; absent is never 0. An ABSENT ARRAY means the table could not be read, which is NOT the same as an account that has bought nothing.",
+      "items": {
+        "type": "object",
+        "required": ["elementId", "statKindId", "level", "value", "isAbsolute"],
+        "properties": {
+          "elementId": { "type": "integer", "description": "Affinity, the same raw id space champions[].elementId uses." },
+          "statKindId": { "type": "integer", "description": "Stat, the same id space baseStats and the artifact bonuses use. Six tracks here: 1 HP, 2 ATK, 3 DEF, 5 RES, 6 ACC, 8 C.DMG. C.RATE (7) is genuinely absent — the Great Hall has no Critical Rate track." },
+          "level": { "type": "integer", "minimum": 1, "description": "1-based, as the game displays it ('3/10'). Carried alongside value because neither derives the other without the static per-level table, which stays in the client and is not on the wire." },
+          "value": { "type": "number", "description": "What this level is worth: a flat amount when isAbsolute, else a fraction of the champion's Basic Stat (0.2 = +20%)." },
+          "isAbsolute": { "type": "boolean", "description": "NOT CONSTANT ACROSS THE TABLE. HP, ATK, DEF and C.DMG are fractions of the Basic Stat; RESISTANCE AND ACCURACY ARE FLAT (+5 to +80). Assuming percentages throughout computes baseResistance x 80 where the game adds 80." }
+        }
+      },
+      "examples": [[{ "elementId": 4, "statKindId": 2, "level": 3, "value": 0.04, "isAbsolute": false }, { "elementId": 4, "statKindId": 5, "level": 10, "value": 80, "isAbsolute": true }]]
+    },
+    "areaBonuses": {
+      "type": "array",
+      "description": "The Great Hall's AREA BONUSES tab (internally the Observatory), as account data: what this account has bought, per location and stat. A SEPARATE TABLE from affinityBonuses, not the same one keyed differently — it covers Speed (4) and Ignore Defence (10) on top of the other six, which stats a location grants varies by location, and its per-level curve is linear where the affinity one steps unevenly. It is also the one bonus table that is not a per-champion column: the game's Total Stats overlay picks one location from a dropdown, so a single number per champion would be meaningless. Same absent-means-level-0 rule as affinityBonuses.",
+      "items": {
+        "type": "object",
+        "required": ["locationId", "statKindId", "level", "value", "isAbsolute"],
+        "properties": {
+          "locationId": { "type": "integer", "description": "Location, a raw id (1-13 on game build 11.71.0, in three tiers: 1+8, 2-5+9+10, 6+7+11-13). Raw for the same reason elementId is: the consumer keys its own labels off the id." },
+          "statKindId": { "type": "integer", "description": "Stat, the same id space as everywhere else. Eight tracks here: 1 HP, 2 ATK, 3 DEF, 4 SPD, 5 RES, 6 ACC, 8 C.DMG, 10 IGN.DEF." },
+          "level": { "type": "integer", "minimum": 1, "description": "1-based, as displayed. An absent (location, stat) pair is level 0." },
+          "value": { "type": "number", "description": "Flat amount when isAbsolute, else a fraction of the Basic Stat." },
+          "isAbsolute": { "type": "boolean", "description": "SPEED, RESISTANCE AND ACCURACY ARE FLAT here (+2 to +20 and +8 to +80); HP, ATK, DEF, C.DMG and IGN.DEF are fractions." }
+        }
+      },
+      "examples": [[{ "locationId": 3, "statKindId": 1, "level": 6, "value": 0.12, "isAbsolute": false }, { "locationId": 3, "statKindId": 4, "level": 10, "value": 20, "isAbsolute": true }]]
     },
     "factionGuardians": {
       "type": "array",
