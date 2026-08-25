@@ -4,58 +4,61 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten 2026-08-24. The version of this file that opened on "released **v1.8.0**" was fifteen
-releases stale and walked through work that had already shipped; if something here looks equally
-stale, check it against `git log` before believing it.
+Rewritten 2026-08-25, right after **v1.16.0** shipped. **Check `git log` before trusting any state
+below**: more than one session works in `D:\Codex\RslCompanionUploader`, including its `extraction/`
+checkout, so a clean tree here is not evidence that nothing has moved.
 
 ---
 
-## Where the repos stand (2026-08-24)
+## Where the repos stand (2026-08-25)
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.15.0** (2026-08-21, tag `v1.15.0` = `67b2469`); `main` carries one unreleased commit, `00348a5` — update-check reporting + calibration deferral |
-| `…\RslCompanionUploader\extraction` (private submodule) | `fdd1014`, clean — champions[]-only roster |
-| `D:\Codex\RslCompanionMetadata` (private) | `3a64ed6`, **working tree dirty — see "In flight" below** |
+| `D:\Codex\RslCompanionUploader` (public) | `main` = `20a722a`; released **v1.16.0** (2026-08-25) carrying schema 18 |
+| `…\RslCompanionUploader\extraction` (private submodule) | `main` = `82e75f9`, pointer matches |
+| `D:\Codex\RslCompanionMetadata` (private) | `df4629d`; **working tree dirty** — MetadataStudio, StatBreakdownProbe, ClashProbe, `docs/clash-findings.md` |
 | `D:\Codex\RaidTools` | the API + Angular frontend; its own TODO.md |
 
-Payload contract: **schema 17** (`champions[]` only; `heroes[]` was dropped after one release of
-emitting both). Consumers still read `payload.champions ?? payload.heroes`, and that fallback outlives
-the producer's half by a long way — pre-1.14 installs keep sending `heroes` alone.
+**Payload contract: schema 18.** v1.16.0 is the first release that sends it. Consumers still read
+`payload.champions ?? payload.heroes`, and that fallback outlives the producer's half by a long way —
+pre-1.14 installs keep sending `heroes` alone, and installs update opt-in.
 
-## In flight — do not start work that touches this
+## The obvious next piece: nobody reads schema 18 yet
 
-`RslCompanionMetadata` has **uncommitted** work from a parallel session: `docs/stat-breakdown-findings.md`,
-`tools/StatBreakdownProbe/`, and modifications inside its own `extraction/` submodule checkout
-(`Core/Il2Cpp/OffsetDatabase.cs`, `ExtractionService.cs`, `Extractors/HeroExtractor.cs`,
-`Models/GameModels.cs`) plus `tools/ClashProbe/` and `docs/clash-findings.md`.
+Five fields ship as of v1.16.0 and **RaidTools consumes none of them**. They are additive, so nothing
+is broken — they are simply ignored:
 
-It decodes the game's **`StatBonusContext`** — the twelve sources behind the Total Stats overlay
-(basic, artifacts, **greatHall**, arena, masteries, factionGuardians, empowerment, clan, blessing,
-relics, area, total) — and is heading for a per-champion `statBreakdown` on the wire. Two things
-matter for anyone picking work up here:
+- `affinityBonuses[]` / `areaBonuses[]` — the Great Hall's two tabs as account data. The **whole
+  declared grid** rides on the wire (4×6 and 13×8), unbought tracks at `level: 0`, so a consumer can
+  draw the screen without hardcoding axes.
+- `champions[].statBreakdown` — the game's own Total Stats table per copy, with the client's
+  blank-vs-zero distinction preserved.
+- `statBreakdownSources` — which columns *that export* actually computed. A source missing from this
+  list is "not modelled yet", which is a third state distinct from "contributes nothing".
+- `champions[].elementId` — the copy's affinity, and the join key onto `affinityBonuses[]`.
 
-- **The extraction engine is one submodule shared by both repos.** Editing it from the uploader side
-  while that session has it dirty is how two sessions produce one unmergeable file.
-- `_hasValue` is the game's own **blank-vs-real-zero** flag. Whatever ships must keep absence absent;
-  writing `0` for a source that does not apply throws away information the client itself keeps.
+Contract: [docs/export-schema.md](docs/export-schema.md) / [.json](docs/export-schema.json).
+Derivation of the village tables: `extraction/docs/observatory-findings.md`.
 
-**Open question for the owner:** an account-level `greatHall` object (the Affinity Bonuses table
-itself — per affinity, per stat, the levels the account has bought) is *not* the same thing as
-`champions[].statBreakdown.greatHall` (that table's contribution to one champion). The second is in
-flight above; the first is unclaimed. They are complementary, and neither is derivable from the other.
+**Two traps a consumer will hit, both stated in the schema and both easy to skip past:**
+
+1. **`isAbsolute` is not constant inside either bonus table.** HP/ATK/DEF/C.DMG/IGN.DEF are fractions
+   of the Basic Stat; **RES/ACC/SPD are flat amounts**. Reading the table as percentages computes
+   `baseResistance × 80` where the game adds 80. That was a real bug on the producer side, and it
+   verified clean against the client because the test account held level 0 in exactly those stats.
+2. **`areaBonuses[]` will never appear in `statBreakdownSources`.** The game applies it for one
+   location the player picks from a dropdown, so there is no per-champion number. Account level is the
+   only place it is well defined.
 
 ## Open in this repo
 
 1. **Bundle the WebView2 runtime bootstrapper in the installer** ([TODO.md](TODO.md),
-   [installer/setup.iss](installer/setup.iss)). The whole UI is WebView2, Windows 11 ships it in-box,
-   a fresh Windows 10 machine may not — and there the app shows only the fallback label while sign-in
-   still works, which is a confusing half-broken state rather than an obvious one. This is the one
-   open item with real user impact.
+   [installer/setup.iss](installer/setup.iss)). The whole UI is WebView2; Windows 11 ships it in-box,
+   a fresh Windows 10 machine may not, and there the app shows only the fallback label while sign-in
+   still works — a confusing half-broken state rather than an obvious one. Still the one open item
+   with real user impact.
 2. **Fold the native File/Help menu into the web top bar** — deliberately **deferred** until the
-   web-UI direction has been lived with. Do not start it on a whim; see TODO.md for what it involves.
-3. **Cut a release when something user-visible accumulates.** `00348a5` alone is a UX fix that, by
-   definition, cannot help anyone until they are already running it.
+   web-UI direction has been lived with. See TODO.md before starting it on a whim.
 
 ## Open elsewhere
 
@@ -72,16 +75,36 @@ flight above; the first is unclaimed. They are complementary, and neither is der
   blocked on the owner — governing law, and an identifiable controller address. Also: rename
   `D:\Codex\RaidTools` to `D:\Codex\RslCompanion`.
 
+## Release mechanics, so they don't get rediscovered
+
+- Push a `v*` tag; `.github/workflows/release.yml` builds with the submodule, compiles the Inno
+  installer and publishes the GitHub Release. ~2 minutes. CI needs `EXTRACTION_REPO_TOKEN` to fetch
+  the private engine, and **the submodule pointer must already be pushed** — the workflow fails fast
+  with a readable message when it is not.
+- **`get.rslcompanion.com` needs no per-release action.** Cloudflare 301s it to
+  `github.com/…/releases/latest/download/RslCompanionAccountDataExtractor-Setup.exe`, and GitHub
+  resolves "latest" itself. What that *does* require is that every release keeps attaching the
+  **unversioned** `-Setup.exe` asset — the URL depends on that filename.
+- The update banner picks the **version-stamped** installer and never the `.msix` (self-signed, and it
+  cannot install on a machine that has not already trusted the certificate).
+
 ## Working notes — the expensive lessons
 
 - **Never re-add the clan roster export.** It is gone for **consent**, not cost. Collecting it is now
   provably free, and that must not be read as a reason to bring it back.
-- **A negative result from a scan is worth exactly as much as the scan's stride.** This codebase has
-  paid for that four times (page-stride vault scan, region-capped klass scan, shard/soul quantity
-  signatures, the `typeId < 100` floor).
+- **One account's holdings are not the game's structure.** The area-bonus doc claimed "which stats a
+  location grants varies by location" — read off one player's *purchases*, where one location had two
+  tracks levelled and another eight. All three Observatory tiers declare the same eight. This is the
+  same shape of error that made the artifact set table wrong from id 4 onward, and it is why both
+  village tables now ship the whole declared grid rather than only the bought cells.
+- **A negative result from a scan is worth exactly as much as the scan's stride.** Four occurrences
+  here (page-stride vault scan, region-capped klass scan, shard/soul quantity signatures, the
+  `typeId < 100` floor).
 - **A field that GATES other fields must be resolved by name, never left to calibration** —
   `Hero._type` being unresolved silently cost faction, role and typeId for an entire roster.
+- **Verify a computed column on data that can actually disagree.** The flat-vs-percentage bug above
+  passed a cell-for-cell check against the client because every cell that could have exposed it was
+  blank on the test account.
 - **`bin\Debug\` can hold more than one framework folder.** The project targets
-  `net10.0-windows10.0.19041.0`; a stale `net10.0-windows\` sat beside it for two weeks and running it
-  produced a fifteen-day-old app that looked current. It has been deleted — if it reappears, the
-  binary under test is not the one that was just built. Check `LastWriteTime` before believing a run.
+  `net10.0-windows10.0.19041.0`; a stale `net10.0-windows\` sat beside it for two weeks, and running
+  it produced a fifteen-day-old app that looked current. Check `LastWriteTime` before believing a run.
