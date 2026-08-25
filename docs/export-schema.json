@@ -205,15 +205,15 @@
     },
     "affinityBonuses": {
       "type": "array",
-      "description": "The Great Hall's AFFINITY BONUSES tab, as account data: what this account has bought, per affinity and stat. The same table feeds every champion of that affinity, which is why it is here once rather than repeated per champion — join it on champions[].elementId. A (affinity, stat) pair the account has not bought is ABSENT, which is the level 0 the game draws as a blank cell; absent is never 0. An ABSENT ARRAY means the table could not be read, which is NOT the same as an account that has bought nothing.",
+      "description": "The Great Hall's AFFINITY BONUSES tab, as account data: what this account has bought, per affinity and stat. The same table feeds every champion of that affinity, which is why it is here once rather than repeated per champion — join it on champions[].elementId. THE WHOLE GRID THE GAME DECLARES IS SENT — four affinities x six stat tracks, 24 entries — so a track the account has not bought is present with level 0, not missing. That makes the payload self-describing: a consumer can draw the screen without hardcoding the axes, and a track Plarium adds appears on its own. A pair genuinely ABSENT means the game has no such track (C.RATE is the standing example). An ABSENT ARRAY means the table could not be read, which is NOT the same as an account that has bought nothing.",
       "items": {
         "type": "object",
         "required": ["elementId", "statKindId", "level", "value", "isAbsolute"],
         "properties": {
           "elementId": { "type": "integer", "description": "Affinity, the same raw id space champions[].elementId uses." },
           "statKindId": { "type": "integer", "description": "Stat, the same id space baseStats and the artifact bonuses use. Six tracks here: 1 HP, 2 ATK, 3 DEF, 5 RES, 6 ACC, 8 C.DMG. C.RATE (7) is genuinely absent — the Great Hall has no Critical Rate track." },
-          "level": { "type": "integer", "minimum": 1, "description": "1-based, as the game displays it ('3/10'). Carried alongside value because neither derives the other without the static per-level table, which stays in the client and is not on the wire." },
-          "value": { "type": "number", "description": "What this level is worth: a flat amount when isAbsolute, else a fraction of the champion's Basic Stat (0.2 = +20%)." },
+          "level": { "type": "integer", "minimum": 0, "description": "1-based as the game displays it ('3/10'), and 0 for a track this account has not bought — a real, known state, not a missing read. Carried alongside value because neither derives the other without the static per-level table, which stays in the client and is not on the wire." },
+          "value": { "type": "number", "description": "What this level is worth: a flat amount when isAbsolute, else a fraction of the champion's Basic Stat (0.2 = +20%). 0 at level 0, where the game grants nothing." },
           "isAbsolute": { "type": "boolean", "description": "NOT CONSTANT ACROSS THE TABLE. HP, ATK, DEF and C.DMG are fractions of the Basic Stat; RESISTANCE AND ACCURACY ARE FLAT (+5 to +80). Assuming percentages throughout computes baseResistance x 80 where the game adds 80." }
         }
       },
@@ -221,14 +221,14 @@
     },
     "areaBonuses": {
       "type": "array",
-      "description": "The Great Hall's AREA BONUSES tab (internally the Observatory), as account data: what this account has bought, per location and stat. A SEPARATE TABLE from affinityBonuses, not the same one keyed differently — it covers Speed (4) and Ignore Defence (10) on top of the other six, which stats a location grants varies by location, and its per-level curve is linear where the affinity one steps unevenly. It is also the one bonus table that is not a per-champion column: the game's Total Stats overlay picks one location from a dropdown, so a single number per champion would be meaningless. Same absent-means-level-0 rule as affinityBonuses.",
+      "description": "The Great Hall's AREA BONUSES tab (internally the Observatory), as account data: what this account has bought, per location and stat. A SEPARATE TABLE from affinityBonuses, not the same one keyed differently — it covers Speed (4) and Ignore Defence (10) on top of the other six, and its per-level curve is linear where the affinity one steps unevenly. EVERY LOCATION OFFERS THE SAME EIGHT TRACKS, so the grid is a uniform 13 x 8 = 104 entries on game build 11.71.0, all of them sent, unbought ones at level 0. It is also the one bonus table that is not a per-champion column: the game's Total Stats overlay picks one location from a dropdown, so a single number per champion would be meaningless.",
       "items": {
         "type": "object",
         "required": ["locationId", "statKindId", "level", "value", "isAbsolute"],
         "properties": {
-          "locationId": { "type": "integer", "description": "Location, a raw id (1-13 on game build 11.71.0, in three tiers: 1+8, 2-5+9+10, 6+7+11-13). Raw for the same reason elementId is: the consumer keys its own labels off the id." },
+          "locationId": { "type": "integer", "description": "Location, a raw id (1-13 on game build 11.71.0, in three tiers: 1+8, 2-5+9+10, 6+7+11-13; the tiers currently carry identical values and are not on the wire). Raw for the same reason elementId is: the consumer keys its own labels off the id. Do not hardcode the range — the array carries every location the client declares." },
           "statKindId": { "type": "integer", "description": "Stat, the same id space as everywhere else. Eight tracks here: 1 HP, 2 ATK, 3 DEF, 4 SPD, 5 RES, 6 ACC, 8 C.DMG, 10 IGN.DEF." },
-          "level": { "type": "integer", "minimum": 1, "description": "1-based, as displayed. An absent (location, stat) pair is level 0." },
+          "level": { "type": "integer", "minimum": 0, "description": "1-based as displayed, and 0 for an unbought track. Every declared (location, stat) pair is sent, so 0 appears rather than the pair being omitted." },
           "value": { "type": "number", "description": "Flat amount when isAbsolute, else a fraction of the Basic Stat." },
           "isAbsolute": { "type": "boolean", "description": "SPEED, RESISTANCE AND ACCURACY ARE FLAT here (+2 to +20 and +8 to +80); HP, ATK, DEF, C.DMG and IGN.DEF are fractions." }
         }

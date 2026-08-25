@@ -382,9 +382,13 @@ described. Old links to them in the changelog rows are left unlinked on purpose.
 `affinityBonuses[]` (per affinity) and `areaBonuses[]` (per location, internally the Observatory) are
 the building's two tabs, and they are not one table keyed differently: the area table adds Speed and
 Ignore Defence to the affinity table's six stats, its per-level curve is linear where the affinity
-one steps unevenly, and *which* stats a location grants varies by location. Both carry `level`
-beside `value` because neither derives the other without the static per-level table, which stays in
-the client. **`isAbsolute` is not constant inside either table** — HP/ATK/DEF/C.DMG/IGN.DEF are
+one steps unevenly. **The whole declared grid rides on the wire** — 4 affinities × 6 tracks and 13
+locations × 8 tracks — with unbought tracks at `level: 0`, so a consumer draws the screen without
+hardcoding axes that a new location would invalidate; an absent pair means the game has no such
+track. Both carry `level` beside `value` because neither derives the other without the static
+per-level table, which stays in the client. **Every location offers the same eight tracks** — the
+per-location variation visible on any real account is what that player *bought*, and reading it as
+structure is the mistake this note exists to prevent. **`isAbsolute` is not constant inside either table** — HP/ATK/DEF/C.DMG/IGN.DEF are
 fractions of the Basic Stat, RES/ACC/SPD are flat amounts — and reading the whole table as
 percentages computes `baseResistance × 80` where the game adds 80. **`areaBonuses[]` will never join
 `statBreakdownSources`**: the game applies it for one location the player picks from a dropdown, so
