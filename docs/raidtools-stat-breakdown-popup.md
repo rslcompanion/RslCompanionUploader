@@ -158,28 +158,30 @@ bonuses"). Two kinds, with **opposite** arithmetic:
   shows the steps instead (`3 pcs +12% SPD`, `5 pcs +12% SPD`), and the data shows the totals
   (`5pc = SPD 24%`); they agree only if you do not add them twice.
 
-**The blocker: neither table is published anywhere.** Not in the account payload, not in
-`exports/`. They exist only inside the extractor, as an internal detail used to compute
-`statBreakdown`. Concretely that means:
+**UPDATE 2026-08-27 — the blocker is cleared.** The set tables ship as
+`exports/artifact_set_index.json` (`RslCompanionMetadata/tools/ArtifactSetIndexExporter`) and
+RaidTools ingests them as `MetadataType.ArtifactSetIndex` — `GET /api/artifact-set-index`,
+`core/artifact-set-index.service.ts`, and a set-bonus line + progressive ladder on the Artifacts
+page. `EffectiveBonus(setKindId, piecesWorn)` (API service and client class, accessor for accessor)
+is the one place the stacking-vs-progressive split lives. The table below was the state before that
+landed.
 
-| swap the user makes | can RaidTools model it today? |
+**The blocker was: neither table is published anywhere.** Not in the account payload, not in
+`exports/`. They existed only inside the extractor, as an internal detail used to compute
+`statBreakdown`:
+
+| swap the user makes | modellable |
 |---|---|
 | change a substat's value on a piece | **yes** — per-piece rules above are sufficient |
 | change a substat's *stat kind* | **yes** |
 | swap a whole piece for one of the same set | **yes** |
-| swap a piece for a **different set**, or change how many pieces of a set are worn | **no** — needs the set tables |
+| swap a piece for a **different set**, or change how many pieces of a set are worn | **now yes** — via `artifact_set_index.json` |
 
-So scope Feature 2 to substat editing first; it is genuinely useful and fully supported. Whole-piece
-swaps need an upstream change before they can be correct — and a swap that silently ignores the set
-bonus is worse than one that refuses, because the number still looks plausible.
-
-**The upstream ask, stated precisely** so it can be filed against `RslCompanionMetadata`: publish an
-artifact set index — for each `setKindId`, the pieces required and the stat bonuses of each ordinary
-tier, plus for the thirteen progressive sets the full 1–9 tier table, each entry as
-`{statKindId, value, isAbsolute}`. The extractor already reads all of it (`ArtifactSets`, 30 tiers,
-and `ArtifactSubSets`, 117 progressive tiers); it is a publishing gap, not a research one. The other
-account-level tables are already shipped this way — `affinityBonuses[]` and `areaBonuses[]` — so
-follow their shape.
+**The upstream ask, as filed against `RslCompanionMetadata` and now done:** an artifact set index —
+for each `setKindId`, the pieces required and the stat bonuses of each ordinary tier, plus for the
+thirteen progressive sets the full 1–9 tier table, each entry `{statKindId, value, isAbsolute}`,
+with a per-set `stacks` flag. Shape follows `affinityBonuses[]` / `areaBonuses[]`. See
+`RslCompanionMetadata/docs/artifact-set-index-findings.md` and RaidTools `docs/artifact-set-index.md`.
 
 ### The other columns, if you want modelling to move the totals too
 
