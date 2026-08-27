@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 18,
+  "schemaVersion": 19,
   "x-uploaderVersion": "1.15.0",
-  "x-lastUpdated": "2026-08-24",
+  "x-lastUpdated": "2026-08-27",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -283,9 +283,61 @@
       "type": ["string", "null"],
       "description": "The clan's display name, as the game shows it. Null when the account is in no clan, and also when the name could not be read on this run — treat null as 'this export says nothing about the name', never as 'the clan has no name', and never overwrite a known name with it. New in schema 14; every export before that omitted the field entirely, so an absent key and a null mean the same thing to a consumer. Join on clanId, never on this: names are not unique and can be changed by the clan's leader at any time.",
       "examples": ["Unimatrix Zero One", null]
+    },
+    "arenaTeam": {
+      "anyOf": [{ "$ref": "#/$defs/teamInfo" }, { "type": "null" }],
+      "description": "NEW IN SCHEMA 19. Classic Arena's one saved attack team. Null when the account has no saved team, and also when the value could not be validated this run — the same accepted ambiguity clanId already has; never infer 'the team was cleared' from null. Carries a STAT SNAPSHOT taken when last saved/used (see teamInfo), which can be stale against champions[] — join heroes[].inventoryHeroId onto champions[].instanceId for current numbers. See 'What is not here' below: no PvE stage mode (Dungeons, Doom Tower, Cursed City, Faction Wars, Event Dungeon, Foggy Forest) has a saved team AT ALL, by the game's own design — this is not an incomplete read, there is nothing to read for those modes.",
+      "examples": [{ "combatPower": 396565, "leaderSlotIndex": 0, "heroes": [{ "heroTypeId": 3566, "inventoryHeroId": 20540, "slot": 1, "grade": 6, "level": 60, "empowerLevel": 1 }] }, null]
+    },
+    "arena3v3Teams": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/teamInfo" },
+      "description": "NEW IN SCHEMA 19. Tag Team (3v3) Arena's saved defense/attack slots — normally 3, but treat as 'however many the account has set,' not a fixed length. ABSENT (the key is missing) means the read could not be validated this run — an offset drifted, or the branch wasn't attached — the same rule affinityBonuses[]/areaBonuses[] use, for the same reason: an empty array would make a failed read indistinguishable from an account that genuinely has none set. A PRESENT array, even empty, means it was read successfully.",
+      "examples": [[{ "combatPower": 387189, "leaderSlotIndex": 0, "heroes": [{ "heroTypeId": 3566, "inventoryHeroId": 20540, "slot": 1, "grade": 6, "level": 60, "empowerLevel": 1 }] }]]
+    },
+    "siegePresets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/siegePreset" },
+      "description": "NEW IN SCHEMA 19. Siege's per-map-slot presets — normally 4, treat as 'however many the account has set.' Simpler than teamInfo: bare hero ids, NO stat snapshot, because Siege reads the live roster at attack time rather than freezing one at save time. Same absent-vs-empty rule as arena3v3Teams[].",
+      "examples": [[{ "slot": 0, "heroIds": [59442, 39072, 52814, 68310] }, { "slot": 1, "heroIds": [56238, 20540, 38789, 49430] }]]
     }
   },
   "$defs": {
+    "teamInfo": {
+      "type": "object",
+      "required": ["combatPower", "leaderSlotIndex", "heroes"],
+      "additionalProperties": false,
+      "description": "One saved team (the game's TeamSetup). Backs both arenaTeam and arena3v3Teams[] items.",
+      "properties": {
+        "combatPower": { "type": "integer", "description": "The team's combined power as the game computed it when last saved/used." },
+        "leaderSlotIndex": { "type": "integer", "description": "Which heroes[] entry (by array position, not by slot number) is the team leader." },
+        "heroes": { "type": "array", "items": { "$ref": "#/$defs/teamSlotHero" }, "description": "The team's roster. Usually 4, but not schema-constrained to be — read the array length rather than assuming it." }
+      }
+    },
+    "teamSlotHero": {
+      "type": "object",
+      "required": ["heroTypeId", "inventoryHeroId", "slot", "grade", "level", "empowerLevel"],
+      "additionalProperties": false,
+      "description": "One hero as FROZEN INTO a saved team (the game's HeroSlotSetup) — a snapshot taken when the team was last saved/used, not a live join. grade/level/empowerLevel can be stale versus the account's current champions[] entry for the same hero.",
+      "properties": {
+        "heroTypeId": { "type": "integer", "description": "The champion template — NOT the join key for this account's roster. Champion metadata (name, faction, role) comes from a champion catalog keyed on this, same as elsewhere on this payload." },
+        "inventoryHeroId": { "type": "integer", "description": "This account's specific hero instance. THE join key onto champions[].instanceId for this hero's current (non-snapshotted) data." },
+        "slot": { "type": "integer", "description": "The team-formation slot this hero occupies (distinct from its position in the heroes[] array)." },
+        "grade": { "type": "integer", "description": "Star rank AS OF the snapshot. May differ from the champion's current grade in champions[]." },
+        "level": { "type": "integer", "description": "Level AS OF the snapshot." },
+        "empowerLevel": { "type": "integer", "description": "Empower (skin-tier stat boost) level AS OF the snapshot." }
+      }
+    },
+    "siegePreset": {
+      "type": "object",
+      "required": ["slot", "heroIds"],
+      "additionalProperties": false,
+      "description": "One Siege map-slot preset (the game's UserSiegePresetInfo). No stat snapshot, unlike teamInfo — Siege reads the live roster at attack time.",
+      "properties": {
+        "slot": { "type": "integer", "description": "0-based LIST ORDER, not a map-stable slot identifier — do not assume it survives the player rearranging presets." },
+        "heroIds": { "type": "array", "items": { "type": "integer" }, "description": "Bare inventoryHeroId values (join onto champions[].instanceId) — no stat snapshot." }
+      }
+    },
     "artifact": {
       "type": "object",
       "additionalProperties": true,

@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 18** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 19** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -58,6 +58,9 @@ there is no partial/patch mode.
   "areaBonuses": [ … ],                     // array or ABSENT — Great Hall ▸ Area Bonuses
   "clanId":     20000001 | null,            // int64|null — the account's clan; null when in none
   "clanName":   "Bastion" | null,           // string|null — display only; null is "says nothing"
+  "arenaTeam":  { … } | null,               // object|null — Classic Arena's one saved team
+  "arena3v3Teams": [ … ],                   // array or ABSENT — Tag Team (3v3) Arena's saved teams
+  "siegePresets":  [ … ],                   // array or ABSENT — Siege's per-slot presets
   "baseStatsCatalog": { … },                // object or ABSENT — provenance of champions[].baseStats
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
@@ -603,6 +606,70 @@ now describes anyone but the signed-in user, and cheapness is not an argument fo
 
 ---
 
+## `arenaTeam`, `arena3v3Teams[]`, `siegePresets[]` — saved teams
+
+**New in schema 19.** A saved, recallable team — pick heroes once, reuse them next time without
+picking again — exists for exactly three areas of the game. This is not an incomplete first pass at
+a bigger feature: it was checked, and no other area has one (see "What is *not* here" below).
+
+```jsonc
+"arenaTeam": {
+  "combatPower": 396565,
+  "leaderSlotIndex": 0,
+  "heroes": [
+    { "heroTypeId": 3566, "inventoryHeroId": 20540, "slot": 1, "grade": 6, "level": 60, "empowerLevel": 1 },
+    { "heroTypeId": 9196, "inventoryHeroId": 49430, "slot": 2, "grade": 6, "level": 60, "empowerLevel": 0 }
+  ]
+},
+"arena3v3Teams": [
+  { "combatPower": 387189, "leaderSlotIndex": 0, "heroes": [ … 4 heroes … ] },
+  { "combatPower": 691872, "leaderSlotIndex": 0, "heroes": [ … 4 heroes … ] },
+  { "combatPower": 558054, "leaderSlotIndex": 0, "heroes": [ … 4 heroes … ] }
+],
+"siegePresets": [
+  { "slot": 0, "heroIds": [59442, 39072, 52814, 68310] },
+  { "slot": 1, "heroIds": [56238, 20540, 38789, 49430] },
+  { "slot": 2, "heroIds": [45758] },
+  { "slot": 3, "heroIds": [38534] }
+]
+```
+
+- **`arenaTeam` is `null` when the account has no saved team, and also when the value could not be
+  validated this run** — the same accepted ambiguity `clanId` already has on this payload; never
+  infer "the team was cleared" from `null`.
+- **`arena3v3Teams[]` and `siegePresets[]` distinguish "not read" from "read, and empty."** ABSENT
+  means the read could not be validated this run (an offset drifted, or the branch wasn't attached) —
+  the same rule `affinityBonuses[]`/`areaBonuses[]` already use, for the same reason: collapsing the
+  two into an empty array would make a failed read look identical to "you have nothing saved here."
+  A **present but empty** array is a real, normal state — the account simply hasn't set that slot yet.
+- **`arenaTeam`/`arena3v3Teams[].heroes[]` carry a stat SNAPSHOT** (`grade`, `level`, `empowerLevel`)
+  taken when the team was last saved or used — it can be stale against the live roster. Join
+  `inventoryHeroId` onto `champions[].instanceId` for the current numbers; use the snapshot only to
+  know what the saved team looked like when it was set.
+- **`siegePresets[].heroIds` carries bare ids, no snapshot** — Siege reads the live roster at attack
+  time rather than freezing one, so there is nothing to snapshot. `slot` is list order (0-based), not
+  a map-stable slot identifier; do not assume it survives the player rearranging presets.
+- **`arena3v3Teams[]` is normally 3 entries and `siegePresets[]` normally 4** — the game's own slot
+  counts for those modes — but treat both as "however many the account has set," not a fixed length:
+  an account that hasn't touched every slot yet reports fewer.
+
+### What is *not* here, and why it never will be
+
+**Every PvE stage mode** — Dungeons, Doom Tower, Cursed City, Faction Wars, Event Dungeon, Foggy
+Forest, Champion's Journey — has **no saved team to read, in principle**. This was checked by walking
+every field of the game's own stage-data object, not inferred from an empty extractor: it carries
+battle *results* (win/loss, stars) for every one of those modes and not one team/roster field anywhere
+in the subtree. The client does not remember what you picked for a dungeon stage or a Doom Tower
+floor — you choose fresh from your roster every time you enter, and nothing about that choice
+persists. There is nothing missing from this payload for those areas; there is nothing to send.
+
+**Clan Boss (Chimera/Hydra) team history** is also not here, for a different reason: it exists, but
+per-*attack*, not as a reusable preset, and reaching it requires the same clan-wide record whose
+member roster is withheld above — consent, not cost. See the extraction engine's
+`docs/clash-findings.md` for the structure, if it is ever revisited.
+
+---
+
 ## `artifacts[]` and `accessories[]` — the complete vault, with stats
 
 **Two arrays, one record shape.** `artifacts[]` holds **gear** (`kindId` 1–6: helmet, chest, gloves,
@@ -905,6 +972,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 19 | *unreleased* | 2026-08-27 | **Three new top-level fields, all additive: `arenaTeam`, `arena3v3Teams[]`, `siegePresets[]` — saved teams.** A consumer that ignores every one of them is exactly as correct as it was on schema 18. A saved, recallable team exists for exactly three areas of the game — Classic Arena (one team), 3v3/Tag Team Arena (per-slot, usually 3) and Siege (per-map-slot, usually 4) — and **the negative result is the more important half of this change**: every PvE stage mode (Dungeons, Doom Tower, Cursed City, Faction Wars, Event Dungeon, Foggy Forest, Champion's Journey) was checked field by field and carries no team data whatsoever, only battle results — the game keeps no saved team for any of them, so there is nothing this payload could add for those areas even in principle. `arenaTeam`/`arena3v3Teams[].heroes[]` carry a stat snapshot (`grade`/`level`/`empowerLevel`) from when the team was last saved, which can be stale against `champions[]` — join on `inventoryHeroId` for current numbers. `siegePresets[].heroIds` is bare ids with no snapshot, because Siege reads the live roster at attack time rather than freezing one. **`arena3v3Teams[]`/`siegePresets[]` follow the same null-vs-empty rule as `affinityBonuses[]`/`areaBonuses[]`**: absent means the read wasn't validated this run, a present (possibly empty) array means it was and the account genuinely has that many saved. `arenaTeam` does not yet make that distinction — `null` covers both "no team saved" and "couldn't validate," the same accepted ambiguity `clanId` already carries. Full structural writeup, including the field-by-field PvE walk that produced the negative result: the extraction engine's `docs/team-findings.md`. |
 | 18 | v1.16.0 | 2026-08-24 | **Four new fields, all additive: `champions[].statBreakdown`, `champions[].elementId`, top-level `statBreakdownSources`, and the two account-level Great Hall tables `affinityBonuses[]` / `areaBonuses[]`.** A consumer that ignores every one of them is exactly as correct as it was on schema 17. **`statBreakdown` is the game's own Total Stats table per copy** — per stat, the total plus one entry per source — and it reproduces the client's own blank-vs-zero distinction: an absent source contributes nothing and must never be drawn as `0`. **`statBreakdownSources` exists because a third state is possible**: a column this producer does not compute yet looks identical, from the per-champion object, to one that contributes nothing. The list says which columns are real in *this* export, so an old payload keeps describing what it modelled; today it is `basic, artifacts, greatHall, arena`. **`elementId` is the copy's affinity** (raw id, `null` = could not read, never "no affinity"), and it is what joins a champion to its `affinityBonuses[]` row. **The two Great Hall tables are account data and are two tables, not one**: the affinity table has six stat tracks with an uneven curve, the area table has eight (adding Speed and Ignore Defence) with a linear one, and every location offers the same eight tracks. **The whole declared grid is sent, not just what the account has bought** — 24 affinity entries and 104 area entries — with unbought tracks at `"level": 0`, so a consumer can draw the screen without hardcoding the axes; a genuinely absent pair means the game has no such track. Both carry `level` alongside `value` because neither derives the other without the static per-level table, which is not on the wire. **`isAbsolute` is not constant inside either table** — HP/ATK/DEF/C.DMG/IGN.DEF are fractions, RES/ACC/SPD are flat — and reading it as "percentage throughout" computes `baseResistance × 80` where the game adds 80; that was a real bug in the first implementation, and it survived verification against the client because the account it was checked on held level 0 in exactly those two stats. **`areaBonuses[]` will never appear in `statBreakdownSources`**: the game applies it per a location the player picks from a dropdown, so there is no per-champion number — account level is the only place it is well defined. **A fifth field is new to the wire and was nearly missed: `artifacts[].powerUpValue` + `powerUpRarityId`, the glyph.** It is a **separate addend to `value`**, and this contract previously declared the opposite — that the game's `_powerUpValue` was an upgrade-screen preview that would never be exported — so the JSON Schema did not declare the property at all. **Gear totals computed from schema ≤ 17 payloads are therefore low for every glyphed champion**, by an amount no old payload records; re-sync rather than correcting in place. |
 | 17 | v1.15.0 | 2026-08-21 | **`heroes[]` is removed. `champions[]` is the only roster field.** The other half of the schema-16 rename, and the deliberately boring one: nothing changes shape, nothing is added, the duplicate array simply stops being sent. A consumer already reading `champions` — or the migration expression `payload.champions ?? payload.heroes` — needs no change at all and will not notice. **A consumer still reading `heroes` alone breaks completely**, and breaks in the worst way available: `payload.heroes` is `undefined`, which is not an error but an *empty roster*, and applying it wipes the account's champions. That is precisely the failure schema 16 existed to prevent, which is why the two shipped as separate schemas with the consumer migrated in between rather than as one rename. **The reverse deprecation is untouched and runs much longer.** This stops the PRODUCER emitting `heroes`; it says nothing about a consumer's fallback, which must outlive it by a wide margin, because the uploader is installed on user machines and updates are opt-in — installs older than v1.14 keep sending `heroes` **alone** for as long as they run. Retiring the fallback is gated on refusing pre-1.14 uploaders, a separate decision that is not this one. **What this buys:** the roster stops being duplicated on the wire, roughly −800 KB on a ~900-champion account. **Unchanged, again:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.first`/`.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and join onto `instanceId`, not onto the roster. |
 | 16 | v1.14.0 | 2026-08-21 | **`heroes[]` is renamed to `champions[]`. BOTH are emitted, byte for byte identical, and `heroes[]` is removed in schema 17.** Nothing else changes: same items, same constraints, same never-empty invariant. **Migration is one expression — `payload.champions ?? payload.heroes`** — which also handles every schema before 16, so a consumer can adopt it now and be correct on all three eras at once. Why: every other surface already said *champion*. The game's UI says it, the uploader's own log lines say it, RaidTools' table is `playable_champions`, and the consumer's own element type is literally `ParserChampion` — read out of a field called `Heroes`. Only this array said *hero*, which is the game's INTERNAL class name (`Hero`, `HeroType`, `HeroForm`). The extraction engine's own C# types keep that name deliberately, because they mirror the IL2CPP metadata so memory-layout work stays diffable against a type dump; a wire contract is not memory layout. **Why it takes two schemas rather than one:** emitting `champions` alone today would leave RaidTools' `data.Heroes` null on every import — not an error, an *empty roster*, which is exactly the silent wipe the never-empty invariant exists to prevent. Producer emits both, consumer moves, then producer drops the old name. **The two halves retire on different clocks, and this is the part to get right.** The producer stops emitting `heroes` in schema 17; a **consumer's `heroes` fallback must outlive that by a wide margin**, because the uploader is installed on user machines and updates are opt-in — old installs keep sending `heroes` alone for as long as they run. Dropping the fallback is gated on refusing pre-1.14 uploaders, a separate decision. **Not renamed:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.firstHeroInstanceId` / `.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and are join keys onto `instanceId`, not the roster, so renaming them would multiply the breaking surface for no gain in clarity. **Cost, stated plainly:** the roster is duplicated on the wire for one schema — roughly +800 KB on a ~900-champion account, against a payload already several MB of artifact vault. That is the price of not breaking a live consumer, and it is temporary. |
