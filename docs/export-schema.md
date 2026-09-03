@@ -545,6 +545,13 @@ own Total Stats overlay applies it only for a location the player picks from a d
 Bonuses for:"), so there is no single per-champion number to publish — collapsing it to one would be
 meaningless. At account level it is perfectly well defined, which is why it lives here instead.
 
+> That is a statement about *this* payload, not about the column. A consumer holding this array and a
+> champion's `statBreakdown` has everything it needs to draw the Area Bonuses column itself, once per
+> picked location — which is what RaidTools does (`RaidTools/docs/stat-breakdown.md` § *The tenth
+> column*). It has to reproduce the client's arithmetic to do it: `isAbsolute` varies within the
+> table, IGN.DEF is percentage points, and the column rounds half-to-even **from the raw value**
+> with no six-decimal pre-snap, since it is a single `base × fraction` per stat rather than a sum.
+
 Location ids ship raw for the same reason `elementId` does. On game build 11.71.0 they run 1–13 in
 three tiers (1+8, 2–5+9+10, 6+7+11–13); the tier is an internal grouping and is not on the wire, since
 all three currently carry identical values.

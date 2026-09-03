@@ -91,6 +91,14 @@ champion constant; see `areaBonuses[]` at account level). So:
 
 - Label the popup's number **"Total"** — it is honest against the default screen state.
 - If you want to be bulletproof, add a footnote: *"excludes Area Bonuses (chosen per location)"*.
+
+> **Since shipped, RaidTools went further than the footnote.** It reads `areaBonuses[]` at account
+> level, offers the game's own *"Showing Area Bonuses for:"* picker on the popup, and computes the
+> tenth column and an adjusted Total for whichever location is picked — the published `total` stays
+> the "No Area Selected" number it always was. See `RaidTools/docs/stat-breakdown.md` § *The tenth
+> column* for the arithmetic that has to match the client, and note that **location names are not on
+> the wire**: the ids are raw and any label is the consumer's own, never inferrable from the
+> dropdown's order.
 - Do **not** try to reconcile `total` with any aggregate you compute from gear alone — that
   aggregate is missing six columns and will read low.
 
