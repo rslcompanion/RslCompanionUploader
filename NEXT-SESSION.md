@@ -4,29 +4,38 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten 2026-08-25, right after **v1.16.0** shipped. **Check `git log` before trusting any state
-below**: more than one session works in `D:\Codex\RslCompanionUploader`, including its `extraction/`
-checkout, so a clean tree here is not evidence that nothing has moved.
+Rewritten 2026-08-25, right after **v1.16.0** shipped; **partially corrected 2026-09-03 when
+v1.17.0 was cut** — the repo table and the "nobody reads schema 18" section below were rewritten,
+the rest of the file has not been re-checked since 2026-08-25. **Check `git log` before trusting any
+state below**: more than one session works in `D:\Codex\RslCompanionUploader`, including its
+`extraction/` checkout, so a clean tree here is not evidence that nothing has moved.
 
 ---
 
-## Where the repos stand (2026-08-25)
+## Where the repos stand (2026-09-03)
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | `main` = `20a722a`; released **v1.16.0** (2026-08-25) carrying schema 18 |
-| `…\RslCompanionUploader\extraction` (private submodule) | `main` = `82e75f9`, pointer matches |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.17.0** (2026-09-03) carrying schema 19 and all nine `statBreakdown` columns |
+| `…\RslCompanionUploader\extraction` (private submodule) | `main` = `86bb833`, pointer matches |
 | `D:\Codex\RslCompanionMetadata` (private) | `df4629d`; **working tree dirty** — MetadataStudio, StatBreakdownProbe, ClashProbe, `docs/clash-findings.md` |
 | `D:\Codex\RaidTools` | the API + Angular frontend; its own TODO.md |
 
-**Payload contract: schema 18.** v1.16.0 is the first release that sends it. Consumers still read
+**Payload contract: schema 19.** v1.17.0 is the first release that sends it. Consumers still read
 `payload.champions ?? payload.heroes`, and that fallback outlives the producer's half by a long way —
 pre-1.14 installs keep sending `heroes` alone, and installs update opt-in.
 
-## The obvious next piece: nobody reads schema 18 yet
+## Schema 18/19 is consumed now — but only by installs that have updated
 
-Five fields ship as of v1.16.0 and **RaidTools consumes none of them**. They are additive, so nothing
-is broken — they are simply ignored:
+**RaidTools reads the statBreakdown, its source list and the Great Hall's area grid** as of
+2026-09-03: the champion popup draws the game's Total Stats table with all nine producer columns plus
+a tenth, Area Bonuses, computed per a location picked from the game's own dropdown (`RaidTools/docs/
+stat-breakdown.md`). What is left is a **producer-side rollout problem, not a consumer gap**: every
+account still on v1.16.0 uploads `statBreakdownSources: [basic, artifacts, greatHall, arena]`, and
+the popup correctly draws four columns and names the five it is missing. The fix for a given account
+is that account updating the app and re-syncing.
+
+The fields, for reference:
 
 - `affinityBonuses[]` / `areaBonuses[]` — the Great Hall's two tabs as account data. The **whole
   declared grid** rides on the wire (4×6 and 13×8), unbought tracks at `level: 0`, so a consumer can
