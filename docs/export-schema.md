@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 19** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 20** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -423,15 +423,16 @@ for a percentage to apply to and a breakdown of the bonuses alone would silently
 
 ```jsonc
 "skills": [
-  { "typeId": 15101, "level": 6 },
-  { "typeId": 15103, "level": 6 },
-  { "typeId": 15104, "level": 5 }
+  { "typeId": 15101, "level": 6, "formIndex": 0 },
+  { "typeId": 15103, "level": 6, "formIndex": 0 },
+  { "typeId": 15104, "level": 5, "formIndex": 0 }
 ]
 ```
 
-This copy's skills and how far the player has upgraded each. Always present and sorted by `typeId`,
-so two snapshots diff cleanly. Every champion has at least one skill — an **empty array is a failed
-read**, though unlike `champions[]` itself there is no schema constraint enforcing it.
+This copy's skills, how far the player has upgraded each, and **which of the champion's forms each one
+is on**. Always present and sorted by `typeId`, so two snapshots diff cleanly. Every champion has at
+least one skill — an **empty array is a failed read**, though unlike `champions[]` itself there is no
+schema constraint enforcing it.
 
 - **`typeId` is the skill's identity and the catalog join key.** It is stable across every copy and
   every ascension of a champion. **Treat it as opaque — join it, don't derive it** (see below).
@@ -439,6 +440,37 @@ read**, though unlike `champions[]` itself there is no schema constraint enforci
   `…01`, `…03`, `…04`. Do not infer a missing skill from a gap, and do not assume `count == max slot`.
 - **`level` is 1-based.** `1` is an un-upgraded skill, so **books applied = `level - 1`**. Observed
   range on a mature account is 1–9.
+- **`formIndex` is which form the skill belongs to** — `0` the base form, `1` a transformation's
+  second form — matching `forms[].index` in `champion_index.json`. **Absent, never `0`, when
+  unresolved**, so group with `?? "unknown"` and never with `?? 0`. New in schema 20.
+
+#### `formIndex`: why the producer answers this
+
+A transforming champion carries **both** forms' whole skill blocks on every copy, which is why
+`skills[]` can hold 10–12 entries for a champion the player thinks has five. Alaz the Sunbearer
+(base `8630`) reports `86301…86305` **and** `886301…886305`; the first five are form 0, the second
+five form 1. Without `formIndex` there is nothing in the payload that says so.
+
+A consumer *could* recover it from `champion_index.json`, and until schema 20 that was the only way —
+see [`raidtools-skill-attribution.md`](raidtools-skill-attribution.md), which documents the join and the
+trap in it. **The trap is the reason this moved to the producer.** Ascension does not only *add* skills,
+it **replaces** them on 336 of the 1,034 playable champions, and both halves of a swapped pair sit in
+the same form's list, so a correct consumer-side join has to evaluate the per-skill ascension span that
+the catalog carries — at the copy's own `ascensionLevel`, not the champion's max. Here that question
+never arises: the copy's own `Hero._type` **is** its ascension variant, so the form list read from the
+live process is already the kit that copy actually has.
+
+Resolution order, and what each outcome means:
+
+| | |
+|---|---|
+| **The game's own `HeroForm.SkillTypeIds`** | The normal case, and exact for the running build. |
+| **The bundled champion catalog** | For copies whose shared `HeroType` the client has never hydrated — the same lazy-hydration gap that leaves `roleId` null on ~19% of a mature roster. Tried first at the copy's own ascension, honouring the catalog's per-skill span; then again ignoring the span, which is safe because a skill id belongs to exactly one form across every ascension of its champion, and which is what answers when the bundled catalog is simply older than the client. |
+| **Absent** | Neither source knew the skill — in practice a champion newer than the bundled catalog on a copy the client had not rendered. **A consumer must not read this as form 0.** |
+
+> Two forms of one champion sharing a skill id has never been observed — 0 ids across all 1,040
+> champions in the catalog appear under two form indexes — so this is a partition, not a tagging. If
+> that ever changes, the lowest form index wins and the value stays deterministic.
 
 #### Why `typeId` looks derivable but is not
 
@@ -979,6 +1011,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 20 | v1.18.0 | 2026-09-04 | **One new field, additive: `champions[].skills[].formIndex` — which of the champion's forms each skill is on.** A consumer that ignores it is exactly as correct as it was on schema 19. `0` is the base form, `1` a transformation's second form, matching `forms[].index` in `champion_index.json`. **It is absent, never `0`, when unresolved**, because `0` is a real answer — group with `?? "unknown"`, never with `?? 0`; this is the same nullability rule as `roleId`, and for the same reason. **Why this moved to the producer rather than staying a catalog join:** a transforming champion carries both forms' whole skill blocks on every copy (Alaz the Sunbearer reports `86301…86305` *and* `886301…886305`), and recovering the split consumer-side means honouring the per-skill ascension span in the catalog's `forms[].skills[]` — ascension **replaces** skills on 336 of the 1,034 playable champions, and both halves of a swapped pair sit in the same form list, so a membership test alone credits an un-ascended copy with a skill it does not have. The producer never faces that question: a copy's `Hero._type` **is** its own ascension variant, so the form list read from the live process is already that copy's kit. Copies whose shared `HeroType` the client never hydrated — the same ~19% gap that leaves `roleId` null — fall back to the bundled catalog evaluated at the copy's own `ascensionLevel`; measured against a real 915-champion roster that fallback attributed 3,005 of 3,005 skills, closing the 2.6% residual [`raidtools-skill-attribution.md`](raidtools-skill-attribution.md) was written to explain. **That note is now history for schema ≥ 20 payloads and still current for older ones**, which the uploader's opt-in updates guarantee will keep arriving. |
 | 19 | v1.17.0 | 2026-08-27 | **Three new top-level fields, all additive: `arenaTeam`, `arena3v3Teams[]`, `siegePresets[]` — saved teams.** A consumer that ignores every one of them is exactly as correct as it was on schema 18. A saved, recallable team exists for exactly three areas of the game — Classic Arena (one team), 3v3/Tag Team Arena (per-slot, usually 3) and Siege (per-map-slot, usually 4) — and **the negative result is the more important half of this change**: every PvE stage mode (Dungeons, Doom Tower, Cursed City, Faction Wars, Event Dungeon, Foggy Forest, Champion's Journey) was checked field by field and carries no team data whatsoever, only battle results — the game keeps no saved team for any of them, so there is nothing this payload could add for those areas even in principle. `arenaTeam`/`arena3v3Teams[].heroes[]` carry a stat snapshot (`grade`/`level`/`empowerLevel`) from when the team was last saved, which can be stale against `champions[]` — join on `inventoryHeroId` for current numbers. `siegePresets[].heroIds` is bare ids with no snapshot, because Siege reads the live roster at attack time rather than freezing one. **`arena3v3Teams[]`/`siegePresets[]` follow the same null-vs-empty rule as `affinityBonuses[]`/`areaBonuses[]`**: absent means the read wasn't validated this run, a present (possibly empty) array means it was and the account genuinely has that many saved. `arenaTeam` does not yet make that distinction — `null` covers both "no team saved" and "couldn't validate," the same accepted ambiguity `clanId` already carries. Full structural writeup, including the field-by-field PvE walk that produced the negative result: the extraction engine's `docs/team-findings.md`.  **Also new in v1.17.0, and NOT a schema change because no field changes shape: `statBreakdownSources` now declares all nine columns** — `basic, artifacts, greatHall, arena, masteries, guardians, empowerment, blessing, relics` — where v1.16.0 declared the first four. That list has always been the payload's own statement about itself, precisely so it could grow without a schema bump, and a consumer that reads it rather than hardcoding four columns needs no change at all. The schema-18 row below says "today it is `basic, artifacts, greatHall, arena`"; that was true of v1.16.0 and is the point of the field, not a contradiction. **`areaBonuses[]` still never appears in it** — RaidTools now draws that column from the account-level grid, per a location the player picks, which is the only way it can be drawn at all. |
 | 18 | v1.16.0 | 2026-08-24 | **Four new fields, all additive: `champions[].statBreakdown`, `champions[].elementId`, top-level `statBreakdownSources`, and the two account-level Great Hall tables `affinityBonuses[]` / `areaBonuses[]`.** A consumer that ignores every one of them is exactly as correct as it was on schema 17. **`statBreakdown` is the game's own Total Stats table per copy** — per stat, the total plus one entry per source — and it reproduces the client's own blank-vs-zero distinction: an absent source contributes nothing and must never be drawn as `0`. **`statBreakdownSources` exists because a third state is possible**: a column this producer does not compute yet looks identical, from the per-champion object, to one that contributes nothing. The list says which columns are real in *this* export, so an old payload keeps describing what it modelled; today it is `basic, artifacts, greatHall, arena`. **`elementId` is the copy's affinity** (raw id, `null` = could not read, never "no affinity"), and it is what joins a champion to its `affinityBonuses[]` row. **The two Great Hall tables are account data and are two tables, not one**: the affinity table has six stat tracks with an uneven curve, the area table has eight (adding Speed and Ignore Defence) with a linear one, and every location offers the same eight tracks. **The whole declared grid is sent, not just what the account has bought** — 24 affinity entries and 104 area entries — with unbought tracks at `"level": 0`, so a consumer can draw the screen without hardcoding the axes; a genuinely absent pair means the game has no such track. Both carry `level` alongside `value` because neither derives the other without the static per-level table, which is not on the wire. **`isAbsolute` is not constant inside either table** — HP/ATK/DEF/C.DMG/IGN.DEF are fractions, RES/ACC/SPD are flat — and reading it as "percentage throughout" computes `baseResistance × 80` where the game adds 80; that was a real bug in the first implementation, and it survived verification against the client because the account it was checked on held level 0 in exactly those two stats. **`areaBonuses[]` will never appear in `statBreakdownSources`**: the game applies it per a location the player picks from a dropdown, so there is no per-champion number — account level is the only place it is well defined. **A fifth field is new to the wire and was nearly missed: `artifacts[].powerUpValue` + `powerUpRarityId`, the glyph.** It is a **separate addend to `value`**, and this contract previously declared the opposite — that the game's `_powerUpValue` was an upgrade-screen preview that would never be exported — so the JSON Schema did not declare the property at all. **Gear totals computed from schema ≤ 17 payloads are therefore low for every glyphed champion**, by an amount no old payload records; re-sync rather than correcting in place. |
 | 17 | v1.15.0 | 2026-08-21 | **`heroes[]` is removed. `champions[]` is the only roster field.** The other half of the schema-16 rename, and the deliberately boring one: nothing changes shape, nothing is added, the duplicate array simply stops being sent. A consumer already reading `champions` — or the migration expression `payload.champions ?? payload.heroes` — needs no change at all and will not notice. **A consumer still reading `heroes` alone breaks completely**, and breaks in the worst way available: `payload.heroes` is `undefined`, which is not an error but an *empty roster*, and applying it wipes the account's champions. That is precisely the failure schema 16 existed to prevent, which is why the two shipped as separate schemas with the consumer migrated in between rather than as one rename. **The reverse deprecation is untouched and runs much longer.** This stops the PRODUCER emitting `heroes`; it says nothing about a consumer's fallback, which must outlive it by a wide margin, because the uploader is installed on user machines and updates are opt-in — installs older than v1.14 keep sending `heroes` **alone** for as long as they run. Retiring the fallback is gated on refusing pre-1.14 uploaders, a separate decision that is not this one. **What this buys:** the roster stops being duplicated on the wire, roughly −800 KB on a ~900-champion account. **Unchanged, again:** `factionGuardians[].heroTypeId` / `.heroBaseTypeId` / `.first`/`.secondHeroInstanceId` and `artifacts[].equippedByHeroId` keep their names — they name the game's own fields and join onto `instanceId`, not onto the roster. |

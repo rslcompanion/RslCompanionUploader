@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 19,
-  "x-uploaderVersion": "1.15.0",
-  "x-lastUpdated": "2026-08-27",
+  "schemaVersion": 20,
+  "x-uploaderVersion": "1.18.0",
+  "x-lastUpdated": "2026-09-04",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -168,14 +168,15 @@
           "isFactionGuardian": { "type": "boolean", "description": "This copy is placed in an Academy guardian slot." },
           "skills": {
             "type": "array",
-            "description": "This copy's skills and how far each is upgraded, sorted by typeId. Always present; empty only on a failed read (every champion has at least one skill). Per-skill metadata - name, description, cooldown, and the MAXIMUM level - is intentionally absent: it is constant game data, joined on typeId from a skill catalog. Without that catalog 'level 5' cannot be read as maxed or not.",
+            "description": "This copy's skills and how far each is upgraded, sorted by typeId. Always present; empty only on a failed read (every champion has at least one skill). Since schema 20 each entry also says which of the champion's FORMS it belongs to. Per-skill metadata - name, description, cooldown, and the MAXIMUM level - is intentionally absent: it is constant game data, joined on typeId from a skill catalog. Without that catalog 'level 5' cannot be read as maxed or not.",
             "items": {
               "type": "object",
               "required": ["typeId", "level"],
               "additionalProperties": false,
               "properties": {
                 "typeId": { "type": "integer", "description": "Skill type id, and the catalog join key. TREAT AS OPAQUE - join it, do not derive it. It is usually baseTypeId*10 + slot (Kael, base 1510 -> 15101..15104) and is stable across copies and ascensions, but two documented exceptions break any derivation: a champion with a second form ALSO carries that form's block at 800000 + the own-block id (10 champions, 53 skills on the mapping account, which is why skills[] can hold 10-12 entries), and a skill can belong to another champion's id block entirely (Ezio Auditore and Edward Kenway both carry 102505). Slots are also not dense: a 3-skill champion may report 15101/15103/15104." },
-                "level": { "type": "integer", "minimum": 1, "description": "Upgrade level, 1-BASED. 1 means un-upgraded, so books applied = level-1. Observed range 1-9; the cap is per-skill and lives in the catalog, not here." }
+                "level": { "type": "integer", "minimum": 1, "description": "Upgrade level, 1-BASED. 1 means un-upgraded, so books applied = level-1. Observed range 1-9; the cap is per-skill and lives in the catalog, not here." },
+                "formIndex": { "type": "integer", "minimum": 0, "description": "Which of the champion's forms this skill is on: 0 the base form, 1 a transformation's second form, matching forms[].index in champion_index.json. ABSENT, NEVER 0, when unresolved - 0 is the base form, a real answer, so the field has no spare sentinel; group with `?? 'unknown'`, not with `?? 0`. Resolved by the producer against the copy's OWN ascension variant of the champion, which is why it is here and not left to a catalog join: attributing a skill consumer-side means honouring the per-skill ascension span in forms[].skills[], because ascension REPLACES skills on 336 of 1,034 playable champions and both halves of a swapped pair sit in the same form list." }
               }
             }
           },

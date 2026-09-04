@@ -1,5 +1,14 @@
 # Attribute a champion's skills to the right form, at the right ascension
 
+> **Superseded for schema ≥ 20 payloads, and still required for older ones — read this line before the
+> rest of the file.** Since schema 20 the uploader resolves the answer itself and every skill arrives
+> carrying `formIndex`, so on a current payload none of the work below is needed: read the field. What
+> keeps this note alive is that uploader installs update **opt-in**, so pre-20 payloads keep arriving
+> from older installs indefinitely, and for those the join described here is still the only way to get
+> the split. The correct consumer shape is therefore `skill.formIndex ?? <the lookup below>`, and
+> **`?? 0` is wrong** — `0` is the base form, a real answer, so absent must stay absent.
+> See `export-schema.md` → `champions[].skills` for the producer's side of this.
+
 Consumer-side note for **RaidTools**, written to be handed straight to an agent: paste it into a
 Claude Code session opened on that repo.
 

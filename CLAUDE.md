@@ -22,8 +22,10 @@ There is **one export**:
 bring it back.** It posted the clan record plus a roster of every clanmate's id and display name,
 read out of the exporting player's client. RSL Companion stopped ingesting rosters: those people
 never installed this app and never agreed to anything, so clan membership is now built from each
-member importing their *own* account, and the server endpoint no longer exists. The engine still has
-`ExtractClanAsync` — nothing calls it.
+member importing their *own* account, and the server endpoint no longer exists. **The engine side
+went with it on 2026-09-03**: `ExtractClanAsync`, `ClanExtractor.Extract` and the
+`ClanProfile`/`ClanInfo`/`ClanMember` models are deleted, so nothing here can read a roster even
+by accident. What the engine still reads is the account's own `clanId` + `clanName`, below.
 
 **The clan's id *and name* both ride on the consolidated payload, and both are free** (schema 14).
 The id is two pointers off `UserGameData`; the name is a pointer walk from `AppModel` — see
@@ -490,14 +492,34 @@ migration guide for the schema 9 + 10 artifact changes, written to be handed str
 working on RaidTools. It is a **summary of the contract, not part of it** — if it ever disagrees with
 the schema pair, the schema pair wins and the guide is what needs fixing.
 
+**Since schema 20 every skill carries `formIndex`, and the producer is the right place for it.** A
+transforming champion carries *both* forms' whole skill blocks on every copy, which is why `skills[]`
+can hold 10–12 entries for a champion that visibly has five, and nothing else in the payload said
+which block was which. Recovering it consumer-side means a catalog join that also honours the
+per-skill **ascension span** — ascension *replaces* skills on 336 of the 1,034 playable champions, and
+both halves of a swapped pair sit in the same form's list, so a plain membership test credits an
+un-ascended copy with a skill it does not have. **The producer never meets that question**: a copy's
+`Hero._type` *is* its own ascension variant, so `HeroType.Forms[].SkillTypeIds` read off the live
+process is already that copy's kit. Copies whose shared `HeroType` the client never hydrated — the
+same ~19% gap that leaves `roleId` null — fall back to the bundled catalog at the copy's own
+`ascensionLevel`. **Absent, never 0**, when neither source knows it: 0 is the base form.
+
 [docs/raidtools-skill-attribution.md](docs/raidtools-skill-attribution.md) is a second note of that
 kind: how a consumer attributes an owned copy's `skills[].typeId` to a form **at that copy's own
-ascension**. Same standing — a summary, never the contract. It exists because ascension does not only
+ascension**. Same standing — a summary, never the contract. **Schema 20 supersedes it for current
+payloads and does not retire it**, for the reason `heroes[]` outlived its own removal: installs update
+opt-in, so pre-20 uploaders keep sending skills with no `formIndex` for a long time, and the consumer
+shape is `formIndex ?? <the catalog join>`. It exists because ascension does not only
 add skills, it also replaces them (336 of the 1,034 playable champions hold a skill below max
 ascension that is gone by max; 374 counts the 38 bosses in too, which is the figure older notes
 quote), so a `champions{}.forms[]` holding only the max-ascension kit attributed 97.4% of
 owned skills and structurally could not do better. Each skill now carries the ascension span it is
 active for, which closes it from the champion's own row.
+
+[docs/raidtools-skill-form-index.md](docs/raidtools-skill-form-index.md) is the schema-20 companion to
+it, and the same kind of thing: the prompt for moving RaidTools from deriving the form split to
+reading `formIndex`, keeping the derivation as the pre-20 fallback. It names the four touch points on
+that side and the trap the field carries — `0` is the base form and is falsy in JavaScript.
 
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
