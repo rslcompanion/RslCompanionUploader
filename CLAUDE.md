@@ -496,7 +496,7 @@ the schema pair, the schema pair wins and the guide is what needs fixing.
 transforming champion carries *both* forms' whole skill blocks on every copy, which is why `skills[]`
 can hold 10–12 entries for a champion that visibly has five, and nothing else in the payload said
 which block was which. Recovering it consumer-side means a catalog join that also honours the
-per-skill **ascension span** — ascension *replaces* skills on 336 of the 1,034 playable champions, and
+per-skill **ascension span** — ascension *replaces* skills on 336 of the 1,044 playable champions, and
 both halves of a swapped pair sit in the same form's list, so a plain membership test credits an
 un-ascended copy with a skill it does not have. **The producer never meets that question**: a copy's
 `Hero._type` *is* its own ascension variant, so `HeroType.Forms[].SkillTypeIds` read off the live
@@ -510,7 +510,7 @@ ascension**. Same standing — a summary, never the contract. **Schema 20 supers
 payloads and does not retire it**, for the reason `heroes[]` outlived its own removal: installs update
 opt-in, so pre-20 uploaders keep sending skills with no `formIndex` for a long time, and the consumer
 shape is `formIndex ?? <the catalog join>`. It exists because ascension does not only
-add skills, it also replaces them (336 of the 1,034 playable champions hold a skill below max
+add skills, it also replaces them (336 of the 1,044 playable champions hold a skill below max
 ascension that is gone by max; 374 counts the 38 bosses in too, which is the figure older notes
 quote), so a `champions{}.forms[]` holding only the max-ascension kit attributed 97.4% of
 owned skills and structurally could not do better. Each skill now carries the ascension span it is

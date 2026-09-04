@@ -49,8 +49,8 @@ Skavag      (base 23100)  asc0:   …, 231002, …        asc1+:  …, 231005, �
                           asc6 additionally gains 200009, 200010
 ```
 
-**336 of the 1,034 playable champions** have at least one skill that exists below max ascension and
-is gone by max ascension. For the other 698 the max-ascension kit is a superset, so the
+**336 of the 1,044 playable champions** have at least one skill that exists below max ascension and
+is gone by max ascension. For the other 708 the max-ascension kit is a superset, so the
 `champions{}` lookup is already correct for them.
 
 The swap is at ascension 3 for 335 of the 336 — but **not all of them**, so do not special-case the
@@ -59,7 +59,7 @@ range; that is what it is for.
 
 (Older notes here said "374 of 1,355, the other 981". That counted bosses in — 336 playable plus 38
 bosses — from before `boss_index.json` split them out. Against the roster this document is about,
-which is the playable one, it is 336 and 698.)
+which is the playable one, it is 336 and 708.)
 
 ## The fix
 
@@ -102,7 +102,7 @@ slim copy, and the `--slim-out` flag that wrote the second one was deleted with 
 
 | File | Holds | Where |
 | --- | --- | --- |
-| `champion_index.json` | 1,034 **playable champions** | produced in `RslCompanionMetadata/exports/`; a verbatim copy is bundled at `{app}\exports\champion_index.json` |
+| `champion_index.json` | 1,044 **playable champions** | produced in `RslCompanionMetadata/exports/`; a verbatim copy is bundled at `{app}\exports\champion_index.json` |
 | `boss_index.json` | 321 bosses + location-only entries | `RslCompanionMetadata/exports/` only — **not** in the uploader install |
 
 Take either from the metadata repo; the uploader's copy is a copy, refreshed by copying. The two
