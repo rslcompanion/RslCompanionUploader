@@ -10,9 +10,10 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
-  rank / set ids in [`artifact-enums.json`](artifact-enums.json), and relic socket shapes plus the
-  relic upgrade currencies in [`relic-enums.json`](relic-enums.json) — static game metadata, not
-  account data (see `champions[].roleId`, `artifacts[]` and `relics[]` below).
+  rank / set ids in [`artifact-enums.json`](artifact-enums.json), and relic socket shapes, relic
+  upgrade currencies, plus `relicTypes` / `gemstoneTypes` name tables in
+  [`relic-enums.json`](relic-enums.json) — static game metadata, not account data (see
+  `champions[].roleId`, `artifacts[]` and `relics[]` below).
 - `champions[].baseStats` uses the **same `statKindId` space** as the artifact bonuses, so no extra
   table is needed to read it. The catalog it is computed from (`hero_base_stats.json`) ships with the
   uploader rather than here, and a consumer needs it only for champions the player does *not* own —
@@ -906,6 +907,12 @@ game, not the account, exactly like champion skill names and mastery-node metada
 catalog keyed on `typeId`. Reading them per record would also be unsafe: the client hydrates shared
 type objects **lazily**, the same trap that silently exported `champions[].factionId` as `0` for 340 of
 957 champions before 2026-08-01.
+
+The **names** are the one catalog field that ships today: [`relic-enums.json`](relic-enums.json)
+carries `relicTypes` (ids 1–88) and `gemstoneTypes` (ids 1–119) as `typeId → name`, captured
+2026-08-03 from the game's own l10n. This is metadata beside the schema — the payload gains no name
+field and this is not a schema bump. Rarity, group and bonus text are still absent. Gaps: relic
+89–94 (added later), gemstone 120 (transposed keys in the capture) — see that file's `notNamedHere`.
 
 ### The two ends of the socket join agree by construction
 
