@@ -909,10 +909,10 @@ type objects **lazily**, the same trap that silently exported `champions[].facti
 957 champions before 2026-08-01.
 
 The **names** are the one catalog field that ships today: [`relic-enums.json`](relic-enums.json)
-carries `relicTypes` (ids 1–88) and `gemstoneTypes` (ids 1–119) as `typeId → name`, captured
-2026-08-03 from the game's own l10n. This is metadata beside the schema — the payload gains no name
-field and this is not a schema bump. Rarity, group and bonus text are still absent. Gaps: relic
-89–94 (added later), gemstone 120 (transposed keys in the capture) — see that file's `notNamedHere`.
+carries `relicTypes` (ids 1–94) and `gemstoneTypes` (ids 1–120) as `typeId → name`, read from the
+game's own l10n (2026-08-03, re-captured and corrected 2026-09-08 — the first gemstone pass was off
+by one). This is metadata beside the schema — the payload gains no name field and this is not a
+schema bump. Rarity, group and bonus text are still absent.
 
 ### The two ends of the socket join agree by construction
 
