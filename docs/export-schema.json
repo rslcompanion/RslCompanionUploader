@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 20,
+  "schemaVersion": 21,
   "x-uploaderVersion": "1.18.0",
-  "x-lastUpdated": "2026-09-04",
+  "x-lastUpdated": "2026-09-13",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -249,9 +249,10 @@
           "slotIndex": { "type": "integer" },
           "heroTypeId": { "type": "integer", "description": "Champion type WITH the ascension digit (366 = base 360 at ascension 6). Do NOT join this onto champions[].baseTypeId." },
           "heroBaseTypeId": { "type": "integer", "description": "Ascension stripped. THIS is what joins to champions[].baseTypeId. The game's own field is misleadingly named HeroBaseTypeId but carries the ascension digit; both forms are published so consumers need not guess." },
-          "firstHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty." },
-          "secondHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty." },
-          "consumed": { "type": "boolean" }
+          "firstHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty, or when championsDeleted is true." },
+          "secondHeroInstanceId": { "type": ["integer", "null"], "description": "Null when that half of the slot is empty, or when championsDeleted is true." },
+          "consumed": { "type": "boolean", "description": "The game's AcademyGuardiansSlot.Consumed, passed through. NOT a deletion signal: slots reading true can still have both copies in the roster. Meaning not established." },
+          "championsDeleted": { "type": "boolean", "description": "Since schema 21. The two copies were sacrificed into the slot and no longer exist; both instance ids are null and neither copy is in champions[]. The slot is still filled. Name it from heroBaseTypeId. Schema <= 20 sent the champion's type id in both instance-id fields instead." }
         }
       }
     },
