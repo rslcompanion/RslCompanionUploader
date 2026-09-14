@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 21** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 22** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -125,7 +125,7 @@ of them changed in v1.5.4 alone. `id` is stable.
 
 **The array always contains every allowlisted id**, including ones the account holds none of, which
 are emitted with `quantity: 0`. So a missing id means "not in the allowlist", never "zero owned" —
-and the array length only changes when the allowlist itself changes. Current allowlist: **55 ids**
+and the array length only changes when the allowlist itself changes. Current allowlist: **146 ids**
 (see `extraction/resource-allowlist.json` / `.md` in the engine for the full annotated table).
 
 ### Relic economy (new in schema 11 — previously dropped entirely)
@@ -140,6 +140,54 @@ allowlist is *exclusive* and none of them was on it. **An account's history for 
 begins at schema 11** — do not read their absence in an older snapshot as a zero balance. This is
 the third occurrence of the same defect (Rank 1/2 Chickens, then the Immortal/Eternal Soul Essences),
 which is why the allowlist file now records how each addition was verified.
+
+### Forge materials (new in schema 22 — previously dropped entirely)
+
+Both kinds of Forge crafting material: **47 gear forge materials** and **44 relic craft materials**,
+91 ids. Ids are the game's own `ResourceTypeId` values, read from the client's runtime enum table;
+names are the game's own localized strings.
+
+**Each family's tiers run consecutively from its first id** — gear `+0` Rare, `+1` Epic, `+2`
+Legendary; relic `+0` Rare, `+1` Epic, `+2` Legendary, `+3` Mythical. **That does not hold across
+families**: 681, 684 and 687 are three different families packed three apart. Use the table, never
+arithmetic across it. The tier is also in the name — `"Dragon Bones (Epic)"` — but names are labels:
+join on `id`, never parse the name.
+
+**Gear forge materials**
+
+| ids | name | | ids | name |
+|---|---|---|---|---|
+| 601 | Magisteel (single tier) | | 684–686 | Dreadhorn Plates |
+| 602 | Corehammer (single tier) | | 687–689 | Fae Spheres |
+| 611–613 | Willstone ⚠ | | 697–699 | Instinct Stones |
+| 621–623 | Bloodstone | | 6900–6902 | Bolster Stones |
+| 631–633 | Nether Eggs | | 6910–6912 | Defiant Chunks |
+| 641–643 | Scarab Claws | | 6920–6922 | Righteous Alloy |
+| 651–653 | Magma Cores | | 6923–6925 | Slayer Scales |
+| 661–663 | Frost Spines | | | |
+| 671–673 | Dragon Bones | | | |
+| 681–683 | Griffin Feathers | | | |
+
+⚠ **The label on 611–613 is the one name not read directly.** The game's enum calls them
+`Forge_Soulstone*`; the name is paired with the localized "Willstone" by elimination. The id and the
+quantity are solid either way.
+
+**Relic craft materials** — named by the Forge's relic group they craft
+
+| ids | name | group | | ids | name | group |
+|---|---|---|---|---|---|---|
+| 4100–4103 | Ocular Masses | Chimera | | 4160–4163 | Radiant Sunlily | Discovery |
+| 4110–4113 | Regal Masques | Alice's Adventure | | 4170–4173 | Gleaming Fyrgems | Forge Pass |
+| 4120–4123 | Gilded Medallions | Clan | | 4180–4183 | Bloodbriars | Grim Forest |
+| 4130–4133 | Runed Obsidian | Live Arena | | 4190–4193 | Celestial Crystals | Wings of Winter |
+| 4140–4143 | Spiteful Remains | Faction Wars | | 4200–4203 | Floral Amberstone | Coalescence |
+| 4150–4153 | Twysted Horns | Chaos Awakes | | | | |
+
+**An account's history for these 91 ids begins at schema 22.** Like the relic economy before it, they
+were absent from the exclusive allowlist, so every earlier export discarded them however many the
+account held — do not read their absence in an older snapshot as a zero balance. Several gear materials
+read exactly `10000` on a mature account, which looks like a storage cap; that is an observation, not
+something the payload enforces.
 
 ### Soul economy (corrected in v1.5.4 — read this if you consume these)
 
@@ -253,7 +301,7 @@ The uploader now refuses to send one (extraction fails loudly instead), and the 
 
 The same reasoning applies to resources, but **the failure wears a different shape, so the check has
 to be different**. Every allowlisted id is emitted unconditionally (that is the guarantee above), so
-a resource read that failed outright still returns a **full-length array of 49 zeroes** — not an
+a resource read that failed outright still returns a **full-length array of 146 zeroes** — not an
 empty one. Checking the length would never catch it.
 
 What is impossible is the array being *all* zero: every account holds at least some Silver. The
@@ -1029,6 +1077,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 22 | — | 2026-09-14 | **Additive: `resources[]` 55 → 146 entries — the 91 Forge crafting materials, which every earlier export DROPPED.** 47 gear forge materials (`601`, `602`, `611`–`699`, `6900`–`6925`) and 44 relic craft materials (`4100`–`4203`); see [Forge materials](#forge-materials-new-in-schema-22--previously-dropped-entirely). Nothing changes shape and no existing id changes. Same defect as schema 11's relic economy and the chickens and soul essences before it: the engine's resource allowlist is exclusive and none of these ids was on it. They sit in the same resources dict as Starstone, so they cost nothing to read. **Ids are the game's own `ResourceTypeId` values**, bound from the client's runtime enum reflection table rather than inferred from order, and **names are the game's localized strings** read from its localization dictionaries. Verified against the live client (11.75.0): all 91 present and named, and every quantity equal to a raw read of the resources dict taken at the same moment. Not yet checked against the in-game Forge screen. **Consumer impact:** (1) an account's history for these ids begins here — absence in an older snapshot is not a zero balance; (2) each family's tiers run consecutively from its first id, but not across families (681/684/687 are three families), so use the table; (3) **the label on 611–613 ("Willstone") is paired by elimination** — the game's enum calls them `Forge_Soulstone`; (4) a consumer that maps resource ids into fixed fields (RaidTools' `MapAccountResources`) drops all 91 until it adds somewhere to put them. |
 | 21 | v1.19.0 | 2026-09-13 | **One new field, additive: `factionGuardians[].championsDeleted`.** `true` when the slot's two copies were sacrificed and no longer exist; **both instance ids are then `null`** where earlier schemas sent the champion's type id in their place (Courtier's Banner Lords Rare slot: `2040 / 2040` on a type-2040 slot, no Courtier in the roster). The slot is still filled and still counts toward the `guardians` stat column. **Consumer impact:** schema ≤ 20 payloads keep arriving (updates are opt-in) and still carry the type id as both "instance ids" — recognise that shape (both ids equal the slot's type id, neither owned) or it flags a copy that does not exist, or an unrelated one sharing the number. **Also a correction, no shape change: `consumed` does not mean the champions are gone.** Underpriest Brogni and Storm Herald Hekaton read `consumed: true` with both copies still in the roster, owner-confirmed; what the flag means is not established. |
 | 20 | v1.18.0 | 2026-09-04 | **One new field, additive: `champions[].skills[].formIndex` — which of the champion's forms each skill is on.** A consumer that ignores it is exactly as correct as it was on schema 19. `0` is the base form, `1` a transformation's second form, matching `forms[].index` in `champion_index.json`. **It is absent, never `0`, when unresolved**, because `0` is a real answer — group with `?? "unknown"`, never with `?? 0`; this is the same nullability rule as `roleId`, and for the same reason. **Why this moved to the producer rather than staying a catalog join:** a transforming champion carries both forms' whole skill blocks on every copy (Alaz the Sunbearer reports `86301…86305` *and* `886301…886305`), and recovering the split consumer-side means honouring the per-skill ascension span in the catalog's `forms[].skills[]` — ascension **replaces** skills on 336 of the 1,044 playable champions, and both halves of a swapped pair sit in the same form list, so a membership test alone credits an un-ascended copy with a skill it does not have. The producer never faces that question: a copy's `Hero._type` **is** its own ascension variant, so the form list read from the live process is already that copy's kit. Copies whose shared `HeroType` the client never hydrated — the same ~19% gap that leaves `roleId` null — fall back to the bundled catalog evaluated at the copy's own `ascensionLevel`; measured against a real 915-champion roster that fallback attributed 3,005 of 3,005 skills, closing the 2.6% residual [`raidtools-skill-attribution.md`](raidtools-skill-attribution.md) was written to explain. **That note is now history for schema ≥ 20 payloads and still current for older ones**, which the uploader's opt-in updates guarantee will keep arriving. |
 | 19 | v1.17.0 | 2026-08-27 | **Three new top-level fields, all additive: `arenaTeam`, `arena3v3Teams[]`, `siegePresets[]` — saved teams.** A consumer that ignores every one of them is exactly as correct as it was on schema 18. A saved, recallable team exists for exactly three areas of the game — Classic Arena (one team), 3v3/Tag Team Arena (per-slot, usually 3) and Siege (per-map-slot, usually 4) — and **the negative result is the more important half of this change**: every PvE stage mode (Dungeons, Doom Tower, Cursed City, Faction Wars, Event Dungeon, Foggy Forest, Champion's Journey) was checked field by field and carries no team data whatsoever, only battle results — the game keeps no saved team for any of them, so there is nothing this payload could add for those areas even in principle. `arenaTeam`/`arena3v3Teams[].heroes[]` carry a stat snapshot (`grade`/`level`/`empowerLevel`) from when the team was last saved, which can be stale against `champions[]` — join on `inventoryHeroId` for current numbers. `siegePresets[].heroIds` is bare ids with no snapshot, because Siege reads the live roster at attack time rather than freezing one. **`arena3v3Teams[]`/`siegePresets[]` follow the same null-vs-empty rule as `affinityBonuses[]`/`areaBonuses[]`**: absent means the read wasn't validated this run, a present (possibly empty) array means it was and the account genuinely has that many saved. `arenaTeam` does not yet make that distinction — `null` covers both "no team saved" and "couldn't validate," the same accepted ambiguity `clanId` already carries. Full structural writeup, including the field-by-field PvE walk that produced the negative result: the extraction engine's `docs/team-findings.md`.  **Also new in v1.17.0, and NOT a schema change because no field changes shape: `statBreakdownSources` now declares all nine columns** — `basic, artifacts, greatHall, arena, masteries, guardians, empowerment, blessing, relics` — where v1.16.0 declared the first four. That list has always been the payload's own statement about itself, precisely so it could grow without a schema bump, and a consumer that reads it rather than hardcoding four columns needs no change at all. The schema-18 row below says "today it is `basic, artifacts, greatHall, arena`"; that was true of v1.16.0 and is the point of the field, not a contradiction. **`areaBonuses[]` still never appears in it** — RaidTools now draws that column from the account-level grid, per a location the player picks, which is the only way it can be drawn at all. |

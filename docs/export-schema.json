@@ -3,7 +3,7 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 21,
+  "schemaVersion": 22,
   "x-uploaderVersion": "1.19.0",
   "x-lastUpdated": "2026-09-13",
   "x-relatedCatalogs": {
@@ -79,7 +79,7 @@
         "required": ["quantity"],
         "properties": { "quantity": { "type": "integer", "minimum": 1 } }
       },
-      "description": "ALWAYS the complete allowlist (49 ids as of schema 3). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
+      "description": "ALWAYS the complete allowlist (146 ids as of schema 22). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
       "items": {
         "type": "object",
         "required": ["id", "name", "quantity"],
@@ -107,6 +107,24 @@
           "12001": "Mortal Soulstone (unchanged)",
           "12002": "Immortal Soulstone (unchanged)",
           "12003": "Eternal Soulstone (unchanged)"
+        }
+      },
+      "x-forgeMaterials": {
+        "description": "New in schema 22: 91 Forge crafting materials, previously DROPPED by the exclusive allowlist, so an account's history for these ids begins at schema 22. Ids are the game's own ResourceTypeId values. Each family's tiers run consecutively from its first id - gear: Rare, Epic, Legendary; relic: Rare, Epic, Legendary, Mythical - but NOT across families (681/684/687 are three families). Names carry the tier in parentheses and are labels only: join on id. The 611-613 label (Willstone) is paired by elimination; the game's enum calls them Forge_Soulstone.",
+        "gear": {
+          "601": "Magisteel", "602": "Corehammer",
+          "611-613": "Willstone", "621-623": "Bloodstone", "631-633": "Nether Eggs", "641-643": "Scarab Claws",
+          "651-653": "Magma Cores", "661-663": "Frost Spines", "671-673": "Dragon Bones", "681-683": "Griffin Feathers",
+          "684-686": "Dreadhorn Plates", "687-689": "Fae Spheres", "697-699": "Instinct Stones",
+          "6900-6902": "Bolster Stones", "6910-6912": "Defiant Chunks", "6920-6922": "Righteous Alloy", "6923-6925": "Slayer Scales"
+        },
+        "relic": {
+          "4100-4103": "Ocular Masses (Chimera)", "4110-4113": "Regal Masques (Alice's Adventure)",
+          "4120-4123": "Gilded Medallions (Clan)", "4130-4133": "Runed Obsidian (Live Arena)",
+          "4140-4143": "Spiteful Remains (Faction Wars)", "4150-4153": "Twysted Horns (Chaos Awakes)",
+          "4160-4163": "Radiant Sunlily (Discovery)", "4170-4173": "Gleaming Fyrgems (Forge Pass)",
+          "4180-4183": "Bloodbriars (Grim Forest)", "4190-4193": "Celestial Crystals (Wings of Winter)",
+          "4200-4203": "Floral Amberstone (Coalescence)"
         }
       }
     },
