@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 22,
-  "x-uploaderVersion": "1.19.0",
-  "x-lastUpdated": "2026-09-13",
+  "schemaVersion": 23,
+  "x-uploaderVersion": "1.20.0",
+  "x-lastUpdated": "2026-09-14",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -79,7 +79,7 @@
         "required": ["quantity"],
         "properties": { "quantity": { "type": "integer", "minimum": 1 } }
       },
-      "description": "ALWAYS the complete allowlist (146 ids as of schema 22). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
+      "description": "ALWAYS the complete allowlist (145 ids as of schema 23). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
       "items": {
         "type": "object",
         "required": ["id", "name", "quantity"],
@@ -94,16 +94,27 @@
           }
         }
       },
+      "x-shardsAndRemnants": {
+        "description": "Corrected in schema 23. Prism Crystals is id 10650 (a game ITEM); schemas <= 22 emitted 10202 under that name, which is the Grim Forest currency Extra Grim Gold - discard stored 10202 values, there is nothing to migrate. The five shard ids are also the game's ids for other resources (1202/1203 Live Arena Crests, 1301 Cursed City Keys, 1302/1303 Cursed Candles / Occult Cursed Candles); since schema 23 shard counts come only from the game's shard store, so a failed shard read exports 0 where it used to export those other counts. Shard ids and names are unchanged.",
+        "ids": {
+          "1203": "Mystery Shard",
+          "1202": "Ancient Shard",
+          "1303": "Void Shard",
+          "1301": "Sacred Shard",
+          "1302": "Primal Shard",
+          "10650": "Prism Crystals (NEW id in schema 23; was 10202)",
+          "8100": "Cursed Remnants (unchanged; internal name ParticleSummon)",
+          "3000": "Primal Quartz (unchanged; internal name MythicalDust)"
+        }
+      },
       "x-soulEconomy": {
-        "description": "Corrected in schema 3 / v1.5.4. Ids 10101, 10102, 10104, 10105, 10201 and 10204 are a DEFUNCT earlier soul system: they are not allowlisted, are never emitted, and must not be mapped onto the ids below - doing so is the bug v1.5.4 fixed.",
+        "description": "Corrected in schema 3 / v1.5.4. Ids 10101, 10102, 10104, 10105, 10201 and 10204 are Grim Forest currencies (called a 'defunct earlier soul system' until schema 23): they are not allowlisted, are never emitted, and must not be mapped onto the ids below - doing so is the bug v1.5.4 fixed. Schema 23 REMOVED 10202 (was labelled 'Prism Crystals'; it is Extra Grim Gold) and 10205 (was 'Eternal Essence'; it is Extra Grim Charms). Prism Crystals is id 10650 - see x-shardsAndRemnants.",
         "ids": {
           "1111": "Mortal Soul Coin (was 'Silver Soul Coin'; value was wrong before v1.5.4)",
           "1112": "Immortal Soul Coin (was 'Gold Soul Coin'; value was wrong before v1.5.4)",
           "1113": "Eternal Soul Coin (was 'Immortal Essence'; value was wrong before v1.5.4)",
           "1121": "Immortal Soul Essence (NEW in v1.5.4)",
           "1122": "Eternal Soul Essence (NEW in v1.5.4)",
-          "10202": "Prism Crystals",
-          "10205": "Eternal Essence (legacy; still emitted, semantics unverified)",
           "12001": "Mortal Soulstone (unchanged)",
           "12002": "Immortal Soulstone (unchanged)",
           "12003": "Eternal Soulstone (unchanged)"

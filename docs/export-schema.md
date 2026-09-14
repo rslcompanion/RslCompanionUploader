@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 22** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 23** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -125,8 +125,33 @@ of them changed in v1.5.4 alone. `id` is stable.
 
 **The array always contains every allowlisted id**, including ones the account holds none of, which
 are emitted with `quantity: 0`. So a missing id means "not in the allowlist", never "zero owned" —
-and the array length only changes when the allowlist itself changes. Current allowlist: **146 ids**
+and the array length only changes when the allowlist itself changes. Current allowlist: **145 ids**
 (see `extraction/resource-allowlist.json` / `.md` in the engine for the full annotated table).
+
+### Shards & Remnants (corrected in schema 23)
+
+| id | name | notes |
+|---:|---|---|
+| 1203 / 1202 / 1303 / 1301 / 1302 | Mystery / Ancient / Void / Sacred / Primal Shard | unchanged ids and names — see the collision note below |
+| 10650 | Prism Crystals | **new id in schema 23**; was emitted as `10202`, which was never Prism Crystals |
+| 8100 | Cursed Remnants | unchanged (the game's internal name is `ParticleSummon`) |
+| 3000 | Primal Quartz | unchanged (the game's internal name is `MythicalDust`) |
+
+**`10202` "Prism Crystals" was a Grim Forest currency.** The game's `ResourceTypeId` enum calls it
+`FoggyForest_Hard_Gold` and its own strings **Extra Grim Gold**, so every schema ≤ 22 payload carried a
+Grim Forest balance under the Prism Crystals label — 2,755 on the reference account, against 55 Prism
+Crystals on the Summoning Portal screen. `10205` "Eternal Essence" was **Extra Grim Charms**. Both are
+gone in schema 23. Real Prism Crystals is the game **item** `10650`. **Consumer rule: discard stored
+`10202` / `10205` values — there is nothing in them to migrate — and expect no `10650` history before
+schema 23.**
+
+**The five shard ids are also the game's ids for something else.** In its resources store `1202` /
+`1203` are Live Arena Crests and `1301` / `1302` / `1303` are Cursed City Keys / Cursed Candles /
+Occult Cursed Candles; four unrelated items (Grim Forest map chests, Fusion Tokens) were also mapped
+onto them. Schema ≤ 22 exported correct shard counts only because the shard read ran last and
+overwrote those values. Schema 23 takes shards from the shard store alone, so **if that read fails the
+shards export `0`** — before, they would have exported a Crest count (Mystery Shard 30,225). The wire
+shape is unchanged.
 
 ### Relic economy (new in schema 11 — previously dropped entirely)
 
@@ -198,13 +223,17 @@ something the payload enforces.
 | 1113 | Eternal Soul Coin | **was** `Immortal Essence`, and exported a stale value |
 | 1121 | Immortal Soul Essence | **new in v1.5.4** — previously not exported at all |
 | 1122 | Eternal Soul Essence | **new in v1.5.4** — previously not exported at all |
-| 10202 | Prism Crystals | |
-| 10205 | Eternal Essence | legacy; still emitted, semantics unverified |
 | 12001 / 12002 / 12003 | Mortal / Immortal / Eternal Soulstone | unchanged, were always correct |
 
-Ids **10101, 10102, 10104, 10105, 10201, 10204** belong to a *defunct earlier* soul system. They are
-**not** in the allowlist and are never emitted. They still exist in game memory holding stale values,
-and mapping them onto the ids above is precisely the bug v1.5.4 fixed — so do not reintroduce that
+**`10202` and `10205` are no longer emitted (schema 23).** They were listed here as "Prism Crystals"
+and "Eternal Essence"; the game's `ResourceTypeId` enum and its own strings say they are Grim Forest
+currencies — **Extra Grim Gold** and **Extra Grim Charms**. Prism Crystals is now id **`10650`**, in
+[Shards & Remnants](#shards--remnants-corrected-in-schema-23).
+
+Ids **10101, 10102, 10104, 10105, 10201, 10204** are **not** in the allowlist and are never emitted.
+This file used to call them a *defunct earlier* soul system; they are Grim Forest currencies too
+(Grim Coins, Grim Gold, Redraw Token, Grim Charms, and the Extra Grim variants), holding live values.
+Mapping them onto the soul ids above is precisely the bug v1.5.4 fixed — so do not reintroduce that
 mapping consumer-side either.
 
 ---
@@ -301,7 +330,7 @@ The uploader now refuses to send one (extraction fails loudly instead), and the 
 
 The same reasoning applies to resources, but **the failure wears a different shape, so the check has
 to be different**. Every allowlisted id is emitted unconditionally (that is the guarantee above), so
-a resource read that failed outright still returns a **full-length array of 146 zeroes** — not an
+a resource read that failed outright still returns a **full-length array of 145 zeroes** — not an
 empty one. Checking the length would never catch it.
 
 What is impossible is the array being *all* zero: every account holds at least some Silver. The
@@ -1077,7 +1106,8 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 22 | — | 2026-09-14 | **Additive: `resources[]` 55 → 146 entries — the 91 Forge crafting materials, which every earlier export DROPPED.** 47 gear forge materials (`601`, `602`, `611`–`699`, `6900`–`6925`) and 44 relic craft materials (`4100`–`4203`); see [Forge materials](#forge-materials-new-in-schema-22--previously-dropped-entirely). Nothing changes shape and no existing id changes. Same defect as schema 11's relic economy and the chickens and soul essences before it: the engine's resource allowlist is exclusive and none of these ids was on it. They sit in the same resources dict as Starstone, so they cost nothing to read. **Ids are the game's own `ResourceTypeId` values**, bound from the client's runtime enum reflection table rather than inferred from order, and **names are the game's localized strings** read from its localization dictionaries. Verified against the live client (11.75.0): all 91 present and named, and every quantity equal to a raw read of the resources dict taken at the same moment. Not yet checked against the in-game Forge screen. **Consumer impact:** (1) an account's history for these ids begins here — absence in an older snapshot is not a zero balance; (2) each family's tiers run consecutively from its first id, but not across families (681/684/687 are three families), so use the table; (3) **the label on 611–613 ("Willstone") is paired by elimination** — the game's enum calls them `Forge_Soulstone`; (4) a consumer that maps resource ids into fixed fields (RaidTools' `MapAccountResources`) drops all 91 until it adds somewhere to put them. |
+| 23 | v1.20.0 | 2026-09-14 | **Corrective: `resources[]` 146 → 145 entries — `10202` and `10205` removed as mislabelled, `10650` Prism Crystals added; shard counts no longer fall back to unrelated values.** See [Shards & Remnants](#shards--remnants-corrected-in-schema-23). The game's `ResourceTypeId` enum, its own localized strings and the in-game screens agree: (1) **`10202` "Prism Crystals" was Extra Grim Gold** (`FoggyForest_Hard_Gold`) — every schema ≤ 22 payload carried a Grim Forest balance under that label (2,755 on the reference account against 55 Prism Crystals on the Summoning Portal bar), and **real Prism Crystals is the game item `10650`**, which the exclusive allowlist had been dropping; (2) **`10205` "Eternal Essence" was Extra Grim Charms** (`FoggyForest_Hard_TreasureHuntPart`) and is gone with no replacement; (3) **the five shard ids are also the game's ids for Live Arena Crests (`1202`/`1203`) and Cursed City Keys / Candles (`1301`–`1303`)**, and four unrelated items (Grim Forest map chests, Fusion Tokens) were mapped onto them too — schema ≤ 22 exported correct shard counts only because the shard read ran last, and would have exported Mystery Shard = 30,225 (a Crest count) had it failed; shard ids and names are unchanged. `3000` Primal Quartz, `4000` Starstone and `8100` Cursed Remnants were checked and are correct (the enum's `MythicalDust` / `Meteor` / `ParticleSummon` are internal names). The ids `10101`/`10102`/`10104`/`10105`/`10201`/`10204` this file called a "defunct earlier soul system" are Grim Forest currencies as well; still never emitted. **Consumer impact:** (1) **discard every stored `10202` / `10205` value** — there is nothing to migrate, and a consumer mapping `10202` into a Prism Crystals field (RaidTools' `MapAccountResources` → `PrismCrystals`) has been storing Extra Grim Gold and must switch to `10650`; (2) `10650` history begins here — absence in an older snapshot is not zero; (3) **a shard read that fails now exports `0`**, so a sudden all-zero shard set is a failed read, not a spent portal; (4) RaidTools' `PrismShards` field is fed from `1302`, which is the Primal Shard — right value, misleading name. |
+| 22 | v1.20.0 | 2026-09-14 | **Additive: `resources[]` 55 → 146 entries — the 91 Forge crafting materials, which every earlier export DROPPED.** 47 gear forge materials (`601`, `602`, `611`–`699`, `6900`–`6925`) and 44 relic craft materials (`4100`–`4203`); see [Forge materials](#forge-materials-new-in-schema-22--previously-dropped-entirely). Nothing changes shape and no existing id changes. Same defect as schema 11's relic economy and the chickens and soul essences before it: the engine's resource allowlist is exclusive and none of these ids was on it. They sit in the same resources dict as Starstone, so they cost nothing to read. **Ids are the game's own `ResourceTypeId` values**, bound from the client's runtime enum reflection table rather than inferred from order, and **names are the game's localized strings** read from its localization dictionaries. Verified against the live client (11.75.0): all 91 present and named, and every quantity equal to a raw read of the resources dict taken at the same moment. Not yet checked against the in-game Forge screen. **Consumer impact:** (1) an account's history for these ids begins here — absence in an older snapshot is not a zero balance; (2) each family's tiers run consecutively from its first id, but not across families (681/684/687 are three families), so use the table; (3) **the label on 611–613 ("Willstone") is paired by elimination** — the game's enum calls them `Forge_Soulstone`; (4) a consumer that maps resource ids into fixed fields (RaidTools' `MapAccountResources`) drops all 91 until it adds somewhere to put them. |
 | 21 | v1.19.0 | 2026-09-13 | **One new field, additive: `factionGuardians[].championsDeleted`.** `true` when the slot's two copies were sacrificed and no longer exist; **both instance ids are then `null`** where earlier schemas sent the champion's type id in their place (Courtier's Banner Lords Rare slot: `2040 / 2040` on a type-2040 slot, no Courtier in the roster). The slot is still filled and still counts toward the `guardians` stat column. **Consumer impact:** schema ≤ 20 payloads keep arriving (updates are opt-in) and still carry the type id as both "instance ids" — recognise that shape (both ids equal the slot's type id, neither owned) or it flags a copy that does not exist, or an unrelated one sharing the number. **Also a correction, no shape change: `consumed` does not mean the champions are gone.** Underpriest Brogni and Storm Herald Hekaton read `consumed: true` with both copies still in the roster, owner-confirmed; what the flag means is not established. |
 | 20 | v1.18.0 | 2026-09-04 | **One new field, additive: `champions[].skills[].formIndex` — which of the champion's forms each skill is on.** A consumer that ignores it is exactly as correct as it was on schema 19. `0` is the base form, `1` a transformation's second form, matching `forms[].index` in `champion_index.json`. **It is absent, never `0`, when unresolved**, because `0` is a real answer — group with `?? "unknown"`, never with `?? 0`; this is the same nullability rule as `roleId`, and for the same reason. **Why this moved to the producer rather than staying a catalog join:** a transforming champion carries both forms' whole skill blocks on every copy (Alaz the Sunbearer reports `86301…86305` *and* `886301…886305`), and recovering the split consumer-side means honouring the per-skill ascension span in the catalog's `forms[].skills[]` — ascension **replaces** skills on 336 of the 1,044 playable champions, and both halves of a swapped pair sit in the same form list, so a membership test alone credits an un-ascended copy with a skill it does not have. The producer never faces that question: a copy's `Hero._type` **is** its own ascension variant, so the form list read from the live process is already that copy's kit. Copies whose shared `HeroType` the client never hydrated — the same ~19% gap that leaves `roleId` null — fall back to the bundled catalog evaluated at the copy's own `ascensionLevel`; measured against a real 915-champion roster that fallback attributed 3,005 of 3,005 skills, closing the 2.6% residual [`raidtools-skill-attribution.md`](raidtools-skill-attribution.md) was written to explain. **That note is now history for schema ≥ 20 payloads and still current for older ones**, which the uploader's opt-in updates guarantee will keep arriving. |
 | 19 | v1.17.0 | 2026-08-27 | **Three new top-level fields, all additive: `arenaTeam`, `arena3v3Teams[]`, `siegePresets[]` — saved teams.** A consumer that ignores every one of them is exactly as correct as it was on schema 18. A saved, recallable team exists for exactly three areas of the game — Classic Arena (one team), 3v3/Tag Team Arena (per-slot, usually 3) and Siege (per-map-slot, usually 4) — and **the negative result is the more important half of this change**: every PvE stage mode (Dungeons, Doom Tower, Cursed City, Faction Wars, Event Dungeon, Foggy Forest, Champion's Journey) was checked field by field and carries no team data whatsoever, only battle results — the game keeps no saved team for any of them, so there is nothing this payload could add for those areas even in principle. `arenaTeam`/`arena3v3Teams[].heroes[]` carry a stat snapshot (`grade`/`level`/`empowerLevel`) from when the team was last saved, which can be stale against `champions[]` — join on `inventoryHeroId` for current numbers. `siegePresets[].heroIds` is bare ids with no snapshot, because Siege reads the live roster at attack time rather than freezing one. **`arena3v3Teams[]`/`siegePresets[]` follow the same null-vs-empty rule as `affinityBonuses[]`/`areaBonuses[]`**: absent means the read wasn't validated this run, a present (possibly empty) array means it was and the account genuinely has that many saved. `arenaTeam` does not yet make that distinction — `null` covers both "no team saved" and "couldn't validate," the same accepted ambiguity `clanId` already carries. Full structural writeup, including the field-by-field PvE walk that produced the negative result: the extraction engine's `docs/team-findings.md`.  **Also new in v1.17.0, and NOT a schema change because no field changes shape: `statBreakdownSources` now declares all nine columns** — `basic, artifacts, greatHall, arena, masteries, guardians, empowerment, blessing, relics` — where v1.16.0 declared the first four. That list has always been the payload's own statement about itself, precisely so it could grow without a schema bump, and a consumer that reads it rather than hardcoding four columns needs no change at all. The schema-18 row below says "today it is `basic, artifacts, greatHall, arena`"; that was true of v1.16.0 and is the point of the field, not a contradiction. **`areaBonuses[]` still never appears in it** — RaidTools now draws that column from the account-level grid, per a location the player picks, which is the only way it can be drawn at all. |
