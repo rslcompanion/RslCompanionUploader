@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 23,
-  "x-uploaderVersion": "1.20.0",
-  "x-lastUpdated": "2026-09-14",
+  "schemaVersion": 24,
+  "x-uploaderVersion": "1.21.0",
+  "x-lastUpdated": "2026-09-15",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",
@@ -331,6 +331,11 @@
       "items": { "$ref": "#/$defs/siegePreset" },
       "description": "NEW IN SCHEMA 19. Siege's per-map-slot presets — normally 4, treat as 'however many the account has set.' Simpler than teamInfo: bare hero ids, NO stat snapshot, because Siege reads the live roster at attack time rather than freezing one at save time. Same absent-vs-empty rule as arena3v3Teams[].",
       "examples": [[{ "slot": 0, "heroIds": [59442, 39072, 52814, 68310] }, { "slot": 1, "heroIds": [56238, 20540, 38789, 49430] }]]
+    },
+    "souls": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/soul" },
+      "description": "NEW IN SCHEMA 24. Every Awakening Soul the account owns — champion-bound material that raises champions[].awakeningLevel, decoded from UserGameData -> UpdatableUserDoubleAscendData's own key. NOT resources[]' Soulstone/Soul Essence entries (an unrelated account-wide currency the game's UI also happens to call 'Soul' — see schema 23's soul-economy note) and NOT a spare duplicate champion copy (that raises ascensionLevel, a different mechanic). A consumer that ignores the array is exactly as correct as it was on schema 23. Verified live (11.75.0, account Magikwolf): 156 owned souls decoded, matching the in-game Soul Collection tally exactly."
     }
   },
   "$defs": {
@@ -436,6 +441,18 @@
         "typeId": { "type": "integer", "description": "The shared RelicStoneType; the join key into a gemstone catalog. 68 distinct values on the reference account. Named in relic-enums.json's gemstoneTypes for ids 1-120 (l10n:relic-stone/name?id=N; the first capture was off by one across the whole table and was corrected 2026-09-08). Rarity, shape and skill are still not shipped." },
         "isActivated": { "type": "boolean" },
         "socketedInRelicId": { "type": ["integer", "null"], "description": "The relics[].id this gemstone sits in, or NULL when it is in storage. Derived by inverting the sockets, so it is exactly consistent with them by construction - it is a convenience for consumers that index gemstones directly, not a second source of truth." }
+      }
+    },
+    "soul": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["championBaseId", "isPerfect", "level", "championRarity"],
+      "description": "One owned Awakening Soul. NOT stackable and has no instance id: the game allows at most one soul per (championBaseId, isPerfect, level) at a time, so those three fields are already a unique key within an account.",
+      "properties": {
+        "championBaseId": { "type": "integer", "description": "The champion this soul is bound to - a champions[].typeId with no ascension digit. May reference a champion the account has never summoned, since a soul can exist with no owned copy of its champion at all (see 'orphan' in the consumer guidance)." },
+        "isPerfect": { "type": "boolean", "description": "True for a Perfect Soul, false for a Split Soul. A Perfect soul applies to a champion of championBaseId any time its current awakeningLevel is BELOW level. A Split soul applies ONLY when the champion's current awakeningLevel is EXACTLY level - 1. Confirmed against the game's own Altar of Souls screen: a Perfect soul's star row fills 1..level in order, a Split soul's row lights only the star at position level." },
+        "level": { "type": "integer", "minimum": 1, "maximum": 6, "description": "The awakening grade this soul is good for." },
+        "championRarity": { "type": "integer", "minimum": 1, "maximum": 6, "description": "The bound champion's rarity, carried in the soul's own id - lets a soul for a champion the account does not own still state what rarity it is." }
       }
     },
     "artifactBonus": {

@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 23** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 24** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1041,6 +1041,64 @@ field is a per-relic hero reference, so handle a hero appearing more than once.
 
 ---
 
+## `souls[]` — Awakening Soul inventory
+
+New in **schema 24**. Every Awakening Soul the account owns — champion-bound material that raises
+`champions[].awakeningLevel` — decoded from the game's own key on `UserGameData →
+UpdatableUserDoubleAscendData`. **Not** `resources[]`' Soulstone/Soul Essence entries (an unrelated
+account-wide currency the game's UI also happens to call "Soul" — see the Changelog row for schema
+23's soul-economy corrections) and **not** a spare duplicate champion copy sitting in the roster,
+Vault or Reserve Vault (that raises `ascensionLevel`, a different mechanic entirely).
+
+```jsonc
+"souls": [
+  {
+    "championBaseId": 9190,   // a champions[].typeId with no ascension digit — may be a champion
+                               // the account has never summoned
+    "isPerfect": true,        // false = Split
+    "level": 4,                // 1-6, the awakening grade this soul is good for
+    "championRarity": 5        // the champion's rarity, carried in the soul's own id
+  }
+]
+```
+
+### Perfect vs Split — how each is actually used
+
+The two kinds apply differently, and the payload states which without a consumer needing a lookup
+table:
+
+- **Perfect** (`isPerfect: true`) applies to a champion of `championBaseId` any time that champion's
+  current `awakeningLevel` is **below** `level`.
+- **Split** (`isPerfect: false`) applies **only** when the champion's current `awakeningLevel` is
+  **exactly** `level - 1`.
+
+Confirmed against the game's own Altar of Souls screen: a Perfect soul's star row fills 1..`level`
+in order; a Split soul's row shows the same star count with only the star at position `level` lit.
+
+### Not stackable, and no instance id
+
+The game allows at most one soul per `(championBaseId, isPerfect, level)` at a time, so this record
+has no separate id — the three fields together are already unique within an account. A consumer
+diffing two snapshots for "souls gained/spent" can key on the tuple directly.
+
+### The key-decode formula, for anyone re-deriving this
+
+```
+prefix = key / 10000
+isPerfect = prefix >= 1000
+level = (prefix % 1000) / 100
+championRarity = (prefix % 100) / 10
+championBaseId = key % 10000
+```
+
+Verified live (11.75.0, account Magikwolf): 40 owned keys decoded against every real champion in
+`champion_index.json`, with `championRarity` matching that champion's real rarity on all 40, and
+three shop listings literally named "Pestilus/Aothar/Captain Temila Split Soul" decoded to those
+exact champions (rarity 4, confirmed Epic) with the single lit star in each matching the decoded
+`level` exactly. Owned-soul count matched the in-game Soul Collection tally exactly (156).
+
+---
+
 ## Storage and read APIs
 
 Not part of the wire contract — this is the shape the payload is built for, recorded so the server
@@ -1106,6 +1164,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 24 | v1.21.0 (pending) | 2026-09-15 | **Additive: new top-level `souls[]` — the real Awakening Soul inventory.** See [`souls[]`](#souls--awakening-soul-inventory) above. Champion-bound material (`championBaseId`, `isPerfect`, `level`, `championRarity`) decoded from `UserGameData → UpdatableUserDoubleAscendData`'s own key, and **not** the Soulstone/Soul Essence currency already in `resources[]` (see schema 23's soul-economy note) or a spare duplicate champion copy (Ascension material, unrelated to this). A consumer that ignores the field is exactly as correct as it was on schema 23. Verified live (11.75.0, account Magikwolf): 156 owned souls decoded, matching the in-game Soul Collection tally exactly; 40 sample keys' `championRarity` matched every one of those champions' real rarity in `champion_index.json`, and three shop listings literally named "Pestilus/Aothar/Captain Temila Split Soul" decoded to those exact champions with the single lit star in each matching the decoded `level`. **Consumer impact:** RaidTools' previous "Champion Souls" tab (its own schema-independent feature, not part of this contract) treated a spare Vault/Reserve Vault duplicate as a "soul" — that was never derived from this payload and is being replaced with a real reader of this field. |
 | 23 | v1.20.0 | 2026-09-14 | **Corrective: `resources[]` 146 → 145 entries — `10202` and `10205` removed as mislabelled, `10650` Prism Crystals added; shard counts no longer fall back to unrelated values.** See [Shards & Remnants](#shards--remnants-corrected-in-schema-23). The game's `ResourceTypeId` enum, its own localized strings and the in-game screens agree: (1) **`10202` "Prism Crystals" was Extra Grim Gold** (`FoggyForest_Hard_Gold`) — every schema ≤ 22 payload carried a Grim Forest balance under that label (2,755 on the reference account against 55 Prism Crystals on the Summoning Portal bar), and **real Prism Crystals is the game item `10650`**, which the exclusive allowlist had been dropping; (2) **`10205` "Eternal Essence" was Extra Grim Charms** (`FoggyForest_Hard_TreasureHuntPart`) and is gone with no replacement; (3) **the five shard ids are also the game's ids for Live Arena Crests (`1202`/`1203`) and Cursed City Keys / Candles (`1301`–`1303`)**, and four unrelated items (Grim Forest map chests, Fusion Tokens) were mapped onto them too — schema ≤ 22 exported correct shard counts only because the shard read ran last, and would have exported Mystery Shard = 30,225 (a Crest count) had it failed; shard ids and names are unchanged. `3000` Primal Quartz, `4000` Starstone and `8100` Cursed Remnants were checked and are correct (the enum's `MythicalDust` / `Meteor` / `ParticleSummon` are internal names). The ids `10101`/`10102`/`10104`/`10105`/`10201`/`10204` this file called a "defunct earlier soul system" are Grim Forest currencies as well; still never emitted. **Consumer impact:** (1) **discard every stored `10202` / `10205` value** — there is nothing to migrate, and a consumer mapping `10202` into a Prism Crystals field (RaidTools' `MapAccountResources` → `PrismCrystals`) has been storing Extra Grim Gold and must switch to `10650`; (2) `10650` history begins here — absence in an older snapshot is not zero; (3) **a shard read that fails now exports `0`**, so a sudden all-zero shard set is a failed read, not a spent portal; (4) RaidTools' `PrismShards` field is fed from `1302`, which is the Primal Shard — right value, misleading name. |
 | 22 | v1.20.0 | 2026-09-14 | **Additive: `resources[]` 55 → 146 entries — the 91 Forge crafting materials, which every earlier export DROPPED.** 47 gear forge materials (`601`, `602`, `611`–`699`, `6900`–`6925`) and 44 relic craft materials (`4100`–`4203`); see [Forge materials](#forge-materials-new-in-schema-22--previously-dropped-entirely). Nothing changes shape and no existing id changes. Same defect as schema 11's relic economy and the chickens and soul essences before it: the engine's resource allowlist is exclusive and none of these ids was on it. They sit in the same resources dict as Starstone, so they cost nothing to read. **Ids are the game's own `ResourceTypeId` values**, bound from the client's runtime enum reflection table rather than inferred from order, and **names are the game's localized strings** read from its localization dictionaries. Verified against the live client (11.75.0): all 91 present and named, and every quantity equal to a raw read of the resources dict taken at the same moment. Not yet checked against the in-game Forge screen. **Consumer impact:** (1) an account's history for these ids begins here — absence in an older snapshot is not a zero balance; (2) each family's tiers run consecutively from its first id, but not across families (681/684/687 are three families), so use the table; (3) **the label on 611–613 ("Willstone") is paired by elimination** — the game's enum calls them `Forge_Soulstone`; (4) a consumer that maps resource ids into fixed fields (RaidTools' `MapAccountResources`) drops all 91 until it adds somewhere to put them. |
 | 21 | v1.19.0 | 2026-09-13 | **One new field, additive: `factionGuardians[].championsDeleted`.** `true` when the slot's two copies were sacrificed and no longer exist; **both instance ids are then `null`** where earlier schemas sent the champion's type id in their place (Courtier's Banner Lords Rare slot: `2040 / 2040` on a type-2040 slot, no Courtier in the roster). The slot is still filled and still counts toward the `guardians` stat column. **Consumer impact:** schema ≤ 20 payloads keep arriving (updates are opt-in) and still carry the type id as both "instance ids" — recognise that shape (both ids equal the slot's type id, neither owned) or it flags a copy that does not exist, or an unrelated one sharing the number. **Also a correction, no shape change: `consumed` does not mean the champions are gone.** Underpriest Brogni and Storm Herald Hekaton read `consumed: true` with both copies still in the roster, owner-confirmed; what the flag means is not established. |

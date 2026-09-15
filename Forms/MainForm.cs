@@ -1802,6 +1802,7 @@ public sealed class MainForm : Form
         ["read-clan"] = "Reading your clan…",
         ["extract-artifacts"] = "Reading your gear and accessories — the slowest part, please wait…",
         ["extract-relics"] = "Reading your relics and gemstones…",
+        ["extract-souls"] = "Reading your Awakening Souls…",
     };
 
     /// <summary>
