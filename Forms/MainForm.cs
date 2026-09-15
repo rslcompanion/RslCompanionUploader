@@ -79,7 +79,8 @@ public sealed class MainForm : Form
         Loading,          // process is up, account data not readable yet
         Connected,        // account identified
         NeedsCalibration, // process is up, but no memory map fits this game build
-        Calibrating       // deriving a memory map for an unrecognised build (~35s, one-off)
+        Calibrating,      // deriving a memory map for an unrecognised build (~35s, one-off)
+        SignedOut         // process is up, but the account signed in on another device; its data here is frozen
     }
 
     private GameState _gameState = GameState.NotRunning;
@@ -592,6 +593,12 @@ public sealed class MainForm : Form
                     detail: "the game reported an account id we don't recognise");
                 break;
 
+            case ExtractionService.AccountDiscoveryStatus.SignedOut:
+                // Not Connected: the game still holds the account, but frozen at the sign-out, and the
+                // engine refuses to export it until the in-game Reconnect.
+                ApplyGameState(GameState.SignedOut);
+                break;
+
             case ExtractionService.AccountDiscoveryStatus.NeedsCalibration:
                 ApplyGameState(GameState.NeedsCalibration);
                 // Published map first: it costs a GET against the ~35s scan below, and it is the same
@@ -932,6 +939,8 @@ public sealed class MainForm : Form
                 ("calibrating", "New Raid version — setting things up (about a minute)…"),
             GameState.NeedsCalibration =>
                 ("needsCalibration", "Raid is running — account can't be identified"),
+            GameState.SignedOut =>
+                ("signedOut", "Raid is signed out — reconnect in the game to fetch account details"),
             _ =>
                 ("notRunning", "Raid not running — start the game to fetch account details"),
         };
@@ -950,7 +959,12 @@ public sealed class MainForm : Form
                     : $"New account detected: {_liveName} (#{_liveUserId}) — not imported yet.");
                 break;
 
-            case GameState.NotRunning when previous is GameState.Connected or GameState.Loading or GameState.NeedsCalibration:
+            case GameState.SignedOut:
+                Log("Raid is signed out — your account was signed in on another device, so what the game "
+                  + "shows here is out of date. Press Reconnect in the game before updating your data.");
+                break;
+
+            case GameState.NotRunning when previous is GameState.Connected or GameState.Loading or GameState.NeedsCalibration or GameState.SignedOut:
                 // Distinguish "never started it" from "it went away underneath us".
                 Log("Raid has closed — the game is no longer reachable.");
                 _liveUserId = null;
@@ -1698,6 +1712,10 @@ public sealed class MainForm : Form
     {
         if (ex.Message.Contains("Raid process not found", StringComparison.OrdinalIgnoreCase))
             return "Raid isn't running — start the game, wait for it to load, then try again.";
+
+        if (ex.Message.Contains("Raid is signed out", StringComparison.OrdinalIgnoreCase))
+            return "Raid is signed out — your account was signed in on another device, so the game's data "
+                 + "here is out of date. Press Reconnect in the game, then try again.";
 
         // The engine can't tell "game hasn't finished loading" apart from "game update moved the
         // data around" — both end in discovery failure — so name both rather than guess.

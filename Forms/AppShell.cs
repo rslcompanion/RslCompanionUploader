@@ -389,7 +389,7 @@ public sealed class AppShell : Panel
   #pill .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #pill .dot { width:8px; height:8px; border-radius:50%; background:currentColor; flex:none; }
   #pill.connected { color:var(--ok); background:var(--okbg); }
-  #pill.loading, #pill.needsCalibration { color:var(--warn); background:var(--warnbg); }
+  #pill.loading, #pill.needsCalibration, #pill.signedOut { color:var(--warn); background:var(--warnbg); }
   #pill.calibrating { color:var(--accent); background:var(--accentbg); }
   #pill.notRunning { color:var(--mut); background:var(--panel); }
   #signin { display:none; flex:none; margin-left:auto; padding:6px 18px; border:none; border-radius:8px;
