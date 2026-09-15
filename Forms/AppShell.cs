@@ -678,13 +678,22 @@ public sealed class AppShell : Panel
   // The action row for the tile the running game is on. 'add' = the game is on an account that is
   // not imported yet, so the button imports it; 'update' refreshes an account the server already
   // knows. Same export either way — the server create-or-updates by the in-game id in the payload.
+  //
+  // Raid can hold an account frozen at a sign-out (state.status.kind === 'signedOut') without this
+  // app's own poll re-deciding identified/detected underneath it, so the tile can still be showing
+  // here after the game stopped being readable. The button must not promise an export that would
+  // just fail with ""Raid is signed out"" — it disables and says so instead.
   function tileActions(kind) {
     if (!state.exportAvailable) return '';
+    var raidSignedOut = !!state.status && state.status.kind === 'signedOut';
     var dataBusy = state.busyKind === 'export';
-    var dis = state.busy ? ' disabled' : '';
+    var dis = (state.busy || raidSignedOut) ? ' disabled' : '';
+    var label = raidSignedOut
+      ? 'Re-login to export data'
+      : (dataBusy ? 'Updating…' : (kind === 'add' ? 'Add this game account' : 'Update user data'));
     return ""<div class='actions'>""
       + ""<button id='btnData' type='button' class='btn "" + (kind === 'add' ? 'add' : 'update') + ""'"" + dis + "">""
-      + (dataBusy ? 'Updating…' : (kind === 'add' ? 'Add this game account' : 'Update user data'))
+      + label
       + ""</button></div>"";
   }
 
