@@ -1084,12 +1084,20 @@ diffing two snapshots for "souls gained/spent" can key on the tuple directly.
 ### The key-decode formula, for anyone re-deriving this
 
 ```
-prefix = key / 10000
-isPerfect = prefix >= 1000
-level = (prefix % 1000) / 100
-championRarity = (prefix % 100) / 10
-championBaseId = key % 10000
+key = (kind*100 + level*10 + championRarity) * 100000 + championBaseId
+prefix = key / 100000
+isPerfect = prefix >= 100
+level = (prefix % 100) / 10
+championRarity = prefix % 10
+championBaseId = key % 100000
 ```
+
+**The champion field is five digits.** Until 2026-09-23 this split the key at `10000`, which is exact
+below base id 10000 and cuts the leading `1` off every champion from 10000 up: The Cowardly Lion
+(`10710`) exported as `710` (Axeman), Cinda Forgeheart (`10490`) as `490` (Yeoman), with the correct
+`championRarity` — so the rarity no longer matched the champion. **1.22.1 and earlier ship the
+truncated ids**; a consumer that wants those souls back can retry a sub-10000 id at `+10000` when its
+rarity disagrees with the catalog (RaidTools does, on read). No schema change: same field, full value.
 
 Verified live (11.75.0, account Magikwolf): 40 owned keys decoded against every real champion in
 `champion_index.json`, with `championRarity` matching that champion's real rarity on all 40, and
