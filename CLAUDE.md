@@ -521,6 +521,12 @@ it, and the same kind of thing: the prompt for moving RaidTools from deriving th
 reading `formIndex`, keeping the derivation as the pre-20 fallback. It names the four touch points on
 that side and the trap the field carries — `0` is the base form and is falsy in JavaScript.
 
+[docs/raidtools-mode-progress.md](docs/raidtools-mode-progress.md) is the same kind of prompt for
+schemas 25–26: storing and serving the six mode-progress blocks (`classicArena`, `liveArena`,
+`doomTower`, `cursedCity`, `grimForest`, `siege`). The part most likely to be missed is the
+consumer's partial-feed path, which must not blank a stored block. It also carries the provisional
+end-date table until the metadata catalog ships it. Same standing: a summary, never the contract.
+
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
 note used to describe is gone: `types[]` was 89% of the old catalog, folding it into the champion
