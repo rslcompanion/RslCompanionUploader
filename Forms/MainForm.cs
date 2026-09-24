@@ -1803,6 +1803,7 @@ public sealed class MainForm : Form
         ["extract-artifacts"] = "Reading your gear and accessories — the slowest part, please wait…",
         ["extract-relics"] = "Reading your relics and gemstones…",
         ["extract-souls"] = "Reading your Awakening Souls…",
+        ["extract-progress"] = "Reading your arena, Doom Tower, Cursed City and Grim Forest progress…",
     };
 
     /// <summary>
