@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 25** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 26** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -111,7 +111,7 @@ small, bounded error for no data at all.
 `account.accountId` duplicates the top-level `accountId`; they are always equal.
 
 **`account.liveArenaPoints` is the named field since schema 25** — `UserLiveArenaData.Points`, the same
-number as [`liveArena.points`](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest).
+number as [`liveArena.points`](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege).
 Schemas ≤ 24 filled it from a value-shape probe that could land on the wrong field. `arenaPoints` /
 `arenaLeague` were already the named read (see `classicArena` for the fuller picture);
 `liveArenaLeague` and `arena3x3League` are still the probe and should not be relied on.
@@ -1113,7 +1113,7 @@ exact champions (rarity 4, confirmed Epic) with the single lit star in each matc
 
 ---
 
-## Mode progress — `classicArena`, `liveArena`, `doomTower`, `cursedCity`, `grimForest`
+## Mode progress — `classicArena`, `liveArena`, `doomTower`, `cursedCity`, `grimForest`, `siege`
 
 New in **schema 25**. Where the account stands in the rotating and seasonal modes, and **which of
 their rewards it has already claimed**. Five top-level objects, each read independently and each
@@ -1132,7 +1132,8 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
   "points": 20733, "victories": 5302, "defeats": 4736, "lastSeenLeagueId": 1,
   "maxPointsAchieved": 20733,
   "takenMilestoneRewards": [910, 920, 930 /* … 55 thresholds … */, 4800],
-  "dailyRewardTaken": false, "battlesToday": 0, "victoriesToday": 0,
+  "dailyRewardTaken": false, "victoriesForRegularReward": 18,   // the "Wins 18/35" quest bar (schema 26)
+  "battlesToday": 0, "victoriesToday": 0,
   "season": {
     "number": 14, "points": 118, "victories": 14, "defeats": 3, "battles": 17,
     "maxPointsAchieved": 118, "lastParticipationAt": "2026-09-23T13:15:43Z",
@@ -1141,8 +1142,8 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
   }
 },
 "doomTower": { "difficulties": [
-  { "difficultyId": 1, "stageIndicator": 7011010, "rotationStartedAt": "2026-09-20T05:16:22Z" },
-  { "difficultyId": 2, "stageIndicator": 7012010, "rotationStartedAt": "2026-09-07T15:19:53Z" }
+  { "difficultyId": 1, "stageIndicator": 7011010, "firstEnteredAt": "2026-09-20T05:16:22Z" },
+  { "difficultyId": 2, "stageIndicator": 7012010, "firstEnteredAt": "2026-09-07T15:19:53Z" }
 ]},
 "cursedCity": { "rotation": 34, "difficulties": [
   { "difficultyId": 2, "takenStageRewards": [25, 50, 101], "takenAwakeningStageRewards": [6, 12],
@@ -1175,15 +1176,18 @@ metadata side will publish:
 
 | Mode | Anchor | Period | Rotation *n* ends at |
 |---|---|---|---|
-| Cursed City | `CursedCitySettings.StartTime` 2023-12-12 14:15 | 30 days | anchor + 30·*n* days (34 → 2026-09-27) |
-| Grim Forest | `FoggyForestSettings.StartTime` 2025-12-10 | 30 days | anchor + 30·*n* days (10 → 2026-10-06) |
-| Live Arena | `LiveArenaSeasonsSettings.FirstSeasonStartTime` 2025-03-11 14:00 | 28-day season + 14-day preseason | season 14 → 2026-10-06 (preseason to 10-20) |
-| Doom Tower | `doomTower.difficulties[].rotationStartedAt` | 30 days | start + 30 days |
+| Cursed City | `CursedCitySettings.StartTime` 2023-12-12 14:15 UTC | 30 days | anchor + 30·*n* days (34 → 2026-09-27 14:15 UTC) — **confirmed** |
+| Grim Forest | `FoggyForestSettings.StartTime` 2025-12-10 | 30 days | anchor + 30·*n* days (10 → 2026-10-06) — day confirmed; hour (11:00 vs the 14:15 refresh) not |
+| Live Arena | `LiveArenaSeasonsSettings.FirstSeasonStartTime` 2025-03-11 14:00 | 42-day cycle: 28-day season **then** 14-day preseason | season 14 → 2026-10-06 (preseason to 10-20) — **confirmed** against the in-game countdown |
+| Doom Tower | **global** — not on this payload | 30 days (`UpdateTowerMinutes` 43200) | current rotation ends ≈ 2026-10-07 (in-game "1w 6d" on 2026-09-24); the anchor is not yet mapped |
 
-These are derived from the game's settings and match the counters on the mapping account; **they
-have not yet been checked against the in-game countdowns** (time zone, whether each 42-day Live Arena
-cycle starts with the season or the preseason, and whether Doom Tower's start is per player). Treat
-them as provisional until the metadata catalog ships them.
+These are derived from the game's settings and match the counters on the mapping account. **Live
+Arena is confirmed** (2026-09-24): the in-game "1w 5d" countdown matches season 14 ending 2026-10-06,
+which settles that each 42-day cycle opens with the season, and the ticked milestones (20/60/100)
+match `takenMilestones`. **Cursed City is confirmed to the hour**, which settles the time zone: the
+settings are **UTC** (its "3d 5h" countdown matches 14:15 UTC; 14:15 local would have read 3d 2h).
+Grim Forest matches to the day. **Doom Tower rotations are global** — both difficulties showed one
+"1w 6d" countdown — so `firstEnteredAt` (schema 25's `rotationStartedAt`) is *not* a rotation start (see below).
 
 ### Three fields that are not what they look like
 
@@ -1194,9 +1198,44 @@ them as provisional until the metadata catalog ships them.
   verbatim, shaped `70 D 1 FFF` (difficulty, floor), and on the mapping account it went from Normal
   floor 39 to floor 10 over two hours of play — it tracks where the tower map is focused, most
   likely. Shipped because it is cheap and may prove useful; do not render it as "current floor".
+- **`doomTower.difficulties[].firstEnteredAt` is not when the rotation started** — which is why schema
+  26 renamed it from schema 25's `rotationStartedAt`. It is the game's `StartTimeByDifficulty`, and on
+  the mapping account Hard read 2026-09-07 and Normal 2026-09-20 while the game showed one shared reset
+  ~2026-10-07. Rotations are global; this is most likely when the account first entered that
+  difficulty this rotation. Never add 30 days to it to get an end date. Read
+  `firstEnteredAt ?? rotationStartedAt` to cover v1.23.0 payloads.
 - **`classicArena.leagueId` is not a function of `points`.** Classic Arena promotes and demotes
   weekly; mid-week, points can sit past the next threshold while the tier the game applies is still
   last week's. `leagueId` is that applied tier.
+
+### `siege` — the account's own Siege state (schema 26)
+
+```jsonc
+"siege": {
+  "currentCycle": 58, "lastFinishedCycle": 57, "lastActionAt": "2026-09-14T11:46:04Z",
+  "cycles": [
+    { "cycle": 58, "isCurrent": true,  "takenMilestoneRewards": [],     "takenResourceRewards": [],
+      "siegeRewardTaken": false, "availableRewardGiven": false, "presetCount": 4 },
+    { "cycle": 57, "isCurrent": false, "takenMilestoneRewards": [0],    "takenResourceRewards": [3, 5, 6],
+      "siegeRewardTaken": false, "availableRewardGiven": false, "presetCount": 5 }
+    // … the history the client keeps, normally three cycles, newest first
+  ]
+}
+```
+
+Off `UserGameData → UpdatableUserSiegeData`. **Only this account's own state.** The same object graph
+reaches clanmates' defence assignments and the opposing clan; neither is read, for the same reason
+the clan roster is not — nothing on this payload describes another player. The account's defence
+presets stay where they were, in `siegePresets[]`.
+
+- `takenResourceRewards` are the game's `SiegeResourceRewardTypeId` values; their names are not yet
+  mapped. `takenMilestoneRewards` are indices into the cycle's milestone track.
+- `availableRewardGiven` is the game's field name verbatim; what it means is not yet confirmed.
+- **Not here yet:** per-hero use counts and the last battle — both are null outside the battle
+  phase, and are left out until they have been seen populated.
+- **Not on this payload at all:** the Siege schedule behind the in-game phase timer
+  (`SiegeSettings.Schedule`) and the reward, tier, bonus and trap tables (`StaticSiegeData`). Those
+  are static game data for the metadata catalogs.
 
 ---
 
@@ -1265,7 +1304,8 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 25 | v1.23.0 | 2026-09-24 | **Additive: five new top-level objects — `classicArena`, `liveArena`, `doomTower`, `cursedCity`, `grimForest`.** Where the account stands in each mode and which rewards it has claimed; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest). Each is absent when its read fails. **Behaviour change: `account.liveArenaPoints` is now the named `UserLiveArenaData.Points`** instead of a value-shape probe, so its value can change for the same account. Reward contents and rotation end dates are static data and not on this payload. A consumer that ignores the new keys is exactly as correct as on schema 24. |
+| 26 | v1.24.0 | 2026-09-24 | **Additive: new top-level `siege`** — the account's own Siege cycle state and claimed rewards, never other players' (see [`siege`](#siege--the-accounts-own-siege-state-schema-26)). **Additive: `liveArena.victoriesForRegularReward`** — the "Wins N/35" quest progress. **BREAKING (field rename): `doomTower.difficulties[].rotationStartedAt` → `firstEnteredAt`**, because it is not the rotation start (rotations are global; confirmed in-game). Same value — read `firstEnteredAt ?? rotationStartedAt`. Also recorded: Cursed City and Live Arena end dates confirmed in-game, settings times are UTC. |
+| 25 | v1.23.0 | 2026-09-24 | **Additive: five new top-level objects — `classicArena`, `liveArena`, `doomTower`, `cursedCity`, `grimForest`.** Where the account stands in each mode and which rewards it has claimed; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege). Each is absent when its read fails. **Behaviour change: `account.liveArenaPoints` is now the named `UserLiveArenaData.Points`** instead of a value-shape probe, so its value can change for the same account. Reward contents and rotation end dates are static data and not on this payload. A consumer that ignores the new keys is exactly as correct as on schema 24. |
 | 24 | v1.22.0 | 2026-09-15 | **Additive: new top-level `souls[]` — the real Awakening Soul inventory.** See [`souls[]`](#souls--awakening-soul-inventory) above. Champion-bound material (`championBaseId`, `isPerfect`, `level`, `championRarity`) decoded from `UserGameData → UpdatableUserDoubleAscendData`'s own key, and **not** the Soulstone/Soul Essence currency already in `resources[]` (see schema 23's soul-economy note) or a spare duplicate champion copy (Ascension material, unrelated to this). A consumer that ignores the field is exactly as correct as it was on schema 23. Verified live (11.75.0, account Magikwolf): 156 owned souls decoded, matching the in-game Soul Collection tally exactly; 40 sample keys' `championRarity` matched every one of those champions' real rarity in `champion_index.json`, and three shop listings literally named "Pestilus/Aothar/Captain Temila Split Soul" decoded to those exact champions with the single lit star in each matching the decoded `level`. **Consumer impact:** RaidTools' previous "Champion Souls" tab (its own schema-independent feature, not part of this contract) treated a spare Vault/Reserve Vault duplicate as a "soul" — that was never derived from this payload and is being replaced with a real reader of this field. |
 | 23 | v1.20.0 | 2026-09-14 | **Corrective: `resources[]` 146 → 145 entries — `10202` and `10205` removed as mislabelled, `10650` Prism Crystals added; shard counts no longer fall back to unrelated values.** See [Shards & Remnants](#shards--remnants-corrected-in-schema-23). The game's `ResourceTypeId` enum, its own localized strings and the in-game screens agree: (1) **`10202` "Prism Crystals" was Extra Grim Gold** (`FoggyForest_Hard_Gold`) — every schema ≤ 22 payload carried a Grim Forest balance under that label (2,755 on the reference account against 55 Prism Crystals on the Summoning Portal bar), and **real Prism Crystals is the game item `10650`**, which the exclusive allowlist had been dropping; (2) **`10205` "Eternal Essence" was Extra Grim Charms** (`FoggyForest_Hard_TreasureHuntPart`) and is gone with no replacement; (3) **the five shard ids are also the game's ids for Live Arena Crests (`1202`/`1203`) and Cursed City Keys / Candles (`1301`–`1303`)**, and four unrelated items (Grim Forest map chests, Fusion Tokens) were mapped onto them too — schema ≤ 22 exported correct shard counts only because the shard read ran last, and would have exported Mystery Shard = 30,225 (a Crest count) had it failed; shard ids and names are unchanged. `3000` Primal Quartz, `4000` Starstone and `8100` Cursed Remnants were checked and are correct (the enum's `MythicalDust` / `Meteor` / `ParticleSummon` are internal names). The ids `10101`/`10102`/`10104`/`10105`/`10201`/`10204` this file called a "defunct earlier soul system" are Grim Forest currencies as well; still never emitted. **Consumer impact:** (1) **discard every stored `10202` / `10205` value** — there is nothing to migrate, and a consumer mapping `10202` into a Prism Crystals field (RaidTools' `MapAccountResources` → `PrismCrystals`) has been storing Extra Grim Gold and must switch to `10650`; (2) `10650` history begins here — absence in an older snapshot is not zero; (3) **a shard read that fails now exports `0`**, so a sudden all-zero shard set is a failed read, not a spent portal; (4) RaidTools' `PrismShards` field is fed from `1302`, which is the Primal Shard — right value, misleading name. |
 | 22 | v1.20.0 | 2026-09-14 | **Additive: `resources[]` 55 → 146 entries — the 91 Forge crafting materials, which every earlier export DROPPED.** 47 gear forge materials (`601`, `602`, `611`–`699`, `6900`–`6925`) and 44 relic craft materials (`4100`–`4203`); see [Forge materials](#forge-materials-new-in-schema-22--previously-dropped-entirely). Nothing changes shape and no existing id changes. Same defect as schema 11's relic economy and the chickens and soul essences before it: the engine's resource allowlist is exclusive and none of these ids was on it. They sit in the same resources dict as Starstone, so they cost nothing to read. **Ids are the game's own `ResourceTypeId` values**, bound from the client's runtime enum reflection table rather than inferred from order, and **names are the game's localized strings** read from its localization dictionaries. Verified against the live client (11.75.0): all 91 present and named, and every quantity equal to a raw read of the resources dict taken at the same moment. Not yet checked against the in-game Forge screen. **Consumer impact:** (1) an account's history for these ids begins here — absence in an older snapshot is not a zero balance; (2) each family's tiers run consecutively from its first id, but not across families (681/684/687 are three families), so use the table; (3) **the label on 611–613 ("Willstone") is paired by elimination** — the game's enum calls them `Forge_Soulstone`; (4) a consumer that maps resource ids into fixed fields (RaidTools' `MapAccountResources`) drops all 91 until it adds somewhere to put them. |
