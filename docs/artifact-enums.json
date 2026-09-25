@@ -29,8 +29,16 @@
       { "id": 6, "name": "Accuracy", "displayName": "ACC" },
       { "id": 7, "name": "CriticalChance", "displayName": "C.RATE" },
       { "id": 8, "name": "CriticalDamage", "displayName": "C.DMG" },
-      { "id": 9, "name": "CriticalHeal", "displayName": "C.HEAL", "note": "Declared by the enum; never observed on an artifact (champion-only stat). Ids 1-8 are what artifacts roll." },
-      { "id": 10, "name": "IgnoreDefence", "note": "Same caveat as CriticalHeal." }
+      { "id": 9, "name": "CriticalHeal", "displayName": "C.HEAL", "note": "Declared by the enum; never observed on an artifact (champion-only stat). Ids 1-8 are what gear rolls; accessories also roll 11-18." },
+      { "id": 10, "name": "IgnoreDefence", "displayName": "IGN.DEF", "note": "Same caveat as CriticalHeal." },
+      { "id": 11, "name": "DealtDamagePve", "displayName": "PvE DMG+", "note": "Accessory-only: the content-scoped damage stats (Proving Grounds era), percentage-only. Label is the client's own l10n:common/hero-stats/short/dealtDamagePvE#label." },
+      { "id": 12, "name": "DealtDamagePvp", "displayName": "PvP DMG+", "note": "Same as 11." },
+      { "id": 13, "name": "DealtDamageBoss", "displayName": "Boss DMG+", "note": "Same as 11." },
+      { "id": 14, "name": "DealtDamageDungeons", "displayName": "DNG DMG+", "note": "Same as 11." },
+      { "id": 15, "name": "TakenDamagePve", "displayName": "PvE DMG-", "note": "Same as 11. Stored NEGATIVE (a reduction); the client prints the value unsigned, the sign lives in the label." },
+      { "id": 16, "name": "TakenDamagePvp", "displayName": "PvP DMG-", "note": "Same as 15." },
+      { "id": 17, "name": "TakenDamageBoss", "displayName": "Boss DMG-", "note": "Same as 15." },
+      { "id": 18, "name": "TakenDamageDungeons", "displayName": "DNG DMG-", "note": "Same as 15." }
     ]
   },
   "ranks": {
