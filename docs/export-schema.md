@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 27** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 28** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1144,9 +1144,9 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
     "leaderboardPosition": 0, "leaderboardRewardTaken": false
   }
 },
-"doomTower": { "difficulties": [
-  { "difficultyId": 1, "stageIndicator": 7011010, "firstEnteredAt": "2026-09-20T05:16:22Z" },
-  { "difficultyId": 2, "stageIndicator": 7012010, "firstEnteredAt": "2026-09-07T15:19:53Z" }
+"doomTower": { "rotation": 71, "difficulties": [          // rotation, floorsCompleted: schema 28
+  { "difficultyId": 1, "stageIndicator": 7011049, "firstEnteredAt": "2026-09-20T05:16:22Z", "floorsCompleted": 49 },
+  { "difficultyId": 2, "stageIndicator": 7012010, "firstEnteredAt": "2026-09-07T15:19:53Z", "floorsCompleted": 120 }
 ]},
 "cursedCity": { "rotation": 34, "difficulties": [
   { "difficultyId": 2, "takenStageRewards": [25, 50, 101], "takenAwakeningStageRewards": [6, 12],
@@ -1182,7 +1182,7 @@ metadata side will publish:
 | Cursed City | `CursedCitySettings.StartTime` 2023-12-12 14:15 UTC | 30 days | anchor + 30·*n* days (34 → 2026-09-27 14:15 UTC) — **confirmed** |
 | Grim Forest | `FoggyForestSettings.StartTime` 2025-12-10 | 30 days | anchor + 30·*n* days (10 → 2026-10-06) — day confirmed; hour (11:00 vs the 14:15 refresh) not |
 | Live Arena | `LiveArenaSeasonsSettings.FirstSeasonStartTime` 2025-03-11 14:00 | 42-day cycle: 28-day season **then** 14-day preseason | season 14 → 2026-10-06 (preseason to 10-20) — **confirmed** against the in-game countdown |
-| Doom Tower | **global** — not on this payload | 30 days (`UpdateTowerMinutes` 43200) | current rotation ends ≈ 2026-10-07 (in-game "1w 6d" on 2026-09-24); the anchor is not yet mapped |
+| Doom Tower | **global** — `doomTower.rotation` (schema 28) is the number; the anchor is static data | 30 days (`UpdateTowerMinutes` 43200) | current rotation ends ≈ 2026-10-07 (in-game "1w 6d" on 2026-09-24); the anchor is not yet mapped |
 
 These are derived from the game's settings and match the counters on the mapping account. **Live
 Arena is confirmed** (2026-09-24): the in-game "1w 5d" countdown matches season 14 ending 2026-10-06,
@@ -1198,9 +1198,23 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   player who has not fought since a new season opened still reports the old season's number and
   points. Compare `number` with the schedule before labelling it current.
 - **`doomTower.difficulties[].stageIndicator` is not progress.** It is the game's `StageIndicator`
-  verbatim, shaped `70 D 1 FFF` (difficulty, floor), and on the mapping account it went from Normal
-  floor 39 to floor 10 over two hours of play — it tracks where the tower map is focused, most
-  likely. Shipped because it is cheap and may prove useful; do not render it as "current floor".
+  verbatim, shaped `70 M D FFF` (tower map, difficulty, floor), and on the mapping account it went
+  from Normal floor 39 to floor 10 over two hours of play — it tracks where the tower map is focused,
+  most likely. Shipped because it is cheap and may prove useful; do not render it as "current floor".
+  **Progress is `floorsCompleted`** (below).
+- **`doomTower.difficulties[].floorsCompleted` (schema 28) is the highest floor cleared this
+  rotation**, 0–120. Floors clear in order, so every floor up to it is passed and its first-clear
+  reward granted. Source: the account-wide `UserStageData.BattleResultsByStageId`, whose Doom Tower
+  entries are the current tower map's `StageStats` only; a floor counts when `Passed` and its
+  `PassedAt` is at or after the rotation start (`UserDoomTowerData.LastUpdate`, 2026-09-07 12:12:10
+  UTC for rotation 71 — the `ModeSchedule` anchor to the minute). **Not** `UserDoomTowerData`'s own
+  dictionary of the same name, which is lifetime win/loss counts on all three maps. `0` is a
+  difficulty the account has entered with nothing cleared; the field is **absent** — never 0 — when it
+  could not be read reliably: no rotation start, stages from more than one tower map, or a passed set
+  that is not exactly 1..N. Verified live (11.75.0, 2026-09-25): Normal 49, Hard 120.
+- **`doomTower.rotation` (schema 28) is `UserDoomTowerData.Id`** — the rotation the account is in at
+  export (71 on 2026-09-25, equal to the shared `DoomTowerData.Id`). An export from an earlier rotation
+  reads as 0 floors now; compare it with the current rotation before showing `floorsCompleted`.
 - **`doomTower.difficulties[].firstEnteredAt` is not when the rotation started** — which is why schema
   26 renamed it from schema 25's `rotationStartedAt`. It is the game's `StartTimeByDifficulty`, and on
   the mapping account Hard read 2026-09-07 and Normal 2026-09-20 while the game showed one shared reset
@@ -1314,6 +1328,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 28 | v1.28.0 | 2026-09-25 | **Additive: `doomTower.rotation` and `doomTower.difficulties[].floorsCompleted`** — the rotation number (`UserDoomTowerData.Id`) and the highest floor cleared this rotation, 0–120 (passed `StageStats` of the current tower map, counted from the rotation start; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `floorsCompleted` is absent, not 0, when it cannot be read reliably. Verified live (11.75.0): rotation 71, Normal 49, Hard 120. Also corrected: `stageIndicator` is shaped `70 M D FFF` (tower map, difficulty, floor), not `70 D 1 FFF`. A consumer that ignores the new fields is exactly as correct as on schema 27. |
 | 27 | v1.27.0 | 2026-09-25 | **Additive: new top-level `tagTeamArena`** — Tag Team (3v3) Arena `points`, `leagueId` (Tag Team's own ladder) and `lastRatingUpdateAt`, off `UserArena3X3Data` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Absent when its read fails. Verified live (11.75.0): 1,190 points, league 14. A consumer that ignores it is exactly as correct as on schema 26. |
 | 26 | v1.24.0 | 2026-09-24 | **Additive: new top-level `siege`** — the account's own Siege cycle state and claimed rewards, never other players' (see [`siege`](#siege--the-accounts-own-siege-state-schema-26)). **Additive: `liveArena.victoriesForRegularReward`** — the "Wins N/35" quest progress. **BREAKING (field rename): `doomTower.difficulties[].rotationStartedAt` → `firstEnteredAt`**, because it is not the rotation start (rotations are global; confirmed in-game). Same value — read `firstEnteredAt ?? rotationStartedAt`. Also recorded: Cursed City and Live Arena end dates confirmed in-game, settings times are UTC. |
 | 25 | v1.23.0 | 2026-09-24 | **Additive: five new top-level objects — `classicArena`, `liveArena`, `doomTower`, `cursedCity`, `grimForest`.** Where the account stands in each mode and which rewards it has claimed; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege). Each is absent when its read fails. **Behaviour change: `account.liveArenaPoints` is now the named `UserLiveArenaData.Points`** instead of a value-shape probe, so its value can change for the same account. Reward contents and rotation end dates are static data and not on this payload. A consumer that ignores the new keys is exactly as correct as on schema 24. |
