@@ -587,6 +587,9 @@ public sealed class AppShell : Panel
             border-radius:8px; background:var(--bg); color:var(--fg); font-family:inherit; font-size:13px; line-height:1.45; }
   #fbCard .row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--sub); }
   #fbCard label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  /* Says what the tick box and Copy log actually do: both hand over the same log, in different ways. */
+  #fbCard .hint { margin:-4px 0 0; padding-left:20px; font-size:11.5px; line-height:1.5; color:var(--mut); }
+  #fbCard .hint b { color:var(--sub); font-weight:600; }
   #fbErr { display:none; font-size:12px; font-weight:600; color:var(--bad); }
   #fbCard .btns { display:flex; justify-content:flex-end; gap:8px; }
   /* Pushed to the left of Cancel/Send: a side action, not a way to close the dialog. */
@@ -669,6 +672,13 @@ public sealed class AppShell : Panel
       <div class='row'>
         <label><input type='checkbox' id='fbLog' checked> Include the activity log from my last run</label>
         <span id='fbCount'></span>
+      </div>
+      <div class='hint'>
+        <b>Tick box:</b> sends the end of your last run, such as <b>Update user data</b>, with your
+        message, so we can see what went wrong. It holds only what the Activity panel shows, plus your
+        app and Raid versions. Only the last lines fit.<br>
+        <b>Copy log:</b> puts that whole log on your clipboard instead, for pasting into Discord or an
+        email. It doesn't send anything.
       </div>
       <div id='fbErr'></div>
       <div class='btns'><button id='copyLog' type='button' title='Copy the activity from your last run to the clipboard, to paste into Discord or an email'>Copy log</button><button id='fbCancel' type='button'>Cancel</button><button id='fbSend' type='button'>Send</button></div>
