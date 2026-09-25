@@ -169,8 +169,9 @@ handed to an admin or discarded; signing out purges every detail line from the p
 The claim gates visibility only, never access.
 
 **"Copy log" and "Send feedback" read the same record.** `MainForm` keeps the session's lines and
-where the last run (an export or a version setup, `BeginRun`) began; Copy log puts that run on the
-clipboard with a version header. Feedback posts to the website's existing `POST /api/feedback`
+where the last run (an export or a version setup, `BeginRun`) began; Copy log — a button inside the
+feedback dialog, not on the console, because handing the log to someone about a problem is its only
+use — puts that run on the clipboard with a version header. Feedback posts to the website's existing `POST /api/feedback`
 (`Endpoints.Feedback`, signed-in only, 5–2000 chars, `bug`/`feature`/`general`), with `pageUrl` set
 to `uploader v<version>` so it can be told apart there; the optional log is the tail of the last run,
 trimmed to fit under the server's cap.

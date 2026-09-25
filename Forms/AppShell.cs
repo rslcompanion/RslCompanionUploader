@@ -11,8 +11,8 @@ namespace RslCompanionUploader.Forms;
 /// and pushes a single view-state into the page, and receives back only the actions the page can
 /// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>,
 /// <c>installUpdate</c> (the update banner, which installs rather than opening a page),
-/// <c>logDetail</c> (the activity console's diagnostics toggle — admins only), <c>copyLog</c> and
-/// <c>feedback</c> (the "Send feedback" dialog's submit). Check for
+/// <c>logDetail</c> (the activity console's diagnostics toggle — admins only), and the "Send
+/// feedback" dialog's <c>copyLog</c> and <c>feedback</c> (its submit). Check for
 /// updates, recalibrate, and about stay on the native Help menu, which calls into
 /// <see cref="MainForm"/> directly and needs no bridge. An uncovered game build is covered
 /// automatically (server certify, then local calibration) rather than through anything on this page.
@@ -98,7 +98,10 @@ public sealed class AppShell : Panel
     /// <summary>Raised with the new value when the activity console's "Details" toggle is clicked.</summary>
     public event Action<bool>? LogDetailChanged;
 
-    /// <summary>Raised when the activity console's "Copy log" button is clicked.</summary>
+    /// <summary>
+    /// Raised when the feedback dialog's "Copy log" button is clicked. It lives there rather than on
+    /// the console because the only reason to copy the log is to hand it to someone about a problem.
+    /// </summary>
     public event Action? CopyLogRequested;
 
     /// <summary>
@@ -586,6 +589,9 @@ public sealed class AppShell : Panel
   #fbCard label { display:flex; align-items:center; gap:6px; cursor:pointer; }
   #fbErr { display:none; font-size:12px; font-weight:600; color:var(--bad); }
   #fbCard .btns { display:flex; justify-content:flex-end; gap:8px; }
+  /* Pushed to the left of Cancel/Send: a side action, not a way to close the dialog. */
+  #fbCard .btns #copyLog { margin-right:auto; border:1px solid var(--line); background:none; color:var(--sub); }
+  #fbCard .btns #copyLog:hover { color:var(--fg); }
   #fbCard .btns button { padding:8px 16px; border-radius:8px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; }
   #fbCancel { border:1px solid var(--line); background:none; color:var(--fg); }
   #fbSend { border:none; background:var(--accent); color:#fff; }
@@ -603,9 +609,6 @@ public sealed class AppShell : Panel
   #logDetail { flex:none; padding:2px 9px; border:1px solid var(--line); border-radius:999px;
                background:none; color:var(--sub); font-family:inherit; font-size:11px; cursor:pointer; }
   #logDetail.on { background:var(--accent); border-color:var(--accent); color:#fff; }
-  #copyLog { flex:none; padding:2px 9px; border:1px solid var(--line); border-radius:999px;
-             background:none; color:var(--sub); font-family:inherit; font-size:11px; cursor:pointer; }
-  #copyLog:hover { color:var(--fg); }
   #consoleBody { display:none; max-height:150px; overflow:auto; padding:6px 16px 12px;
                  font-size:12px; line-height:1.55; }
   #console.open #consoleBody { display:block; }
@@ -649,7 +652,7 @@ public sealed class AppShell : Panel
   <div id='actionBar'><button id='openHelper' type='button'>Open RSL Helper</button><button id='feedbackBtn' type='button'>Send feedback</button></div>
 
   <div id='console'>
-    <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><button id='copyLog' type='button' title='Copy the activity from the last run to the clipboard'>Copy log</button><button id='logDetail' type='button'>Details</button><span class='chev'>&#9650;</span></div>
+    <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><button id='logDetail' type='button'>Details</button><span class='chev'>&#9650;</span></div>
     <div id='consoleBody'></div>
   </div>
 
@@ -668,7 +671,7 @@ public sealed class AppShell : Panel
         <span id='fbCount'></span>
       </div>
       <div id='fbErr'></div>
-      <div class='btns'><button id='fbCancel' type='button'>Cancel</button><button id='fbSend' type='button'>Send</button></div>
+      <div class='btns'><button id='copyLog' type='button' title='Copy the activity from your last run to the clipboard, to paste into Discord or an email'>Copy log</button><button id='fbCancel' type='button'>Cancel</button><button id='fbSend' type='button'>Send</button></div>
     </div>
   </div>
 
@@ -895,10 +898,7 @@ public sealed class AppShell : Panel
     e.stopPropagation();
     window.chrome.webview.postMessage({ type:'logDetail', detail: !state.logDetail });
   };
-  $('copyLog').onclick = function(e){
-    e.stopPropagation(); // sits inside the header row that opens/closes the console
-    window.chrome.webview.postMessage({ type:'copyLog' });
-  };
+  $('copyLog').onclick = function(){ window.chrome.webview.postMessage({ type:'copyLog' }); };
   var copyTimer = null;
   function showCopyResult(text) {
     var b = $('copyLog');
