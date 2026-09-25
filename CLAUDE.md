@@ -542,6 +542,13 @@ schemas 25–26: storing and serving the six mode-progress blocks (`classicArena
 consumer's partial-feed path, which must not blank a stored block. It also carries the provisional
 end-date table until the metadata catalog ships it. Same standing: a summary, never the contract.
 
+[docs/raidtools-arena-leagues.md](docs/raidtools-arena-leagues.md) is the prompt for rendering
+`classicArena.leagueId` as the in-game tier ("Gold V") with its badge and a "to next tier" line. It
+reads RaidTools' `GET /api/arena-league-index` (metadata type `ArenaLeagueIndex`, uploaded from
+`RslCompanionMetadata/exports/arena_league_index.json`) and `assets.rslcompanion.com/arena-leagues/`.
+No payload change. Its main trap: the next tier comes from `nextLeagueId`, never from points, because
+the game moves players between tiers weekly. Same standing.
+
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
 note used to describe is gone: `types[]` was 89% of the old catalog, folding it into the champion

@@ -138,7 +138,8 @@ anchors in **one** helper with a comment saying the catalog replaces it:
 
 **Classic Arena tiers are shipped: render the name and badge, never "League 25".** The static
 half is `RslCompanionMetadata/exports/arena_league_index.json` (added 2026-09-25), keyed by
-`classicArena.leagueId`. Each row carries the in-game `name` ("Gold V"), `minPoints` / `maxPoints`,
+`classicArena.leagueId`. RaidTools serves it as metadata type `ArenaLeagueIndex` on
+`GET /api/arena-league-index`; the full prompt is [raidtools-arena-leagues.md](./raidtools-arena-leagues.md). Each row carries the in-game `name` ("Gold V"), `minPoints` / `maxPoints`,
 `nextLeagueId`, the HP/ATK/DEF `bonuses` and a `badgeUrl`
 (`https://assets.rslcompanion.com/arena-leagues/<id>.png`). The ids are not contiguous — Bronze
 I–IV 1–4, Silver I–IV 11–14, Gold I–V 21–25, Platinum 30, and 0 is unranked (Qualification) — so
