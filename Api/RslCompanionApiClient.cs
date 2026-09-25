@@ -192,6 +192,34 @@ public sealed class RslCompanionApiClient
         }
     }
 
+    /// <summary>
+    /// Sends feedback about this app to RSL Companion's existing <c>POST /api/feedback</c> — the same
+    /// inbox the website's feedback form writes to. <paramref name="source"/> lands in its
+    /// <c>pageUrl</c> field, which is how an uploader report is told apart from a website one there.
+    /// The server takes 5–2000 characters and a category of <c>bug</c>, <c>feature</c> or
+    /// <c>general</c>; the caller is expected to have trimmed to that already.
+    /// </summary>
+    public async Task<UploadResult> SubmitFeedbackAsync(string category, string message, string source, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Post, _config.FeedbackEndpoint, ct);
+            req.Content = JsonContent.Create(new { category, message, pageUrl = source });
+            using var resp = await _http.SendAsync(req, ct);
+            if (resp.IsSuccessStatusCode)
+                return UploadResult.Ok("Thanks — your feedback was sent.");
+
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return UploadResult.Fail("RSL Companion couldn't accept that feedback. Please try again in a moment.",
+                $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return UploadResult.Fail("Couldn't reach RSL Companion to send your feedback. Check your connection and try again.",
+                ex.Message);
+        }
+    }
+
     private static string Trim(string s) => s.Length > 500 ? s[..500] + "…" : s;
 }
 

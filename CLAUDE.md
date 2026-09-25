@@ -48,8 +48,8 @@ match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native 
 File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL).
-The page posts back seven actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
-`installUpdate`, `logDetail`. Check for
+The page posts back nine actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
+`installUpdate`, `logDetail`, `copyLog`, `feedback`. Check for
 updates, recalibrate and about stay native menu items calling straight into `MainForm` — no bridge
 needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
 automatically from `MainForm`, not from anything the page posts back.
@@ -160,7 +160,22 @@ one produces no plain line rather than leaking the raw name. API results carry t
 `UploadResult` has a user `Message` and a diagnostic `Detail` (status code + body) instead of one
 string with the raw response in it.
 
-**Detail lines are hidden, never dropped.** The page keeps every line and filters on render, so the
+**Diagnostics are for RSL Companion admins only** — the ID token's `role: "admin"` claim
+(`AuthSession.IsAdmin`, the same claim the API's `AdminOnly` policy reads). For anyone else
+`MainForm.Log` drops a detail line outright rather than hiding it, the Details toggle is not shown,
+and the engine's `logs/extract_*.log` is not written (`ExtractLog.WriteToDisk`, set by
+`ApplyAdminState`). Detail lines logged before the session is known wait in a capped buffer that is
+handed to an admin or discarded; signing out purges every detail line from the page and the record.
+The claim gates visibility only, never access.
+
+**"Copy log" and "Send feedback" read the same record.** `MainForm` keeps the session's lines and
+where the last run (an export or a version setup, `BeginRun`) began; Copy log puts that run on the
+clipboard with a version header. Feedback posts to the website's existing `POST /api/feedback`
+(`Endpoints.Feedback`, signed-in only, 5–2000 chars, `bug`/`feature`/`general`), with `pageUrl` set
+to `uploader v<version>` so it can be told apart there; the optional log is the tail of the last run,
+trimmed to fit under the server's cap.
+
+**For an admin, detail lines are hidden, never dropped.** The page keeps every line and filters on render, so the
 console's "Details" toggle explains the export that already ran instead of requiring the user to
 reproduce it — which is the whole point, since the person who wants the trace is reporting a problem
 that already happened. The choice persists (`activityLogDetail` in `settings.json`), and the collapsed
@@ -567,6 +582,7 @@ them optional for that reason).
 | `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `champions[].baseStats`; nothing serves it yet | `/api/hero-base-stats` |
 | `Endpoints.HandoffExchange` | Redeems the launch URI's one-time code for a Firebase custom token | `/api/extractor/handoff/exchange` |
 | `Endpoints.Logout` | Revokes the session server-side, for "sign out everywhere" only | `/api/auth/logout` |
+| `Endpoints.Feedback` | "Send feedback" dialog; shared with the website's feedback form | `/api/feedback` |
 
 User preferences the app writes back live in `%LOCALAPPDATA%\RslCompanion\settings.json`
 ([UserSettings.cs](UserSettings.cs)) — *not* in `appsettings.json`, which is install-time config next

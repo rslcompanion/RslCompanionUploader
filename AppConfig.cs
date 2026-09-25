@@ -68,6 +68,12 @@ public sealed class AppConfig
     public string LogoutEndpoint { get; init; } = "/api/auth/logout";
 
     /// <summary>
+    /// Server-relative path the "Send feedback" dialog posts to. RaidTools' <c>FeedbackController</c>,
+    /// shared with the website's feedback form; signed-in users only.
+    /// </summary>
+    public string FeedbackEndpoint { get; init; } = "/api/feedback";
+
+    /// <summary>
     /// Server-relative page the app opens in the user's browser to sign in. When a session is already
     /// active there, that page mints a one-time handoff code and launches
     /// <c>rslcompanion-extractor://sync?code=...</c> with it, which this app redeems at
@@ -114,6 +120,7 @@ public sealed class AppConfig
                 BuildCertificationEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "BuildCertification", def.BuildCertificationEndpoint) : def.BuildCertificationEndpoint,
                 HeroBaseStatsEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "HeroBaseStats", def.HeroBaseStatsEndpoint) : def.HeroBaseStatsEndpoint,
                 LogoutEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "Logout", def.LogoutEndpoint) : def.LogoutEndpoint,
+                FeedbackEndpoint = ep.ValueKind == JsonValueKind.Object ? Str(ep, "Feedback", def.FeedbackEndpoint) : def.FeedbackEndpoint,
                 ConnectExtractorPath = Str(root, "ConnectExtractorPath", def.ConnectExtractorPath),
             };
         }

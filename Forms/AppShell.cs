@@ -11,7 +11,8 @@ namespace RslCompanionUploader.Forms;
 /// and pushes a single view-state into the page, and receives back only the actions the page can
 /// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>,
 /// <c>installUpdate</c> (the update banner, which installs rather than opening a page),
-/// <c>logDetail</c> (the activity console's diagnostics toggle). Check for
+/// <c>logDetail</c> (the activity console's diagnostics toggle — admins only), <c>copyLog</c> and
+/// <c>feedback</c> (the "Send feedback" dialog's submit). Check for
 /// updates, recalibrate, and about stay on the native Help menu, which calls into
 /// <see cref="MainForm"/> directly and needs no bridge. An uncovered game build is covered
 /// automatically (server certify, then local calibration) rather than through anything on this page.
@@ -62,6 +63,7 @@ public sealed class AppShell : Panel
     private bool _exportAvailable;
     private string? _frontendUrl;            // target of the "Open RSL Helper" button
     private bool _logDetail;                 // false = plain-language activity only; true = engine diagnostics too
+    private bool _isAdmin;                   // RSL Companion admin: the only viewer who gets diagnostics at all
 
     // Log lines produced before the page is ready, flushed on load. Detail lines are kept even while
     // they are hidden, so switching the toggle on reveals what already happened rather than starting
@@ -95,6 +97,16 @@ public sealed class AppShell : Panel
 
     /// <summary>Raised with the new value when the activity console's "Details" toggle is clicked.</summary>
     public event Action<bool>? LogDetailChanged;
+
+    /// <summary>Raised when the activity console's "Copy log" button is clicked.</summary>
+    public event Action? CopyLogRequested;
+
+    /// <summary>
+    /// Raised when the feedback dialog is submitted, with its category (<c>bug</c> / <c>feature</c> /
+    /// <c>general</c>), the text, and whether the user chose to attach the last run's log. Answer
+    /// with <see cref="SetFeedbackResult"/> — the dialog stays open, busy, until it hears back.
+    /// </summary>
+    public event Action<string, string, bool>? FeedbackSubmitted;
 
     public AppShell()
     {
@@ -245,15 +257,46 @@ public sealed class AppShell : Panel
     /// the console's "Details" toggle is on. Default false: a line with no level stated is one a
     /// player is meant to read.
     /// </summary>
-    public void Log(string message, bool detail = false)
+    public void Log(string message, bool detail = false, DateTime? at = null)
     {
-        var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        var line = $"[{at ?? DateTime.Now:HH:mm:ss}] {message}";
         if (!_ready || _web.CoreWebView2 is null) { _pendingLog.Add((line, detail)); return; }
         Post(new { type = "log", line, detail });
     }
 
     /// <summary>Sets whether diagnostic lines are shown, without discarding the ones already logged.</summary>
     public void SetLogDetail(bool detail) { _logDetail = detail; PushState(); }
+
+    /// <summary>
+    /// Whether the viewer is an RSL Companion admin. Only an admin gets the "Details" toggle; for
+    /// anyone else the page shows plain lines only, whatever <see cref="SetLogDetail"/> last said.
+    /// </summary>
+    public void SetAdmin(bool isAdmin) { _isAdmin = isAdmin; PushState(); }
+
+    /// <summary>
+    /// Drops every diagnostic line the page (or the pre-load buffer) holds. Called when the viewer
+    /// stops being an admin — a sign-out — so the next person at this window cannot read the trace.
+    /// </summary>
+    public void PurgeDetailLog()
+    {
+        _pendingLog.RemoveAll(l => l.Detail);
+        if (_ready && _web.CoreWebView2 is not null) Post(new { type = "purgeDetail" });
+    }
+
+    /// <summary>Confirms a "Copy log" click on its button ("Copied" / "Nothing to copy yet").</summary>
+    public void SetCopyResult(string text)
+    {
+        if (_ready && _web.CoreWebView2 is not null) Post(new { type = "copyResult", text });
+    }
+
+    /// <summary>
+    /// Answers a <see cref="FeedbackSubmitted"/>: on success the dialog closes; on failure it stays
+    /// open with the user's text intact and shows <paramref name="message"/>.
+    /// </summary>
+    public void SetFeedbackResult(bool ok, string message)
+    {
+        if (_ready && _web.CoreWebView2 is not null) Post(new { type = "feedbackResult", ok, message });
+    }
 
     private void PushState()
     {
@@ -277,7 +320,8 @@ public sealed class AppShell : Panel
             busyKind = _busyKind,
             exportAvailable = _exportAvailable,
             frontendUrl = _frontendUrl,
-            logDetail = _logDetail,
+            logDetail = _isAdmin && _logDetail,
+            isAdmin = _isAdmin,
         });
     }
 
@@ -301,6 +345,13 @@ public sealed class AppShell : Panel
                 case "installUpdate": InstallUpdateRequested?.Invoke(); break;
                 case "logDetail" when root.TryGetProperty("detail", out var d):
                     LogDetailChanged?.Invoke(d.ValueKind == JsonValueKind.True);
+                    break;
+                case "copyLog": CopyLogRequested?.Invoke(); break;
+                case "feedback" when root.TryGetProperty("message", out var fm) && fm.GetString() is string text:
+                    FeedbackSubmitted?.Invoke(
+                        root.TryGetProperty("category", out var fc) ? fc.GetString() ?? "general" : "general",
+                        text,
+                        root.TryGetProperty("includeLog", out var fl) && fl.ValueKind == JsonValueKind.True);
                     break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
@@ -506,11 +557,39 @@ public sealed class AppShell : Panel
 
   /* Always present, and deliberately not an export: this is the one action that has nothing to do
      with the running game, so it does not belong on a tile. */
-  #actionBar { flex:none; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
-  #openHelper { width:100%; padding:11px 14px; border:1px solid var(--line); border-radius:10px;
+  #actionBar { flex:none; display:flex; gap:8px; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
+  #openHelper { flex:1 1 auto; padding:11px 14px; border:1px solid var(--line); border-radius:10px;
                 background:transparent; color:var(--fg); cursor:pointer; font-family:inherit;
                 font-size:13px; font-weight:600; transition:background .12s; }
   #openHelper:hover { background:var(--panel); }
+  #feedbackBtn { flex:none; padding:11px 16px; border:1px solid var(--line); border-radius:10px;
+                 background:transparent; color:var(--fg); cursor:pointer; font-family:inherit;
+                 font-size:13px; font-weight:600; transition:background .12s; }
+  #feedbackBtn:hover:not(:disabled) { background:var(--panel); }
+  #feedbackBtn:disabled { opacity:.5; cursor:default; }
+
+  /* Feedback dialog: an in-page modal, so it looks like the rest of the app rather than a WinForms box. */
+  #fbOverlay { display:none; position:fixed; inset:0; z-index:50; background:rgba(0,0,0,.45);
+               align-items:center; justify-content:center; padding:16px; }
+  #fbOverlay.open { display:flex; }
+  #fbCard { width:100%; max-width:460px; background:var(--card); border:1px solid var(--line); border-radius:14px;
+            box-shadow:0 16px 40px rgba(0,0,0,.3); padding:18px; display:flex; flex-direction:column; gap:12px; }
+  #fbCard h2 { margin:0; font-size:16px; }
+  #fbCard .sub { font-size:12px; color:var(--sub); line-height:1.5; margin-top:-6px; }
+  #fbCats { display:flex; gap:6px; flex-wrap:wrap; }
+  #fbCats button { padding:5px 12px; border:1px solid var(--line); border-radius:999px; background:none;
+                   color:var(--sub); font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+  #fbCats button.on { background:var(--fg); border-color:var(--fg); color:var(--bg); }
+  #fbText { width:100%; min-height:120px; resize:vertical; padding:9px 10px; border:1px solid var(--line);
+            border-radius:8px; background:var(--bg); color:var(--fg); font-family:inherit; font-size:13px; line-height:1.45; }
+  #fbCard .row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:12px; color:var(--sub); }
+  #fbCard label { display:flex; align-items:center; gap:6px; cursor:pointer; }
+  #fbErr { display:none; font-size:12px; font-weight:600; color:var(--bad); }
+  #fbCard .btns { display:flex; justify-content:flex-end; gap:8px; }
+  #fbCard .btns button { padding:8px 16px; border-radius:8px; font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+  #fbCancel { border:1px solid var(--line); background:none; color:var(--fg); }
+  #fbSend { border:none; background:var(--accent); color:#fff; }
+  #fbSend:disabled { opacity:.55; cursor:default; }
 
   #console { flex:none; border-top:1px solid var(--line); background:var(--panel); }
   #consoleHdr { display:flex; align-items:center; gap:8px; padding:8px 16px; cursor:pointer;
@@ -524,6 +603,9 @@ public sealed class AppShell : Panel
   #logDetail { flex:none; padding:2px 9px; border:1px solid var(--line); border-radius:999px;
                background:none; color:var(--sub); font-family:inherit; font-size:11px; cursor:pointer; }
   #logDetail.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+  #copyLog { flex:none; padding:2px 9px; border:1px solid var(--line); border-radius:999px;
+             background:none; color:var(--sub); font-family:inherit; font-size:11px; cursor:pointer; }
+  #copyLog:hover { color:var(--fg); }
   #consoleBody { display:none; max-height:150px; overflow:auto; padding:6px 16px 12px;
                  font-size:12px; line-height:1.55; }
   #console.open #consoleBody { display:block; }
@@ -564,15 +646,34 @@ public sealed class AppShell : Panel
     <div id='grid'></div>
   </div>
 
-  <div id='actionBar'><button id='openHelper' type='button'>Open RSL Helper</button></div>
+  <div id='actionBar'><button id='openHelper' type='button'>Open RSL Helper</button><button id='feedbackBtn' type='button'>Send feedback</button></div>
 
   <div id='console'>
-    <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><button id='logDetail' type='button'>Details</button><span class='chev'>&#9650;</span></div>
+    <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><button id='copyLog' type='button' title='Copy the activity from the last run to the clipboard'>Copy log</button><button id='logDetail' type='button'>Details</button><span class='chev'>&#9650;</span></div>
     <div id='consoleBody'></div>
   </div>
 
+  <div id='fbOverlay'>
+    <div id='fbCard' role='dialog' aria-modal='true' aria-labelledby='fbTitle'>
+      <h2 id='fbTitle'>Send feedback</h2>
+      <div class='sub'>Tell us how the uploader is working for you — a problem, an idea, anything. It goes straight to the RSL Companion team.</div>
+      <div id='fbCats'>
+        <button type='button' data-cat='bug'>Problem</button>
+        <button type='button' data-cat='feature'>Idea</button>
+        <button type='button' data-cat='general'>Other</button>
+      </div>
+      <textarea id='fbText' maxlength='1500' placeholder='What happened, or what would you like to see?'></textarea>
+      <div class='row'>
+        <label><input type='checkbox' id='fbLog' checked> Include the activity log from my last run</label>
+        <span id='fbCount'></span>
+      </div>
+      <div id='fbErr'></div>
+      <div class='btns'><button id='fbCancel' type='button'>Cancel</button><button id='fbSend' type='button'>Send</button></div>
+    </div>
+  </div>
+
 <script>
-  var state = { signedIn:false, user:null, status:null, update:null, notice:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null, logDetail:false };
+  var state = { signedIn:false, user:null, status:null, update:null, notice:null, accounts:[], identifiedUserId:null, detected:null, busy:false, busyKind:null, exportAvailable:false, frontendUrl:null, logDetail:false, isAdmin:false };
   var logLines = [];
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
@@ -745,6 +846,11 @@ public sealed class AppShell : Panel
 
   function render() {
     var sel = liveSelection();
+    // Feedback goes to the signed-in user's own inbox entry, so it needs a session.
+    var fb = $('feedbackBtn');
+    fb.disabled = !state.signedIn;
+    fb.title = state.signedIn ? '' : 'Sign in to send feedback';
+    if (!state.signedIn) { fbSending = false; $('fbOverlay').classList.remove('open'); }
     renderTopbar();
     renderBanners();
     if (!state.signedIn) {
@@ -772,6 +878,9 @@ public sealed class AppShell : Panel
     var last = plain.length ? plain[plain.length - 1] : '';
     $('consoleHdr').querySelector('.last').textContent = last ? last.line : '';
     $('logDetail').classList.toggle('on', !!state.logDetail);
+    // Diagnostics are an admin tool: for everyone else the switch does not exist, and MainForm does
+    // not even send them the lines.
+    $('logDetail').style.display = state.isAdmin ? '' : 'none';
     var body = $('consoleBody');
     body.innerHTML = shown.map(function(l){
       return ""<div class='ln"" + (l.detail ? "" detail"" : """") + ""'>"" + esc(l.line) + ""</div>"";
@@ -786,6 +895,66 @@ public sealed class AppShell : Panel
     e.stopPropagation();
     window.chrome.webview.postMessage({ type:'logDetail', detail: !state.logDetail });
   };
+  $('copyLog').onclick = function(e){
+    e.stopPropagation(); // sits inside the header row that opens/closes the console
+    window.chrome.webview.postMessage({ type:'copyLog' });
+  };
+  var copyTimer = null;
+  function showCopyResult(text) {
+    var b = $('copyLog');
+    b.textContent = text;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(function(){ b.textContent = 'Copy log'; }, 2000);
+  }
+
+  // ── Feedback dialog ──
+  // 1500 on the text leaves room under the server's 2000-character cap for the version header and
+  // a slice of the log, which MainForm appends (and trims to fit) when the box is ticked.
+  var fbCat = 'bug', fbSending = false;
+  function fbSetCat(c) {
+    fbCat = c;
+    var bs = $('fbCats').querySelectorAll('button');
+    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', bs[i].getAttribute('data-cat') === c);
+    // The log only helps explain a problem: default it on for those and off otherwise.
+    $('fbLog').checked = c === 'bug';
+  }
+  function fbUpdate() {
+    var n = $('fbText').value.trim().length;
+    $('fbCount').textContent = $('fbText').value.length + ' / 1500';
+    $('fbSend').disabled = fbSending || n < 5;
+    $('fbSend').textContent = fbSending ? 'Sending…' : 'Send';
+  }
+  function fbErr(msg) { var e = $('fbErr'); e.textContent = msg || ''; e.style.display = msg ? 'block' : 'none'; }
+  function openFeedback() {
+    if (!state.signedIn) return;
+    fbSending = false; fbErr(''); fbSetCat(fbCat); fbUpdate();
+    $('fbOverlay').classList.add('open');
+    $('fbText').focus();
+  }
+  function closeFeedback() { if (fbSending) return; $('fbOverlay').classList.remove('open'); }
+  $('feedbackBtn').onclick = openFeedback;
+  $('fbCats').onclick = function(e){ var c = e.target.getAttribute && e.target.getAttribute('data-cat'); if (c) fbSetCat(c); };
+  $('fbText').oninput = fbUpdate;
+  $('fbCancel').onclick = closeFeedback;
+  $('fbOverlay').onclick = function(e){ if (e.target === $('fbOverlay')) closeFeedback(); };
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && $('fbOverlay').classList.contains('open')) closeFeedback(); });
+  $('fbSend').onclick = function(){
+    var text = $('fbText').value.trim();
+    if (text.length < 5 || fbSending) return;
+    fbSending = true; fbErr(''); fbUpdate();
+    window.chrome.webview.postMessage({ type:'feedback', category: fbCat, message: text, includeLog: $('fbLog').checked });
+  };
+  function feedbackResult(m) {
+    fbSending = false;
+    if (m.ok) {
+      $('fbText').value = '';
+      $('fbOverlay').classList.remove('open');
+    } else {
+      fbErr(m.message);
+    }
+    fbUpdate();
+  }
+
   $('signin').onclick = function(){ window.chrome.webview.postMessage({ type:'signIn' }); };
   $('openHelper').onclick = function(){
     if (state.frontendUrl) window.chrome.webview.postMessage({ type:'openUrl', url: state.frontendUrl });
@@ -828,6 +997,9 @@ public sealed class AppShell : Panel
     var m = e.data;
     if (!m) return;
     if (m.type === 'state') { state = m; render(); renderLog(); }
+    else if (m.type === 'purgeDetail') { logLines = logLines.filter(function(l){ return !l.detail; }); renderLog(); }
+    else if (m.type === 'copyResult') showCopyResult(m.text);
+    else if (m.type === 'feedbackResult') feedbackResult(m);
     else if (m.type === 'log') { logLines.push({ line:m.line, detail:!!m.detail }); if (logLines.length > 1000) logLines.shift(); renderLog(); }
   });
   render();

@@ -5,6 +5,7 @@ using System.Text.Json;
 using NewParserOpus;
 using NewParserOpus.Il2Cpp;
 using NewParserOpus.Models;
+using NewParserOpus.Runtime;
 using NewParserOpus.StaticData;
 #endif
 using RslCompanionUploader.Api;
@@ -171,10 +172,18 @@ public sealed class MainForm : Form
         _shell.SetLogDetail(UserSettings.Current.ActivityLogDetail);
         _shell.LogDetailChanged += detail =>
         {
+            if (!IsAdmin) return; // the toggle is admin-only; a stray message from the page changes nothing
             UserSettings.Current.ActivityLogDetail = detail;
             UserSettings.Current.Save();
             _shell.SetLogDetail(detail);
         };
+        _shell.CopyLogRequested += CopyLastRunLog;
+        _shell.FeedbackSubmitted += async (category, message, includeLog) =>
+            await SubmitFeedbackAsync(category, message, includeLog);
+#if EXTRACTION
+        // Nobody is an admin until a session says so, so the engine's run log stays off disk until then.
+        ExtractLog.WriteToDisk = false;
+#endif
 #if EXTRACTION
         // The export action lives on the shell's live tile; it reads the running game and routes by
         // the in-game id it finds there, regardless of which tile drove the label.
@@ -415,6 +424,7 @@ public sealed class MainForm : Form
     {
         var session = _api.Session!;
         _shell.SetUser(session.DisplayName, session.Email ?? session.Uid);
+        ApplyAdminState();
         if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = true;
 #if EXTRACTION
         _shell.SetExportAvailable(true);
@@ -662,6 +672,7 @@ public sealed class MainForm : Form
         if (force) _calibrationAttempted.Add(buildKey);
 
         _calibrating = true;
+        BeginRun("Set up Raid version");
         ApplyGameState(GameState.Calibrating, force: true);
         // Disables the tile buttons for the same reason export does: reading the process while a
         // ~35s scan also has it attached would race the two, and neither result would be trustworthy.
@@ -1616,6 +1627,7 @@ public sealed class MainForm : Form
     private async Task ExportAccountAsync()
     {
         SetBusy(true, "export");
+        BeginRun("Update user data");
         Log("Reading your account from Raid — keep the game open until this finishes.");
         try
         {
@@ -1868,6 +1880,7 @@ public sealed class MainForm : Form
         UserSettings.Current.Save();
 
         _api.SignOut();
+        ApplyAdminState();
         _loadedAccounts.Clear();
         if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = false;
 #if EXTRACTION
@@ -1935,10 +1948,166 @@ public sealed class MainForm : Form
     // the console's "Details" toggle on. The default is the user-facing level, so an unmarked call is
     // one a player is meant to read; anything naming an offset, an address, a class or a phase belongs
     // on the other side of the flag.
+    //
+    // Diagnostics are for RSL Companion admins only. For anyone else a detail line is dropped here,
+    // before it reaches the page, the copyable log or a feedback report — not merely hidden. Before a
+    // session exists nobody is known to be an admin yet, so those lines wait in a small buffer that
+    // ApplyAdminState either hands to an admin or throws away.
     private void Log(string message, bool detail = false)
     {
-        if (InvokeRequired) BeginInvoke(() => _shell.Log(message, detail));
-        else _shell.Log(message, detail);
+        var at = DateTime.Now;
+        if (detail && !IsAdmin)
+        {
+            if (_api.IsAuthenticated) return; // a known non-admin: never kept
+            lock (_preAuthDetail)
+            {
+                if (_preAuthDetail.Count >= PreAuthDetailCap) _preAuthDetail.RemoveAt(0);
+                _preAuthDetail.Add((at, message));
+            }
+            return;
+        }
+        if (InvokeRequired) BeginInvoke(() => Record(at, message, detail));
+        else Record(at, message, detail);
+    }
+
+    /// <summary>
+    /// Whether the signed-in user carries RSL Companion's admin claim. Read live off the session so it
+    /// follows sign-in, sign-out and token refreshes without anything having to remember to update it.
+    /// </summary>
+    private bool IsAdmin => _api.Session?.IsAdmin == true;
+
+    // Diagnostics logged before the session settled, held until we know whether they may be shown.
+    private const int PreAuthDetailCap = 500;
+    private readonly List<(DateTime At, string Message)> _preAuthDetail = new();
+
+    // What "Copy log" and a feedback report read: this session's lines, as the page shows them, plus
+    // where the most recent run (an export or a version setup) began. UI thread only.
+    private const int LogRecordCap = 5000;
+    private readonly List<(DateTime At, string Message, bool Detail)> _logRecord = new();
+    private int _runStart = -1;
+    private string? _runLabel;
+
+    private void Record(DateTime at, string message, bool detail)
+    {
+        _logRecord.Add((at, message, detail));
+        if (_logRecord.Count > LogRecordCap)
+        {
+            _logRecord.RemoveAt(0);
+            if (_runStart > 0) _runStart--; // a run too long to hold whole keeps its newest lines
+        }
+        _shell.Log(message, detail, at);
+    }
+
+    /// <summary>Marks where a run starts, so "Copy log" and feedback attach that run and not the whole session.</summary>
+    private void BeginRun(string label)
+    {
+        _runStart = _logRecord.Count;
+        _runLabel = label;
+    }
+
+    /// <summary>
+    /// Brings the admin-only surfaces in line with the current session: the Details toggle, the
+    /// engine's on-disk run log, and the diagnostics already collected. Called on sign-in and sign-out.
+    /// </summary>
+    private void ApplyAdminState()
+    {
+        bool admin = IsAdmin;
+        _shell.SetAdmin(admin);
+        _shell.SetLogDetail(admin && UserSettings.Current.ActivityLogDetail);
+#if EXTRACTION
+        ExtractLog.WriteToDisk = admin;
+#endif
+        List<(DateTime At, string Message)> held;
+        lock (_preAuthDetail) { held = new(_preAuthDetail); _preAuthDetail.Clear(); }
+
+        if (admin)
+        {
+            foreach (var (at, message) in held) Record(at, message, detail: true);
+            return;
+        }
+
+        // Not an admin (or no longer signed in): whatever diagnostics an earlier admin session left
+        // behind go too, so the next person at this window cannot read them or copy them out.
+        int before = _runStart < 0 ? 0 : _logRecord.Take(_runStart).Count(l => l.Detail);
+        _logRecord.RemoveAll(l => l.Detail);
+        if (_runStart >= 0) _runStart -= before;
+        _shell.PurgeDetailLog();
+    }
+
+    /// <summary>The last run's lines (or the whole session's, before any run), as plain text with a header.</summary>
+    private string LastRunLogText(int maxChars = int.MaxValue)
+    {
+        int from = _runStart >= 0 ? Math.Min(_runStart, _logRecord.Count) : 0;
+        var lines = _logRecord.Skip(from).Select(l => $"[{l.At:HH:mm:ss}] {l.Message}").ToList();
+        if (lines.Count == 0) return "";
+
+        var header = $"RSL Companion Uploader v{AboutForm.DisplayVersion}"
+#if EXTRACTION
+                   + (_buildInfo is { } b ? $" · Raid {BuildLabel(b)}" : "")
+#endif
+                   + $" · {(_runLabel is null ? "this session" : $"last run: {_runLabel}")}"
+                   + $" · {_logRecord[from].At:yyyy-MM-dd}";
+
+        // Keep the newest lines when it has to be cut: the end of a run is where it went wrong.
+        var body = new List<string>();
+        int budget = maxChars - header.Length - 2;
+        for (int i = lines.Count - 1; i >= 0; i--)
+        {
+            if (lines[i].Length + 1 > budget) { body.Insert(0, "…"); break; }
+            budget -= lines[i].Length + 1;
+            body.Insert(0, lines[i]);
+        }
+        return header + Environment.NewLine + string.Join(Environment.NewLine, body);
+    }
+
+    private void CopyLastRunLog()
+    {
+        var text = LastRunLogText();
+        if (text.Length == 0) { _shell.SetCopyResult("Nothing to copy yet"); return; }
+        try
+        {
+            Clipboard.SetText(text);
+            _shell.SetCopyResult("Copied");
+        }
+        catch (Exception)
+        {
+            // Another app can hold the clipboard open for a moment; saying so beats a silent no-op.
+            _shell.SetCopyResult("Couldn't copy — try again");
+        }
+    }
+
+    // RaidTools' FeedbackController caps a message at 2000 characters.
+    private const int FeedbackMaxChars = 2000;
+
+    private async Task SubmitFeedbackAsync(string category, string message, bool includeLog)
+    {
+        if (!_api.IsAuthenticated)
+        {
+            _shell.SetFeedbackResult(false, "Sign in to send feedback.");
+            return;
+        }
+
+        message = message.Trim();
+        if (message.Length > 1500) message = message[..1500];
+        if (message.Length < 5)
+        {
+            _shell.SetFeedbackResult(false, "Please write a little more — at least a few words.");
+            return;
+        }
+
+        var text = message;
+        if (includeLog)
+        {
+            const string sep = "\n\n--- Activity log ---\n";
+            var log = LastRunLogText(FeedbackMaxChars - text.Length - sep.Length);
+            if (log.Length > 0) text += sep + log;
+        }
+        if (text.Length > FeedbackMaxChars) text = text[..FeedbackMaxChars];
+
+        var result = await _api.SubmitFeedbackAsync(category, text, $"uploader v{AboutForm.DisplayVersion}");
+        if (result.Detail is string d) Log($"Feedback response: {d}", detail: true);
+        if (result.Success) Log(result.Message);
+        _shell.SetFeedbackResult(result.Success, result.Message);
     }
 }
 
