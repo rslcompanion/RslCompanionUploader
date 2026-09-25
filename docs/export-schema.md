@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 26** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 27** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1128,6 +1128,9 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
   "battlesThisWeek": 30, "victoriesThisWeek": 29, "lossesThisWeek": 9, "defeatsToday": 1,
   "lastWeeklyRewardAt": "2026-09-21T08:00:27Z"
 },
+"tagTeamArena": {                                     // schema 27
+  "points": 1190, "leagueId": 14, "lastRatingUpdateAt": "2026-09-25T05:55:38Z"
+},
 "liveArena": {
   "points": 20733, "victories": 5302, "defeats": 4736, "lastSeenLeagueId": 1,
   "maxPointsAchieved": 20733,
@@ -1207,6 +1210,13 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
 - **`classicArena.leagueId` is not a function of `points`.** Classic Arena promotes and demotes
   weekly; mid-week, points can sit past the next threshold while the tier the game applies is still
   last week's. `leagueId` is that applied tier.
+- **`tagTeamArena` (schema 27) is Tag Team / 3v3 Arena**, off `UserGameData → UpdatableArena3x3Data`
+  (class `UserArena3X3Data`, which derives from `UserArenaData`). `points` is the inherited
+  `ArenaPoints`; `leagueId` is the class's own `LeagueId` — **Tag Team's ladder, not Classic Arena's
+  id space**, so don't look it up in the Classic league table. `lastRatingUpdateAt` is
+  `LastRatingUpdateTime`, when the game last re-rated the tier. The inherited weekly counters read 0
+  on a live 3v3 account and are not exported. Prefer this over `account.arena3x3League`, the old
+  value-shape probe.
 
 ### `siege` — the account's own Siege state (schema 26)
 
@@ -1304,6 +1314,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 27 | v1.27.0 | 2026-09-25 | **Additive: new top-level `tagTeamArena`** — Tag Team (3v3) Arena `points`, `leagueId` (Tag Team's own ladder) and `lastRatingUpdateAt`, off `UserArena3X3Data` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Absent when its read fails. Verified live (11.75.0): 1,190 points, league 14. A consumer that ignores it is exactly as correct as on schema 26. |
 | 26 | v1.24.0 | 2026-09-24 | **Additive: new top-level `siege`** — the account's own Siege cycle state and claimed rewards, never other players' (see [`siege`](#siege--the-accounts-own-siege-state-schema-26)). **Additive: `liveArena.victoriesForRegularReward`** — the "Wins N/35" quest progress. **BREAKING (field rename): `doomTower.difficulties[].rotationStartedAt` → `firstEnteredAt`**, because it is not the rotation start (rotations are global; confirmed in-game). Same value — read `firstEnteredAt ?? rotationStartedAt`. Also recorded: Cursed City and Live Arena end dates confirmed in-game, settings times are UTC. |
 | 25 | v1.23.0 | 2026-09-24 | **Additive: five new top-level objects — `classicArena`, `liveArena`, `doomTower`, `cursedCity`, `grimForest`.** Where the account stands in each mode and which rewards it has claimed; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege). Each is absent when its read fails. **Behaviour change: `account.liveArenaPoints` is now the named `UserLiveArenaData.Points`** instead of a value-shape probe, so its value can change for the same account. Reward contents and rotation end dates are static data and not on this payload. A consumer that ignores the new keys is exactly as correct as on schema 24. |
 | 24 | v1.22.0 | 2026-09-15 | **Additive: new top-level `souls[]` — the real Awakening Soul inventory.** See [`souls[]`](#souls--awakening-soul-inventory) above. Champion-bound material (`championBaseId`, `isPerfect`, `level`, `championRarity`) decoded from `UserGameData → UpdatableUserDoubleAscendData`'s own key, and **not** the Soulstone/Soul Essence currency already in `resources[]` (see schema 23's soul-economy note) or a spare duplicate champion copy (Ascension material, unrelated to this). A consumer that ignores the field is exactly as correct as it was on schema 23. Verified live (11.75.0, account Magikwolf): 156 owned souls decoded, matching the in-game Soul Collection tally exactly; 40 sample keys' `championRarity` matched every one of those champions' real rarity in `champion_index.json`, and three shop listings literally named "Pestilus/Aothar/Captain Temila Split Soul" decoded to those exact champions with the single lit star in each matching the decoded `level`. **Consumer impact:** RaidTools' previous "Champion Souls" tab (its own schema-independent feature, not part of this contract) treated a spare Vault/Reserve Vault duplicate as a "soul" — that was never derived from this payload and is being replaced with a real reader of this field. |
