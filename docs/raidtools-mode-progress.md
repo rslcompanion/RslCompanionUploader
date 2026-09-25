@@ -136,6 +136,15 @@ anchors in **one** helper with a comment saying the catalog replaces it:
 | Doom Tower | global 30-day rotations, current one ends ≈ 2026-10-07 | **anchor not mapped** — don't compute from the payload (see traps) |
 | Siege | `SiegeSettings.Schedule` | not mapped — show nothing |
 
+**Classic Arena tiers are shipped: render the name and badge, never "League 25".** The static
+half is `RslCompanionMetadata/exports/arena_league_index.json` (added 2026-09-25), keyed by
+`classicArena.leagueId`. Each row carries the in-game `name` ("Gold V"), `minPoints` / `maxPoints`,
+`nextLeagueId`, the HP/ATK/DEF `bonuses` and a `badgeUrl`
+(`https://assets.rslcompanion.com/arena-leagues/<id>.png`). The ids are not contiguous — Bronze
+I–IV 1–4, Silver I–IV 11–14, Gold I–V 21–25, Platinum 30, and 0 is unranked (Qualification) — so
+look them up, don't compute them. "To next tier" is `next.minPoints - points` floored at 0 (blank
+when `nextLeagueId` is null); a 0 means the promotion lands at the weekly reset, per the trap below.
+
 ## Traps
 
 - **`doomTower.difficulties[].firstEnteredAt` is not the rotation start.** Rotations are global — one
