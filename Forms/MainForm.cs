@@ -2076,8 +2076,31 @@ public sealed class MainForm : Form
         }
     }
 
-    // RaidTools' FeedbackController caps a message at 2000 characters.
+    // RaidTools' FeedbackController caps a message at 2000 characters, and an attached log at 400k.
     private const int FeedbackMaxChars = 2000;
+    private const int FeedbackMaxLogChars = 400_000;
+
+    /// <summary>
+    /// What this install says about itself alongside feedback, so a report can be traced to the
+    /// player and the build: the RSL Companion account is already on the request (the ID token), and
+    /// this adds the game account being played, the uploader and Raid versions, and the OS. Nothing
+    /// here is more than the Send feedback dialog tells the user it sends.
+    /// </summary>
+    private object FeedbackContext(bool withLog) => new
+    {
+        uploaderVersion = AboutForm.DisplayVersion,
+#if EXTRACTION
+        gameVersion = _buildInfo?.GameVersion,
+        gameAccountId = _liveUserId?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        gameAccountName = _liveName,
+        gameStatus = _gameState.ToString(),
+#endif
+        lastRun = withLog ? _runLabel ?? "this session" : null,
+        os = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+        locale = System.Globalization.CultureInfo.CurrentUICulture.Name,
+        timeZone = TimeZoneInfo.Local.Id,
+        installKind = PackagedAppInfo.IsPackaged ? "msix" : "installer",
+    };
 
     private async Task SubmitFeedbackAsync(string category, string message, bool includeLog)
     {
@@ -2088,23 +2111,19 @@ public sealed class MainForm : Form
         }
 
         message = message.Trim();
-        if (message.Length > 1500) message = message[..1500];
+        if (message.Length > FeedbackMaxChars) message = message[..FeedbackMaxChars];
         if (message.Length < 5)
         {
             _shell.SetFeedbackResult(false, "Please write a little more — at least a few words.");
             return;
         }
 
-        var text = message;
-        if (includeLog)
-        {
-            const string sep = "\n\n--- Activity log ---\n";
-            var log = LastRunLogText(FeedbackMaxChars - text.Length - sep.Length);
-            if (log.Length > 0) text += sep + log;
-        }
-        if (text.Length > FeedbackMaxChars) text = text[..FeedbackMaxChars];
+        // The whole run, in its own field: the message cap no longer decides how much of it survives.
+        string? log = includeLog ? LastRunLogText(FeedbackMaxLogChars) : null;
+        if (log is { Length: 0 }) log = null;
 
-        var result = await _api.SubmitFeedbackAsync(category, text, $"uploader v{AboutForm.DisplayVersion}");
+        var result = await _api.SubmitFeedbackAsync(category, message, $"uploader v{AboutForm.DisplayVersion}",
+            log, FeedbackContext(includeLog && log is not null));
         if (result.Detail is string d) Log($"Feedback response: {d}", detail: true);
         if (result.Success) Log(result.Message);
         _shell.SetFeedbackResult(result.Success, result.Message);

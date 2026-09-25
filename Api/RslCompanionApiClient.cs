@@ -198,13 +198,20 @@ public sealed class RslCompanionApiClient
     /// <c>pageUrl</c> field, which is how an uploader report is told apart from a website one there.
     /// The server takes 5–2000 characters and a category of <c>bug</c>, <c>feature</c> or
     /// <c>general</c>; the caller is expected to have trimmed to that already.
+    ///
+    /// <para><paramref name="log"/> travels in its own field, not appended to the message, so it
+    /// is not squeezed under the message cap (the server keeps up to 400k characters of it).
+    /// <paramref name="context"/> is what this install says about itself — versions, the game
+    /// account being played, OS — so a report can be traced to the player and build it came from.
+    /// A server older than that field ignores both rather than failing.</para>
     /// </summary>
-    public async Task<UploadResult> SubmitFeedbackAsync(string category, string message, string source, CancellationToken ct = default)
+    public async Task<UploadResult> SubmitFeedbackAsync(string category, string message, string source,
+        string? log = null, object? context = null, CancellationToken ct = default)
     {
         try
         {
             using var req = await BuildRequestAsync(HttpMethod.Post, _config.FeedbackEndpoint, ct);
-            req.Content = JsonContent.Create(new { category, message, pageUrl = source });
+            req.Content = JsonContent.Create(new { category, message, pageUrl = source, log, context });
             using var resp = await _http.SendAsync(req, ct);
             if (resp.IsSuccessStatusCode)
                 return UploadResult.Ok("Thanks — your feedback was sent.");

@@ -173,8 +173,13 @@ where the last run (an export or a version setup, `BeginRun`) began; Copy log �
 feedback dialog, not on the console, because handing the log to someone about a problem is its only
 use — puts that run on the clipboard with a version header. Feedback posts to the website's existing `POST /api/feedback`
 (`Endpoints.Feedback`, signed-in only, 5–2000 chars, `bug`/`feature`/`general`), with `pageUrl` set
-to `uploader v<version>` so it can be told apart there; the optional log is the tail of the last run,
-trimmed to fit under the server's cap.
+to `uploader v<version>` so it can be told apart there. **The log rides in its own `log` field**
+(server cap 400k, keeps the end), not appended to the message — before 1.26 it was, trimmed to fit
+the 2000-char message cap, which left 5–20 lines. **A `context` object always goes with it**
+(`MainForm.FeedbackContext`): uploader/Raid versions, the game account being played, game status,
+OS, locale, time zone, install kind — so a report traces back to a player and a build. The server
+adds the sender's linked accounts itself. The dialog says in plain words that all of this is sent;
+keep that text in step with the object.
 
 **For an admin, detail lines are hidden, never dropped.** The page keeps every line and filters on render, so the
 console's "Details" toggle explains the export that already ran instead of requiring the user to

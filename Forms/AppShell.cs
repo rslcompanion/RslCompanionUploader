@@ -668,17 +668,18 @@ public sealed class AppShell : Panel
         <button type='button' data-cat='feature'>Idea</button>
         <button type='button' data-cat='general'>Other</button>
       </div>
-      <textarea id='fbText' maxlength='1500' placeholder='What happened, or what would you like to see?'></textarea>
+      <textarea id='fbText' maxlength='2000' placeholder='What happened, or what would you like to see?'></textarea>
       <div class='row'>
         <label><input type='checkbox' id='fbLog' checked> Include the activity log from my last run</label>
         <span id='fbCount'></span>
       </div>
       <div class='hint'>
-        <b>Tick box:</b> sends the end of your last run, such as <b>Update user data</b>, with your
-        message, so we can see what went wrong. It holds only what the Activity panel shows, plus your
-        app and Raid versions. Only the last lines fit.<br>
-        <b>Copy log:</b> puts that whole log on your clipboard instead, for pasting into Discord or an
-        email. It doesn't send anything.
+        <b>Tick box:</b> sends the whole log of your last run, such as <b>Update user data</b>, with
+        your message, so we can see what went wrong. It holds only what the Activity panel shows.<br>
+        <b>Always sent:</b> your RSL Companion account, the Raid account you're playing, and your app,
+        Raid and Windows versions, so we can find you and your data if we need to follow up.<br>
+        <b>Copy log:</b> puts the same log on your clipboard, for pasting into Discord or an email. It
+        doesn't send anything.
       </div>
       <div id='fbErr'></div>
       <div class='btns'><button id='copyLog' type='button' title='Copy the activity from your last run to the clipboard, to paste into Discord or an email'>Copy log</button><button id='fbCancel' type='button'>Cancel</button><button id='fbSend' type='button'>Send</button></div>
@@ -918,8 +919,8 @@ public sealed class AppShell : Panel
   }
 
   // ── Feedback dialog ──
-  // 1500 on the text leaves room under the server's 2000-character cap for the version header and
-  // a slice of the log, which MainForm appends (and trims to fit) when the box is ticked.
+  // 2000 is the server's cap on the message. The log no longer shares it: MainForm sends it in its
+  // own field, whole.
   var fbCat = 'bug', fbSending = false;
   function fbSetCat(c) {
     fbCat = c;
@@ -930,7 +931,7 @@ public sealed class AppShell : Panel
   }
   function fbUpdate() {
     var n = $('fbText').value.trim().length;
-    $('fbCount').textContent = $('fbText').value.length + ' / 1500';
+    $('fbCount').textContent = $('fbText').value.length + ' / 2000';
     $('fbSend').disabled = fbSending || n < 5;
     $('fbSend').textContent = fbSending ? 'Sending…' : 'Send';
   }
