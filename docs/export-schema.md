@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 28** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 29** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1150,7 +1150,8 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
 ]},
 "cursedCity": { "rotation": 34, "difficulties": [
   { "difficultyId": 2, "takenStageRewards": [25, 50, 101], "takenAwakeningStageRewards": [6, 12],
-    "mainBossRewardTaken": true, "takenMilestoneRewards": [10, 25, 40 /* … */, 500] }
+    "mainBossRewardTaken": true, "takenMilestoneRewards": [10, 25, 40 /* … */, 500],
+    "passedStageIds": [10012001, 10012002 /* … */, 10042025, 10052001] }   // passedStageIds: schema 29
 ]},
 "grimForest": { "rotation": 10, "difficulties": [
   { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true }
@@ -1221,6 +1222,22 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   ~2026-10-07. Rotations are global; this is most likely when the account first entered that
   difficulty this rotation. Never add 30 days to it to get an end date. Read
   `firstEnteredAt ?? rotationStartedAt` to cover v1.23.0 payloads.
+- **`cursedCity.difficulties[].passedStageIds` (schema 29) is every stage won this rotation** — a
+  set of stage ids, not a highest stage, because the four districts are played in any order. Ids are
+  `RRRR D SSS`: districts 1001–1004 hold stages 1–25, 1005 is the main boss (stage 1), so a
+  difficulty has 101; `10011001` is district 1001 stage 1 on Normal, `10012001` the same on Hard.
+  They are the same keys as the metadata catalog's `mode_rewards.json`
+  `cursedCity.difficulties[d].stages`, which is how a consumer joins each stage to its first-clear
+  reward. Source: the account-wide `UserStageData.BattleResultsByStageId` (as for Doom Tower), a stage
+  counting when `Passed` with `PassedAt` at or after that difficulty's `FirstVictoryTimeInRotation`
+  (which equalled the earliest `PassedAt` to the second on the mapping account) — **not** a lifetime
+  win/loss counter, and not `UserCursedCityData`'s own per-stage battle-result lists. Sorted
+  ascending; order carries no meaning. `[]` is a difficulty entered with nothing won; the field is
+  **absent** — never `[]` — when it could not be read reliably (stage results unreadable, or passes
+  present with no first-victory time to bound the rotation). Sanity check a consumer can make: the
+  count is at least the highest claimed `takenStageRewards` entry. Verified live (11.75.0, rotation 34,
+  2026-09-26): Normal 101, Hard 101, each equal to the catalog's full stage set, matching the claimed
+  "pass 101 stages" quest. Compare `rotation` with the current one before showing it.
 - **`classicArena.leagueId` is not a function of `points`.** Classic Arena promotes and demotes
   weekly; mid-week, points can sit past the next threshold while the tier the game applies is still
   last week's. `leagueId` is that applied tier.
@@ -1328,6 +1345,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 29 | v1.29.0 | 2026-09-26 | **Additive: `cursedCity.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`RRRR D SSS`, 101 per difficulty; the metadata `mode_rewards.json` stage keys), from passed `StageStats` counted from the difficulty's `FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 34): Normal 101, Hard 101. RaidTools' `ConsolidatedJsonSyncAdapter` 4.7.0 already reads it. A consumer that ignores it is exactly as correct as on schema 28. |
 | 28 | v1.28.0 | 2026-09-25 | **Additive: `doomTower.rotation` and `doomTower.difficulties[].floorsCompleted`** — the rotation number (`UserDoomTowerData.Id`) and the highest floor cleared this rotation, 0–120 (passed `StageStats` of the current tower map, counted from the rotation start; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `floorsCompleted` is absent, not 0, when it cannot be read reliably. Verified live (11.75.0): rotation 71, Normal 49, Hard 120. Also corrected: `stageIndicator` is shaped `70 M D FFF` (tower map, difficulty, floor), not `70 D 1 FFF`. A consumer that ignores the new fields is exactly as correct as on schema 27. |
 | 27 | v1.27.0 | 2026-09-25 | **Additive: new top-level `tagTeamArena`** — Tag Team (3v3) Arena `points`, `leagueId` (Tag Team's own ladder) and `lastRatingUpdateAt`, off `UserArena3X3Data` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Absent when its read fails. Verified live (11.75.0): 1,190 points, league 14. A consumer that ignores it is exactly as correct as on schema 26. |
 | 26 | v1.24.0 | 2026-09-24 | **Additive: new top-level `siege`** — the account's own Siege cycle state and claimed rewards, never other players' (see [`siege`](#siege--the-accounts-own-siege-state-schema-26)). **Additive: `liveArena.victoriesForRegularReward`** — the "Wins N/35" quest progress. **BREAKING (field rename): `doomTower.difficulties[].rotationStartedAt` → `firstEnteredAt`**, because it is not the rotation start (rotations are global; confirmed in-game). Same value — read `firstEnteredAt ?? rotationStartedAt`. Also recorded: Cursed City and Live Arena end dates confirmed in-game, settings times are UTC. |
