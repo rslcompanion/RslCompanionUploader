@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 30** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 31** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1155,7 +1155,8 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
 ]},
 "grimForest": { "rotation": 10, "difficulties": [
   { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true,
-    "passedStageIds": [14012002, 14012003 /* … */, 14042103] }   // passedStageIds: schema 30
+    "passedStageIds": [14012002, 14012003 /* … */, 14042103],       // schema 30
+    "completedSlotIds": [1, 2, 3 /* … */, 403] }                      // schema 31
 ]}
 ```
 
@@ -1255,6 +1256,17 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   completed slots — fixed battle slots from the static map plus each slot's random-element stage —
   equal the exported set exactly, Normal 57 + 21 = 78 and Hard 104 + 31 = 135. Compare `rotation` with
   the current one before showing it.
+- **`grimForest.difficulties[].completedSlotIds` (schema 31) is the map progress** — every map slot
+  completed this rotation, by slot number: battles, chests, altars, random encounters and path nodes
+  alike, where `passedStageIds` lists only the battles' stages. Slots are numbered 1–403 on 11.75.0,
+  the same numbering on both difficulties, so a fully cleared map is 403 entries. Source: the
+  difficulty's own `StageSlots` (`UserFoggyForestStageSlot.Completed`), per-rotation state. The
+  **layout** — how many slots there are and what each one is (the static map's
+  `FoggyForestSlotData {StageSlot, StageId, ElementType}`: on 11.75.0, 104 fixed battles, 251 path
+  hexes and 48 other nodes per difficulty) — is static data, not on this payload; a consumer takes the
+  denominator and the node kinds from the metadata catalog. `[]` = nothing completed; **absent**, never
+  `[]`, when it could not be read. Verified live (11.75.0, rotation 10): Hard 403 of 403 (map fully
+  cleared, as the player confirmed), Normal 232.
 - **`classicArena.leagueId` is not a function of `points`.** Classic Arena promotes and demotes
   weekly; mid-week, points can sit past the next threshold while the tier the game applies is still
   last week's. `leagueId` is that applied tier.
@@ -1362,6 +1374,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 31 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].completedSlotIds`** — the map progress: every map slot completed this rotation (battles, chests, altars, random encounters, path nodes), by slot number 1–403, from the difficulty's `StageSlots`. The map layout is static data and not on the payload. Absent, not `[]`, when it cannot be read. Verified live (11.75.0, rotation 10): Hard 403/403, Normal 232. Ships in the same release as schema 30. A consumer that ignores it is exactly as correct as on schema 30. |
 | 30 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`ZZZZ D SSS`, zones 1401–1404; the metadata `mode_rewards.json` grimForest stage keys), from passed `StageStats` counted from the difficulty's `StageData.FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Stages, not map slots: fixed battles and random-element battles both count. `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 10) against the client's map: Normal 78, Hard 135, exact. RaidTools' `ConsolidatedJsonSyncAdapter` 4.8.0 already reads it. A consumer that ignores it is exactly as correct as on schema 29. |
 | 29 | v1.29.0 | 2026-09-26 | **Additive: `cursedCity.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`RRRR D SSS`, 101 per difficulty; the metadata `mode_rewards.json` stage keys), from passed `StageStats` counted from the difficulty's `FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 34): Normal 101, Hard 101. RaidTools' `ConsolidatedJsonSyncAdapter` 4.7.0 already reads it. A consumer that ignores it is exactly as correct as on schema 28. |
 | 28 | v1.28.0 | 2026-09-25 | **Additive: `doomTower.rotation` and `doomTower.difficulties[].floorsCompleted`** — the rotation number (`UserDoomTowerData.Id`) and the highest floor cleared this rotation, 0–120 (passed `StageStats` of the current tower map, counted from the rotation start; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `floorsCompleted` is absent, not 0, when it cannot be read reliably. Verified live (11.75.0): rotation 71, Normal 49, Hard 120. Also corrected: `stageIndicator` is shaped `70 M D FFF` (tower map, difficulty, floor), not `70 D 1 FFF`. A consumer that ignores the new fields is exactly as correct as on schema 27. |
