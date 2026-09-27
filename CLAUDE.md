@@ -555,6 +555,12 @@ reads RaidTools' `GET /api/arena-league-index` (metadata type `ArenaLeagueIndex`
 No payload change. Its main trap: the next tier comes from `nextLeagueId`, never from points, because
 the game moves players between tiers weekly. Same standing.
 
+[docs/raidtools-grim-forest-map-progress.md](docs/raidtools-grim-forest-map-progress.md) is the prompt
+for schema 31's `grimForest.difficulties[].completedSlotIds`, the map progress (every slot completed,
+not only battles). Its main point is that RaidTools' "stages / 211" bar can never fill: 211 is the
+catalog's whole stage pool, random encounters included, and a fully cleared Hard map is 135 stages on
+403 of 403 slots. Same standing: a summary, never the contract.
+
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
 note used to describe is gone: `types[]` was 89% of the old catalog, folding it into the champion
