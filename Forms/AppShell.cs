@@ -19,7 +19,7 @@ namespace RslCompanionUploader.Forms;
 ///
 /// The page is a top bar (brand + connection pill + identity, whose account dropdown holds refresh
 /// and sign out), an optional update banner, the accounts grid, and a collapsible activity console,
-/// with an "Open RSL Helper" bar above it.
+/// with an "Open RSL Companion" bar above it.
 ///
 /// <para><b>Tiles are status, with one exception: the account the running game is on.</b> That tile
 /// — and only that one — carries the game-reading action ("Update user data", or "Add this game
@@ -61,7 +61,7 @@ public sealed class AppShell : Panel
     private bool _busy;
     private string? _busyKind;               // "export" | null — drives which button shows progress
     private bool _exportAvailable;
-    private string? _frontendUrl;            // target of the "Open RSL Helper" button
+    private string? _frontendUrl;            // target of the "Open RSL Companion" button
     private bool _logDetail;                 // false = plain-language activity only; true = engine diagnostics too
     private bool _isAdmin;                   // RSL Companion admin: the only viewer who gets diagnostics at all
 
@@ -73,7 +73,7 @@ public sealed class AppShell : Panel
     /// <summary>Raised (on the UI thread) when the live tile's "Update user data" button is clicked.</summary>
     public event Action? ExportRequested;
 
-    /// <summary>Raised with a URL the page asked to open (the "Open RSL Helper" bar).</summary>
+    /// <summary>Raised with a URL the page asked to open (the "Open RSL Companion" bar).</summary>
     public event Action<string>? OpenUrlRequested;
 
     /// <summary>
@@ -251,7 +251,7 @@ public sealed class AppShell : Panel
     /// <summary>Whether the export actions exist at all (false in public builds without the engine).</summary>
     public void SetExportAvailable(bool available) { _exportAvailable = available; PushState(); }
 
-    /// <summary>Target of the "Open RSL Helper" button (<c>AppConfig.FrontendUrl</c>).</summary>
+    /// <summary>Target of the "Open RSL Companion" button (<c>AppConfig.FrontendUrl</c>).</summary>
     public void SetFrontendUrl(string? url) { _frontendUrl = url; PushState(); }
 
     /// <summary>
@@ -561,10 +561,10 @@ public sealed class AppShell : Panel
   /* Always present, and deliberately not an export: this is the one action that has nothing to do
      with the running game, so it does not belong on a tile. */
   #actionBar { flex:none; display:flex; gap:8px; padding:10px 16px; border-top:1px solid var(--line); background:var(--card); }
-  #openHelper { flex:1 1 auto; padding:11px 14px; border:1px solid var(--line); border-radius:10px;
+  #openSite { flex:1 1 auto; padding:11px 14px; border:1px solid var(--line); border-radius:10px;
                 background:transparent; color:var(--fg); cursor:pointer; font-family:inherit;
                 font-size:13px; font-weight:600; transition:background .12s; }
-  #openHelper:hover { background:var(--panel); }
+  #openSite:hover { background:var(--panel); }
   #feedbackBtn { flex:none; padding:11px 16px; border:1px solid var(--line); border-radius:10px;
                  background:transparent; color:var(--fg); cursor:pointer; font-family:inherit;
                  font-size:13px; font-weight:600; transition:background .12s; }
@@ -652,7 +652,7 @@ public sealed class AppShell : Panel
     <div id='grid'></div>
   </div>
 
-  <div id='actionBar'><button id='openHelper' type='button'>Open RSL Helper</button><button id='feedbackBtn' type='button'>Send feedback</button></div>
+  <div id='actionBar'><button id='openSite' type='button'>Open RSL Companion</button><button id='feedbackBtn' type='button'>Send feedback</button></div>
 
   <div id='console'>
     <div id='consoleHdr'><span style='opacity:.7'>Activity</span><span class='last'></span><button id='logDetail' type='button'>Details</button><span class='chev'>&#9650;</span></div>
@@ -868,7 +868,7 @@ public sealed class AppShell : Panel
     renderTopbar();
     renderBanners();
     if (!state.signedIn) {
-      // Signed out: show the sign-in prompt instead of the accounts grid. The RSL Helper link stays
+      // Signed out: show the sign-in prompt instead of the accounts grid. The RSL Companion link stays
       // — it is a website, not an export, and works without a session.
       $('signedOut').style.display = 'flex';
       $('secHdr').style.display = 'none';
@@ -967,7 +967,7 @@ public sealed class AppShell : Panel
   }
 
   $('signin').onclick = function(){ window.chrome.webview.postMessage({ type:'signIn' }); };
-  $('openHelper').onclick = function(){
+  $('openSite').onclick = function(){
     if (state.frontendUrl) window.chrome.webview.postMessage({ type:'openUrl', url: state.frontendUrl });
   };
   // Delegated: the tile button is rebuilt by renderGrid on every state push, so binding it

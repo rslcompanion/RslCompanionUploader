@@ -31,7 +31,7 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    relics/gemstones and the account's clan id), and POSTs it to `/api/sync/consolidated/raw`.
    Requires the game to be running. Takes a few seconds. This is the app's **only** upload —
    nothing it sends describes anyone but the signed-in user.
-4. **Open RSL Helper** — opens rslcompanion.com in the default browser. When Raid is running on an
+4. **Open RSL Companion** — opens rslcompanion.com in the default browser. When Raid is running on an
    account that is already imported, the link carries that account (`?account=<in-game id>`) and the
    site opens with it selected in its account dropdown instead of whatever the browser last used.
 

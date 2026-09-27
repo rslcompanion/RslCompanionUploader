@@ -10,7 +10,7 @@ If we commit to a fully web UI, the natural next step is to fold File/Help into 
 That means routing the remaining menu actions through the shell bridge instead of native handlers:
 Check for updates, Recalibrate (EXTRACTION-only), and About. Everything else already goes through
 the bridge — export, refresh, sign out, report-build, open-url — so the pattern is set.
-Help ▸ "Open rslcompanion.com" is now a duplicate of the page's "Open RSL Helper" button and can
+Help ▸ "Open rslcompanion.com" is now a duplicate of the page's "Open RSL Companion" button and can
 simply be dropped with the menu.
 
 Deferred until we've lived with the current layout and confirmed the web-UI direction.

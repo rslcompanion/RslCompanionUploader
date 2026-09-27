@@ -132,7 +132,7 @@ on success, `MainForm.EnterSignedInAsync` loads accounts and enables export. Sig
 the signed-out state in place (no process restart).
 
 The page is a top bar (brand + connection pill + Sign In button / identity), an optional update
-banner, the accounts grid, an "Open RSL Helper" bar (opens `MainForm.HelperUrl()` via `openUrl`), and
+banner, the accounts grid, an "Open RSL Companion" bar (opens `MainForm.SiteUrl()` via `openUrl`), and
 a collapsible activity console.
 
 **The window sizes itself in `ApplyStartupBounds` (on handle creation), never in the constructor.** A
@@ -187,7 +187,7 @@ reproduce it — which is the whole point, since the person who wants the trace 
 that already happened. The choice persists (`activityLogDetail` in `settings.json`), and the collapsed
 header always summarises with a plain line so Details-off never shows an address there.
 
-`HelperUrl()` is `AppConfig.FrontendUrl` plus **`?account=<in-game id>`** whenever the running game is
+`SiteUrl()` is `AppConfig.FrontendUrl` plus **`?account=<in-game id>`** whenever the running game is
 on an account the profile has already imported, so the site opens on the account being played rather
 than on whatever that browser last selected. The id needs no translation: `GET /api/accounts` reports
 the in-game id as both `id` and `userId`. The site consumes it in `ActiveAccountService` (RaidTools
