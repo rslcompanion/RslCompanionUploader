@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 29** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 30** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1154,7 +1154,8 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
     "passedStageIds": [10012001, 10012002 /* … */, 10042025, 10052001] }   // passedStageIds: schema 29
 ]},
 "grimForest": { "rotation": 10, "difficulties": [
-  { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true }
+  { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true,
+    "passedStageIds": [14012002, 14012003 /* … */, 14042103] }   // passedStageIds: schema 30
 ]}
 ```
 
@@ -1238,6 +1239,22 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   count is at least the highest claimed `takenStageRewards` entry. Verified live (11.75.0, rotation 34,
   2026-09-26): Normal 101, Hard 101, each equal to the catalog's full stage set, matching the claimed
   "pass 101 stages" quest. Compare `rotation` with the current one before showing it.
+- **`grimForest.difficulties[].passedStageIds` (schema 30) is every stage won this rotation** — the
+  same field as Cursed City's, a set of stage ids. Ids are `ZZZZ D SSS` over zones 1401–1404 (the stage
+  catalog's `groupId`); stage numbers are not contiguous (1–20, then 101…, 201…, …), so a consumer
+  checks the zone and difficulty digit, never a stage range. `14011007` is zone 1401 stage 7 on Normal,
+  `14012006` zone 1401 stage 6 on Hard. They are the keys of the metadata catalog's `mode_rewards.json`
+  `grimForest.difficulties[d].stages`. **They are stages, not map slots**: a difficulty's map has ~400
+  slots, most of them path nodes; 104 are fixed battles, and random map elements (roaming bosses and
+  other encounters) put further battles on other slots. Both kinds are in the set, so its size is not
+  bounded by 104. Source: `UserStageData.BattleResultsByStageId`, a stage counting when `Passed` with
+  `PassedAt` at or after that difficulty's `StageData.FirstVictoryTimeInRotation` (equal to the earliest
+  `PassedAt` to the second on the mapping account). `[]` is a difficulty entered with nothing won; the
+  field is **absent** — never `[]` — when it could not be read reliably. Verified live (11.75.0,
+  rotation 10, 2026-09-27) against the client's own map rather than by eye: the stages on the account's
+  completed slots — fixed battle slots from the static map plus each slot's random-element stage —
+  equal the exported set exactly, Normal 57 + 21 = 78 and Hard 104 + 31 = 135. Compare `rotation` with
+  the current one before showing it.
 - **`classicArena.leagueId` is not a function of `points`.** Classic Arena promotes and demotes
   weekly; mid-week, points can sit past the next threshold while the tier the game applies is still
   last week's. `leagueId` is that applied tier.
@@ -1345,6 +1362,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 30 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`ZZZZ D SSS`, zones 1401–1404; the metadata `mode_rewards.json` grimForest stage keys), from passed `StageStats` counted from the difficulty's `StageData.FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Stages, not map slots: fixed battles and random-element battles both count. `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 10) against the client's map: Normal 78, Hard 135, exact. RaidTools' `ConsolidatedJsonSyncAdapter` 4.8.0 already reads it. A consumer that ignores it is exactly as correct as on schema 29. |
 | 29 | v1.29.0 | 2026-09-26 | **Additive: `cursedCity.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`RRRR D SSS`, 101 per difficulty; the metadata `mode_rewards.json` stage keys), from passed `StageStats` counted from the difficulty's `FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 34): Normal 101, Hard 101. RaidTools' `ConsolidatedJsonSyncAdapter` 4.7.0 already reads it. A consumer that ignores it is exactly as correct as on schema 28. |
 | 28 | v1.28.0 | 2026-09-25 | **Additive: `doomTower.rotation` and `doomTower.difficulties[].floorsCompleted`** — the rotation number (`UserDoomTowerData.Id`) and the highest floor cleared this rotation, 0–120 (passed `StageStats` of the current tower map, counted from the rotation start; see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `floorsCompleted` is absent, not 0, when it cannot be read reliably. Verified live (11.75.0): rotation 71, Normal 49, Hard 120. Also corrected: `stageIndicator` is shaped `70 M D FFF` (tower map, difficulty, floor), not `70 D 1 FFF`. A consumer that ignores the new fields is exactly as correct as on schema 27. |
 | 27 | v1.27.0 | 2026-09-25 | **Additive: new top-level `tagTeamArena`** — Tag Team (3v3) Arena `points`, `leagueId` (Tag Team's own ladder) and `lastRatingUpdateAt`, off `UserArena3X3Data` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Absent when its read fails. Verified live (11.75.0): 1,190 points, league 14. A consumer that ignores it is exactly as correct as on schema 26. |
