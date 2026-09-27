@@ -40,9 +40,8 @@ fixed battles plus a pool of 107 random-encounter stages, of which one map spawn
 that Hard map). A cleared Hard map therefore renders **135 / 211 (64%)**. It is not wrong data. The
 number it is divided by is wrong.
 
-The per-difficulty map, from the client's static `FoggyForestSlotData` on 11.75.0 (both difficulties
-alike): **403 slots = 104 fixed battles + 251 path hexes + 48 other nodes** (chests, altars, …).
-Random encounters appear on slots. They are not extra slots.
+The per-difficulty map in rotation 10 (`ModeRewards.grimForest.map`): **403 slots = 104 battles + 251
+path hexes + 48 chests and altars**. Random encounters appear on slots. They are not extra slots.
 
 ## What to do
 
@@ -54,26 +53,41 @@ Random encounters appear on slots. They are not extra slots.
 2. **Type it.** Add `completedSlotIds?: number[] | null` to `GrimForestProgress.difficulties[]` in
    `raidtools-frontend/src/app/core/mode-progress.ts`.
 3. **Show map progress from it.** In the Grim Forest tile, the primary bar per difficulty becomes
-   `${name} map`: `new Set(completedSlotIds).size / slotsPerDifficulty`.
-   - `slotsPerDifficulty` comes from the metadata catalog once it publishes the map layout
-     (`mode_rewards.json` `grimForest.difficulties[d].slots`, being mapped separately). Until then, use a
-     `GAME.grimForest.slotsPerDifficulty: 403` fallback, commented like `keysPerDay` (catalog wins).
-   - Once the catalog carries each slot's kind, a breakdown ("battles 104/104 · chests 18/18") is a
-     join of `completedSlotIds` onto it. Do not guess kinds from slot numbers.
-4. **Keep `passedStageIds`, but stop dividing it by 211.** It still drives the XP / reward sums
-   (join stage ids to `ModeRewards.grimForest.difficulties[d].stages`). Show it as a count ("135
-   battles won"), or against the *fixed* battle count once the catalog provides it. Never against
-   `stagesPerDifficulty`. Delete or rename that constant, because its only honest use is "size of the
-   catalog".
-5. **Remaining-work forecast.** `remaining` currently sums `211 − passed`. With the layout it becomes
-   the battles on uncompleted slots. Without it, drop the forecast rather than overstate it by ~76
-   battles per difficulty.
+   `${name} map`: `new Set(completedSlotIds).size / ModeRewards.grimForest.map.difficulties[d].slotCount`
+   (403). Use it only when `map.rotation === grimForest.rotation`; otherwise say the map is not captured
+   for this rotation yet rather than dividing by the wrong map.
+4. **Rewards still left.** The metadata catalog now publishes this (`RslCompanionMetadata` `0a0a202`,
+   `mode_rewards.json` → `grimForest`). For each slot in `map.difficulties[d].slots` that is **not** in
+   `completedSlotIds`:
+
+   | `elementType` (`grimForest.elementTypes`) | pays |
+   |---|---|
+   | battle: 1 SimpleEnemy, 2 SideBoss, 4 SkullEnemy, 5 SkullBoss, 6 MythicalBoss, 7 MainBoss, 13 Minion, 17 Mimic | `stages[stageId].firstClear` **plus** `extraSlots` entry with the same `mapElementType` and `zone` |
+   | 3 GoldenGoblin | `goldenGoblin[zone].prizeByDamage` (by damage dealt; most have no `firstClear`) + its `extraSlots` entry |
+   | chest: 9 Small, 10 Medium, 11 Big, 12 Curio | `chests[elementType]` **plus** the `extraSlots` entry with that type and `zone: null` |
+   | 8 EmptyStage (path hex), 14–16 altars | nothing on its own |
+
+   `zone` of a slot is `map…slots[slot].zone`. **Grim Forest XP lives only in `extraSlots`**, never in
+   `firstClear`. Summing it over one account's completed Normal slots plus its random battles gave 6,850
+   against the account's real 6,860, which is the check that this join is right. Keys:
+   `stages[id].keyPrice` (1 Distorted Energy, main boss 3 Grim Crowns). Random encounters (Mimic,
+   SimpleEnemy, SideBoss) spawn onto slots during the rotation and are **not** on the map. Show them as
+   "plus random encounters", never as a fixed amount.
+5. **Keep `passedStageIds`, but stop dividing it by 211.** Show it as a count ("135 battles won"), or
+   against the map's battle count (104 per difficulty in rotation 10). Never use `stagesPerDifficulty`.
+   Delete or rename that constant: 211 is the whole pool (`stages` has all 211, keyed the same), and a map
+   uses 104 of them.
+6. **Remaining-work forecast.** Base it on the uncompleted battle slots from step 4 (their `keyPrice`
+   and XP), not `211 − passed`.
 
 ## Traps
 
 - **Absent ≠ empty.** `completedSlotIds` is absent when the uploader could not read it, and on every
   pre-v1.30.0 uploader. `[]` means entered with nothing completed. Keep the partial-feed rule from the
   mode-progress work: a payload without the field must not blank a stored value.
+- **The map changes every rotation and differs between Normal and Hard.** The catalog carries one
+  rotation's map (`map.rotation`); it is re-captured each rotation. Never reuse a slot's stage across
+  rotations.
 - **Slot numbers are not stage ids** and do not overlap in meaning: `3` is a map position, `14012003`
   is a battle. Never join one onto the other's table.
 - **Both are this rotation only.** Compare `grimForest.rotation` with the current one before showing
