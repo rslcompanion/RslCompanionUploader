@@ -556,10 +556,11 @@ No payload change. Its main trap: the next tier comes from `nextLeagueId`, never
 the game moves players between tiers weekly. Same standing.
 
 [docs/raidtools-grim-forest-map-progress.md](docs/raidtools-grim-forest-map-progress.md) is the prompt
-for schema 31's `grimForest.difficulties[].completedSlotIds`, the map progress (every slot completed,
-not only battles). Its main point is that RaidTools' "stages / 211" bar can never fill: 211 is the
-catalog's whole stage pool, random encounters included, and a fully cleared Hard map is 135 stages on
-403 of 403 slots. Same standing: a summary, never the contract.
+for schema 31's `grimForest.difficulties[].completedSlotIds`. **The owner's decision (2026-09-28): the
+Grim Forest tile shows stages completed vs remaining, where every map node counts as a stage.** That is
+`completedSlotIds` against the catalog map's node count (403), and never "won / 211". 211 is the game's
+whole stage pool, and a fully cleared Hard map is 135 battles on 403/403 nodes. Same standing: a
+summary, never the contract.
 
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
