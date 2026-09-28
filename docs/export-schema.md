@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 31** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 32** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1144,16 +1144,16 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
     "leaderboardPosition": 0, "leaderboardRewardTaken": false
   }
 },
-"doomTower": { "rotation": 71, "difficulties": [          // rotation, floorsCompleted: schema 28
+"doomTower": { "rotation": 71, "goldKeys": 0, "silverKeys": 15, "difficulties": [   // rotation, floorsCompleted: 28; keys: 32
   { "difficultyId": 1, "stageIndicator": 7011049, "firstEnteredAt": "2026-09-20T05:16:22Z", "floorsCompleted": 49 },
   { "difficultyId": 2, "stageIndicator": 7012010, "firstEnteredAt": "2026-09-07T15:19:53Z", "floorsCompleted": 120 }
 ]},
-"cursedCity": { "rotation": 34, "difficulties": [
+"cursedCity": { "rotation": 34, "keys": 0, "difficulties": [   // keys: schema 32
   { "difficultyId": 2, "takenStageRewards": [25, 50, 101], "takenAwakeningStageRewards": [6, 12],
     "mainBossRewardTaken": true, "takenMilestoneRewards": [10, 25, 40 /* … */, 500],
     "passedStageIds": [10012001, 10012002 /* … */, 10042025, 10052001] }   // passedStageIds: schema 29
 ]},
-"grimForest": { "rotation": 10, "difficulties": [
+"grimForest": { "rotation": 10, "keys": 20, "difficulties": [   // keys: schema 32
   { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true,
     "passedStageIds": [14012002, 14012003 /* … */, 14042103],       // schema 30
     "completedSlotIds": [1, 2, 3 /* … */, 403] }                      // schema 31
@@ -1267,6 +1267,18 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   denominator and the node kinds from the metadata catalog. `[]` = nothing completed; **absent**, never
   `[]`, when it could not be read. Verified live (11.75.0, rotation 10): Hard 403 of 403 (map fully
   cleared, as the player confirmed), Normal 232.
+- **Keys in hand (schema 32): `doomTower.goldKeys` / `silverKeys`, `cursedCity.keys`, `grimForest.keys`**
+  — how many of each mode's key the account holds at export, one balance per mode shared by both
+  difficulties (the game has one pool). They are the account's resources `700`, `701`, `1301` and
+  `10000` (Distorted Energy). None of them rides in `resources[]`: they were never on its allowlist,
+  and `1301` is the **Sacred Shard** there, because the game reuses that id for Cursed City Keys, so
+  these fields are the only place the key balance appears. A forecast starts from this stock plus the
+  daily regen (`RslCompanionMetadata` `ModeSchedule` `*.keys`). **Absent, never 0,** when the resources
+  dictionary was not read this run; `0` is a real empty stock. A mode block that is absent carries no
+  keys either. Verified live 2026-09-28 (11.75.0): Doom Tower Gold 0 / Silver 15, Cursed City 0,
+  Grim Forest 20 — the same values through the export, a direct read of the dictionary, and the in-game
+  keys panel (0/10, 15/10, 0/8, 20/30). **A balance can exceed the daily amount** (Silver 15/10 shows
+  "FULL"), so never cap it at the schedule's `amount`.
 - **`classicArena.leagueId` is not a function of `points`.** Classic Arena promotes and demotes
   weekly; mid-week, points can sit past the next threshold while the tier the game applies is still
   last week's. `leagueId` is that applied tier.
@@ -1374,6 +1386,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 32 | v1.31.0 | 2026-09-28 | **Additive: keys in hand** — `doomTower.goldKeys` / `silverKeys`, `cursedCity.keys`, `grimForest.keys`: each mode's key balance at export (resources `700` / `701` / `1301` / `10000`), one per mode for both difficulties (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Not in `resources[]` (`1301` is the Sacred Shard there). Absent, not 0, when the resources dictionary was not read. A consumer that ignores them is exactly as correct as on schema 31. |
 | 31 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].completedSlotIds`** — the map progress: every map slot completed this rotation (battles, chests, altars, random encounters, path nodes), by slot number 1–403, from the difficulty's `StageSlots`. The map layout is static data and not on the payload. Absent, not `[]`, when it cannot be read. Verified live (11.75.0, rotation 10): Hard 403/403, Normal 232. Ships in the same release as schema 30. A consumer that ignores it is exactly as correct as on schema 30. |
 | 30 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`ZZZZ D SSS`, zones 1401–1404; the metadata `mode_rewards.json` grimForest stage keys), from passed `StageStats` counted from the difficulty's `StageData.FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Stages, not map slots: fixed battles and random-element battles both count. `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 10) against the client's map: Normal 78, Hard 135, exact. RaidTools' `ConsolidatedJsonSyncAdapter` 4.8.0 already reads it. A consumer that ignores it is exactly as correct as on schema 29. |
 | 29 | v1.29.0 | 2026-09-26 | **Additive: `cursedCity.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`RRRR D SSS`, 101 per difficulty; the metadata `mode_rewards.json` stage keys), from passed `StageStats` counted from the difficulty's `FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 34): Normal 101, Hard 101. RaidTools' `ConsolidatedJsonSyncAdapter` 4.7.0 already reads it. A consumer that ignores it is exactly as correct as on schema 28. |
