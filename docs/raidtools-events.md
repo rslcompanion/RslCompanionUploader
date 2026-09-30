@@ -106,7 +106,9 @@ exactly.
    **expired entries filtered out** (`claimUntil` < now, UTC). Keep entries that have no `claimUntil`.
    Also return the snapshot's timestamp, so the page can say "as of your last sync".
 
-6. **Frontend**: a second step, as with Mode progress. See below for what the page must not get wrong.
+6. **Frontend**: a second step, as with Mode progress. Its prompt is
+   [`raidtools-events-display.md`](raidtools-events-display.md). See below for what the page must not
+   get wrong.
 
 ## Presenting it
 

@@ -571,6 +571,9 @@ game's internal name, and never `forge…`**, because that word already means th
 `resources[]`. **Tournaments carry the account's own rank only.** Leaderboards are reachable and are
 not read, for the clan-roster reason. The prompt's trap is the partial-feed rule: a present `[]`
 means the events ended and must replace what is stored. Same standing: a summary, never the contract.
+[docs/raidtools-events-display.md](docs/raidtools-events-display.md) is its frontend step. It puts
+the events inside the existing Events & progress tiles, maps `eventPrize` onto the metadata `Prize` so
+`prizeChips` draws it, and uses tier **ids** (not thresholds) for claims.
 
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
