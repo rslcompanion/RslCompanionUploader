@@ -600,6 +600,15 @@ means the events ended and must replace what is stored. Same standing: a summary
 the events inside the existing Events & progress tiles, maps `eventPrize` onto the metadata `Prize` so
 `prizeChips` draws it, and uses tier **ids** (not thresholds) for claims.
 
+[docs/raidtools-uploaded-data-and-metadata.md](docs/raidtools-uploaded-data-and-metadata.md) is the
+cross-cutting one: how RaidTools joins the payload's ids to its `MetadataType` catalogs, which side
+wins (the payload, for anything the account owns), what an unknown id renders as, why version skew
+is normal, and that dev and prod each need every catalog uploaded. It also lists what was broken on
+2026-09-30: catalogs with no reader (`MasteryIndex`, `RoleIndex`, `ResourceTypes`,
+`ArtifactSetTypes`), and frontend name tables kept by hand beside a served catalog. **It is also why
+this payload stays ids-only.** A request to "just send the names" gets pointed there. Same standing:
+a summary, never the contract.
+
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
 note used to describe is gone: `types[]` was 89% of the old catalog, folding it into the champion

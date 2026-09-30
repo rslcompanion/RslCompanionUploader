@@ -11,7 +11,7 @@ disagrees with them, they win, and this one is stale and should be fixed.
 
 ## What changed on the producer
 
-Uploader **v1.32.0 (schema 33)** adds three top-level keys to the consolidated payload.
+Uploader **v1.33.0 (schema 33)** adds three top-level keys to the consolidated payload.
 `ConsolidatedJsonSyncAdapter` deserializes into a class that has none of them, so **all three are
 dropped on import** until this lands.
 
@@ -21,7 +21,7 @@ dropped on import** until this lands.
 | `tournaments[]` | each tournament the account is in: id, title, dates, `points`, `bracketIndex`, own `position`, `claimedRewardIds`, and **its bracket's** tier table with contents |
 | `battlePass` | the Forge Pass (the game's internal name): `passId`, `status`, `points`, and per reward track the levels collected |
 
-A real v1.32.0 payload, trimmed:
+A real schema-33 payload, trimmed:
 
 ```jsonc
 "soloEvents": [
@@ -176,7 +176,7 @@ when it has been reached and is not in that track's `claimedLevels`.
 
 ## Verification
 
-- **A v1.32.0 payload:** all three keys are stored byte-comparable to the payload, and the endpoint
+- **A v1.33.0 payload:** all three keys are stored byte-comparable to the payload, and the endpoint
   returns them minus anything whose `claimUntil` has passed.
 - **A pre-schema-33 payload:** all three are null, and the import is otherwise unchanged.
 - **A partial (champions-only) import after a full one:** all three keep their stored values.

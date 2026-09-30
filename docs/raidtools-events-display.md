@@ -13,7 +13,7 @@ they win, and this one is stale and should be fixed.
 
 ## Inputs
 
-What the endpoint returns (uploader v1.32.0, schema 33), with expired entries already filtered out
+What the endpoint returns (uploader v1.33.0, schema 33), with expired entries already filtered out
 server-side:
 
 ```jsonc
@@ -185,7 +185,7 @@ The wire field is `battlePass`, but the player's word is Forge Pass.
 
 ## Verification
 
-With a v1.32.0 snapshot of the mapping account (2026-09-30):
+With a v1.33.0 snapshot of the mapping account (2026-09-30):
 - **3 event tiles:**
   - Gear Enhancement: 10 / 12, next at 5,600.
   - Wicked Path: board, 1 / 30 cells, 3,841 to spend.
