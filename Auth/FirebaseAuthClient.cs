@@ -5,7 +5,9 @@ namespace RslCompanionUploader.Auth;
 
 /// <summary>
 /// Talks to Google's Firebase Auth REST API using the same project/apiKey the RaidTools web app
-/// uses, so the ID tokens it mints are accepted by <c>api.rslcompanion.com</c> unchanged.
+/// uses, so the ID tokens it mints are accepted by <c>api.rslcompanion.com</c> unchanged. The key is
+/// the session's (<see cref="AuthSession.Target"/>), not a constant: dev is a separate Firebase
+/// project, and a custom token minted by one project's API is rejected by the other's key.
 ///
 /// Sign-in is browser-based: the website mints a one-time handoff code, this app redeems it at the
 /// RSL Companion API for a Firebase <b>custom token</b> (see <see cref="ExtractorHandoff"/>), and
@@ -17,13 +19,8 @@ namespace RslCompanionUploader.Auth;
 public sealed class FirebaseAuthClient
 {
     private readonly HttpClient _http;
-    private readonly string _apiKey;
 
-    public FirebaseAuthClient(HttpClient http, string apiKey)
-    {
-        _http = http;
-        _apiKey = apiKey;
-    }
+    public FirebaseAuthClient(HttpClient http) => _http = http;
 
     private const string IdentityBase = "https://identitytoolkit.googleapis.com/v1";
     private const string SecureTokenBase = "https://securetoken.googleapis.com/v1";
@@ -35,9 +32,9 @@ public sealed class FirebaseAuthClient
     /// <para>The tokens that come back are this app's <b>own</b> ID and refresh tokens — the
     /// browser's credentials are never shared, which is the point of the custom-token handshake.</para>
     /// </summary>
-    public async Task<AuthSession> SignInWithCustomTokenAsync(string customToken, CancellationToken ct = default)
+    public async Task<AuthSession> SignInWithCustomTokenAsync(string customToken, ApiTarget target, CancellationToken ct = default)
     {
-        var url = $"{IdentityBase}/accounts:signInWithCustomToken?key={_apiKey}";
+        var url = $"{IdentityBase}/accounts:signInWithCustomToken?key={target.FirebaseApiKey}";
         using var resp = await _http.PostAsJsonAsync(url, new { token = customToken, returnSecureToken = true }, ct);
         var json = await ReadOrThrowAsync(resp, ct);
 
@@ -46,6 +43,7 @@ public sealed class FirebaseAuthClient
             IdToken = json.GetProperty("idToken").GetString()!,
             RefreshToken = json.GetProperty("refreshToken").GetString()!,
             ExpiresAtUtc = DateTime.UtcNow.AddSeconds(int.Parse(json.GetProperty("expiresIn").GetString()!)),
+            Target = target,
         };
         return await EnrichIdentityAsync(session, ct);
     }
@@ -53,7 +51,7 @@ public sealed class FirebaseAuthClient
     /// <summary>Uses a refresh token to obtain a fresh ID token. Keeps identity fields from the old session.</summary>
     public async Task<AuthSession> RefreshAsync(AuthSession current, CancellationToken ct = default)
     {
-        var url = $"{SecureTokenBase}/token?key={_apiKey}";
+        var url = $"{SecureTokenBase}/token?key={current.Target.FirebaseApiKey}";
         var form = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["grant_type"] = "refresh_token",
@@ -74,6 +72,7 @@ public sealed class FirebaseAuthClient
             Uid = current.Uid,
             Email = current.Email,
             DisplayName = current.DisplayName,
+            Target = current.Target,
         };
     }
 
@@ -82,7 +81,7 @@ public sealed class FirebaseAuthClient
     {
         try
         {
-            var url = $"{IdentityBase}/accounts:lookup?key={_apiKey}";
+            var url = $"{IdentityBase}/accounts:lookup?key={session.Target.FirebaseApiKey}";
             using var resp = await _http.PostAsJsonAsync(url, new { idToken = session.IdToken }, ct);
             if (!resp.IsSuccessStatusCode) return session;
 
@@ -99,6 +98,7 @@ public sealed class FirebaseAuthClient
                 Uid = u.TryGetProperty("localId", out var l) ? l.GetString() : session.Uid,
                 Email = u.TryGetProperty("email", out var e) ? e.GetString() : session.Email,
                 DisplayName = u.TryGetProperty("displayName", out var d) ? d.GetString() : session.DisplayName,
+                Target = session.Target,
             };
         }
         catch

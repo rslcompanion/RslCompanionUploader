@@ -12,6 +12,13 @@ public sealed class SavedCredentials
     public string? DisplayName { get; set; }
     /// <summary>Firebase refresh token — lets us mint a fresh ID token without re-entering anything.</summary>
     public string? RefreshToken { get; set; }
+
+    /// <summary>
+    /// The API the session belongs to (<see cref="ApiTarget.ApiBaseUrl"/>). Absent in files written
+    /// before 1.32, which were all prod. Re-checked against the allow-list on restore rather than
+    /// trusted, so a Debug build's localhost session never restores in a Release build.
+    /// </summary>
+    public string? ApiBaseUrl { get; set; }
 }
 
 /// <summary>

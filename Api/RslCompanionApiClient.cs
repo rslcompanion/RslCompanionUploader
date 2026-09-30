@@ -40,21 +40,27 @@ public sealed class RslCompanionApiClient
     /// <summary>Drops the session; subsequent API calls throw until <see cref="SignIn"/> is called.</summary>
     public void SignOut() => Session = null;
 
-    private async Task<string> ValidTokenAsync(CancellationToken ct)
+    private async Task<AuthSession> ValidSessionAsync(CancellationToken ct)
     {
         var session = Session ?? throw new InvalidOperationException("Not signed in.");
         if (session.IsExpiringSoon)
             Session = session = await _auth.RefreshAsync(session, ct);
-        return session.IdToken;
+        return session;
     }
 
-    private async Task<HttpRequestMessage> BuildRequestAsync(HttpMethod method, string pathOrUrl, CancellationToken ct)
+    /// <summary>
+    /// Every authenticated call goes to the <b>session's</b> API (<see cref="AuthSession.Target"/>) —
+    /// dev or prod, whichever minted the handoff code — so a Bearer token only ever travels back to
+    /// the environment that issued it. Server-relative paths only: absolute URLs used to be passed
+    /// through untouched, which no caller used and which is exactly how a token would leave its API.
+    /// </summary>
+    private async Task<HttpRequestMessage> BuildRequestAsync(HttpMethod method, string path, CancellationToken ct)
     {
-        var url = pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-            ? pathOrUrl
-            : $"{_config.ApiBaseUrl}{pathOrUrl}";
-        var req = new HttpRequestMessage(method, url);
-        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", await ValidTokenAsync(ct));
+        if (!path.StartsWith('/'))
+            throw new ArgumentException("Expected a server-relative path.", nameof(path));
+        var session = await ValidSessionAsync(ct);
+        var req = new HttpRequestMessage(method, $"{session.Target.ApiBaseUrl}{path}");
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", session.IdToken);
         return req;
     }
 

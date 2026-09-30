@@ -82,6 +82,12 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # Release configuration on purpose: the api allow-list is compiled per configuration (localhost
+      # exists only in Debug), and this is the list that ships.
+      - name: Unit tests
+        shell: pwsh
+        run: dotnet test tests\RslCompanionUploader.Tests -c Release
+
       - name: Publish self-contained build
         shell: pwsh
         # Multi-file self-contained (no PublishSingleFile): Inno packs the whole folder anyway, and

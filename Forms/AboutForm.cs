@@ -26,7 +26,7 @@ public sealed class AboutForm : Form
         }
     }
 
-    public AboutForm(AppConfig config)
+    public AboutForm(AppConfig config, ApiTarget? sessionTarget = null)
     {
         Text = "About RSL Companion Account Data Extractor";
         Icon = AppIcon.Value;
@@ -78,7 +78,7 @@ public sealed class AboutForm : Form
             ScrollBars = ScrollBars.Vertical,
             Dock = DockStyle.Fill,
             BackColor = Color.White,
-            Text = string.Join(Environment.NewLine, Details(config)),
+            Text = string.Join(Environment.NewLine, Details(config, sessionTarget)),
             Margin = new Padding(0, 0, 0, 12),
         };
         root.Controls.Add(details);
@@ -114,7 +114,7 @@ public sealed class AboutForm : Form
         CancelButton = close;
     }
 
-    private static IEnumerable<string> Details(AppConfig config)
+    private static IEnumerable<string> Details(AppConfig config, ApiTarget? sessionTarget)
     {
         yield return $"Build date:  {BuildDate():yyyy-MM-dd HH:mm} UTC";
 #if EXTRACTION
@@ -122,7 +122,10 @@ public sealed class AboutForm : Form
 #else
         yield return "Game extraction:  not included in this build — file upload only";
 #endif
-        yield return $"API:  {config.ApiBaseUrl}";
+        // The session's API when signed in — a dev session talks to api-dev, not the built-in one.
+        yield return sessionTarget is { } t && t.ApiBaseUrl != config.ApiBaseUrl
+            ? $"API:  {t.ApiBaseUrl}  ({t.Name}; built-in {config.ApiBaseUrl})"
+            : $"API:  {config.ApiBaseUrl}";
         yield return $".NET runtime:  {Environment.Version}";
         yield return $"Windows:  {Environment.OSVersion.Version}";
         yield return $"Installed at:  {AppContext.BaseDirectory}";

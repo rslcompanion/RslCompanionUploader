@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="RslCompanionUploader.csproj" />
+  <Project Path="tests/RslCompanionUploader.Tests/RslCompanionUploader.Tests.csproj" />
 </Solution>
