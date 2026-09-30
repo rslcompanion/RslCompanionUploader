@@ -562,6 +562,16 @@ Grim Forest tile shows stages completed vs remaining, where every map node count
 whole stage pool, and a fully cleared Hard map is 135 battles on 403/403 nodes. Same standing: a
 summary, never the contract.
 
+[docs/raidtools-events.md](docs/raidtools-events.md) is the prompt for schema 33's `soloEvents[]`,
+`tournaments[]` and `battlePass`. **These are the one place the payload carries reward *contents*,
+deliberately**: event and tournament tables are sent by the server per event and exist in no static
+file, so the payload is the only source a consumer will ever have. The Forge Pass's level table *is*
+static data and stays out, the same split as Mode progress. **The pass block is `battlePass`, the
+game's internal name, and never `forge…`**, because that word already means the forge materials in
+`resources[]`. **Tournaments carry the account's own rank only.** Leaderboards are reachable and are
+not read, for the clan-roster reason. The prompt's trap is the partial-feed rule: a present `[]`
+means the events ended and must replace what is stored. Same standing: a summary, never the contract.
+
 **The bundled `exports/champion_index.json` is a verbatim copy of
 `RslCompanionMetadata/exports/champion_index.json`** — one file, one shape. The slim/full pair this
 note used to describe is gone: `types[]` was 89% of the old catalog, folding it into the champion
