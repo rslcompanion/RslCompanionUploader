@@ -323,12 +323,14 @@ public sealed class SignInPanel : Panel
 
     private void HandleForwardedArgs(string[] args)
     {
-        var code = ProtocolHandler.TryGetHandoffCode(args);
-        if (string.IsNullOrEmpty(code)) return; // some other launch arg (e.g. ping) — keep waiting
-        _ = RedeemAsync(code);
+        var launch = ProtocolHandler.TryGetHandoff(args);
+        if (launch is null) return; // some other launch arg (e.g. ping) — keep waiting
+        _ = RedeemAsync(launch);
     }
 
-    private async Task RedeemAsync(string code)
+    // A launch naming an API that is not allow-listed surfaces here as a HandoffException carrying
+    // HandoffLaunch.RefusalMessage, thrown before anything is sent — same path as any other refusal.
+    private async Task RedeemAsync(HandoffLaunch launch)
     {
         if (_completing) return;
         _completing = true;
@@ -338,7 +340,7 @@ public sealed class SignInPanel : Panel
 
         try
         {
-            var session = await _handoff.SignInAsync(code);
+            var session = await _handoff.SignInAsync(launch);
             Completed?.Invoke(session, Protection);
         }
         catch (HandoffException ex)

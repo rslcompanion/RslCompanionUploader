@@ -14,6 +14,22 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    the login screen entirely. The code is single-use and lives about a minute — Windows puts a
    protocol URI on the handler's command line, where anything longer-lived would be a real
    credential sitting somewhere every local process can read.
+
+   Since 1.32 the URI may also name the API that minted the code —
+   `rslcompanion-extractor://sync?code=<code>&api=<API origin, URL-encoded>` — and the app then
+   redeems the code there and sends every later call of that session (upload, accounts, feedback,
+   token refresh) to the same API:
+
+   | `api` | Site | Firebase project |
+   | --- | --- | --- |
+   | absent, or `https://api.rslcompanion.com` | rslcompanion.com | `raid-account-manager` |
+   | `https://api-dev.rslcompanion.com` | dev.rslcompanion.com | `rslcompanion-dev` |
+   | `https://localhost:7144` (**Debug builds only**) | localhost:4200 | `raid-account-manager` |
+
+   The value is parsed and its scheme, host and port compared exactly — any web page can open this
+   scheme, so an unchecked `api` would hand the user's account export to whoever wrote the link.
+   Anything else refuses the launch with a warning and sends nothing; it never falls back to prod.
+   A non-prod session shows a **DEV** badge with its host in the top bar and in the title bar.
 1. **Sign in** — reuses RaidTools' auth (Firebase project `raid-account-manager`). There is no
    in-app credential form: the **Sign In** button opens the user's real default browser to
    rslcompanion.com, and whichever provider they use there (email/password, Google, Microsoft,
@@ -58,7 +74,7 @@ dotnet build RslCompanionUploader.csproj   # now builds with EXTRACTION enabled
 
 | Key | Purpose | Default |
 | --- | --- | --- |
-| `ApiBaseUrl` | RaidTools API origin | `https://api.rslcompanion.com` |
+| `ApiBaseUrl` | RaidTools API origin used when the launch URI names none | `https://api.rslcompanion.com` |
 | `FrontendUrl` | Site loaded for browser sign-in | `https://rslcompanion.com` |
 | `Firebase.ApiKey` / `Firebase.ProjectId` | Firebase web config | `raid-account-manager` |
 | `Endpoints.SyncConsolidated` | Export-account sync path | `/api/sync/consolidated/raw` |
@@ -73,6 +89,13 @@ dotnet run --project RslCompanionUploader.csproj
 ```
 
 Requires the WebView2 runtime (preinstalled on Windows 11): the whole UI is one WebView2 page.
+
+```
+dotnet test tests/RslCompanionUploader.Tests
+```
+
+Unit tests cover the launch-URI parser and the `api` allow-list; the release workflow runs them in
+Release configuration before publishing.
 
 ## Installer
 

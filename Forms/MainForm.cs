@@ -41,9 +41,10 @@ public sealed class MainForm : Form
     /// <summary>
     /// A one-time handoff code this process was launched with (the website's
     /// <c>rslcompanion-extractor://sync?code=…</c>). Redeemed once, on Load, then discarded — the code
-    /// lives about 60 seconds and is single-use, so there is nothing to retry it with.
+    /// lives about 60 seconds and is single-use, so there is nothing to retry it with. Carries the
+    /// <c>api</c> the link named, if any, still unvalidated — see <see cref="HandoffLaunch.ResolveTarget"/>.
     /// </summary>
-    private string? _launchCode;
+    private HandoffLaunch? _launch;
 
     /// <summary>Help ▸ Session security. Enabled only while signed in — it re-saves the live session.</summary>
     private ToolStripMenuItem? _sessionSecurityItem;
@@ -133,14 +134,14 @@ public sealed class MainForm : Form
     private readonly CancellationTokenSource _statusCts = new();
 #endif
 
-    public MainForm(AppConfig config, ExtractorHandoff handoff, RslCompanionApiClient api,
-                    SessionManager sessions, string? launchCode)
+    internal MainForm(AppConfig config, ExtractorHandoff handoff, RslCompanionApiClient api,
+                      SessionManager sessions, HandoffLaunch? launch)
     {
         _config = config;
         _handoff = handoff;
         _api = api;
         _sessions = sessions;
-        _launchCode = launchCode;
+        _launch = launch;
 
         // The running version is in the title bar as well as Help → About: "which build am I on?"
         // is the first question in almost every support thread. "RSL Companion" itself is left out —
@@ -277,12 +278,30 @@ public sealed class MainForm : Form
     {
         // The launch code wins: it is fresher than anything on disk, expires in about a minute, and
         // is the reason this process was started at all.
-        var code = Interlocked.Exchange(ref _launchCode, null);
-        if (!string.IsNullOrEmpty(code))
+        var launch = Interlocked.Exchange(ref _launch, null);
+        if (launch is not null && launch.ResolveTarget(_config) is null)
+        {
+            // A link naming an API that is not ours. Refused out loud, in a dialog rather than only
+            // the log: any web page can open this scheme, and one that names its own host is asking
+            // for the account export. Nothing was sent. The saved session below is unaffected — it
+            // belongs to an environment the user already chose.
+            Log(launch.RefusalMessage);
+            TaskDialog.ShowDialog(this, new TaskDialogPage
+            {
+                Caption = "RSL Companion",
+                Heading = "Sign-in link refused",
+                Text = launch.RefusalMessage,
+                Icon = TaskDialogIcon.ShieldWarningYellowBar,
+                Buttons = { TaskDialogButton.OK },
+            });
+            launch = null;
+        }
+
+        if (launch is not null)
         {
             try
             {
-                var session = await _handoff.SignInAsync(code);
+                var session = await _handoff.SignInAsync(launch);
                 await AdoptSessionAsync(session);
                 // Asked after the UI is up, not before: this path had no sign-in screen to put a
                 // checkbox on, so the question arrives once the user can see what it applies to.
@@ -423,7 +442,11 @@ public sealed class MainForm : Form
     private async Task EnterSignedInAsync()
     {
         var session = _api.Session!;
-        _shell.SetUser(session.DisplayName, session.Email ?? session.Uid);
+        _shell.SetUser(session.DisplayName, session.Email ?? session.Uid, session.Target);
+        ApplyEnvironmentTitle(session.Target);
+        RefreshSiteUrl(); // "Open RSL Companion" follows the session to its own site
+        if (!session.Target.IsProduction)
+            Log($"Signed in to {session.Target.Name} ({session.Target.ApiHost}). Uploads go there, not to rslcompanion.com.");
         ApplyAdminState();
         if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = true;
 #if EXTRACTION
@@ -1051,11 +1074,24 @@ public sealed class MainForm : Form
     /// </summary>
     private string SiteUrl()
     {
+        // The session's own site: a dev session's accounts live on dev.rslcompanion.com, and opening
+        // prod with a dev account id would select nothing.
+        var site = _api.Session?.Target.FrontendUrl ?? _config.FrontendUrl;
 #if EXTRACTION
         if (_liveUserId is int uid && _loadedAccounts.Any(a => a.UserId == uid))
-            return $"{_config.FrontendUrl}/?account={uid}";
+            return $"{site}/?account={uid}";
 #endif
-        return _config.FrontendUrl;
+        return site;
+    }
+
+    /// <summary>
+    /// The title bar names a non-prod environment too, not just the page's badge: it is what shows on
+    /// the taskbar and in Alt+Tab, where the page is not visible.
+    /// </summary>
+    private void ApplyEnvironmentTitle(ApiTarget? target)
+    {
+        Text = $"Uploader  v{AboutForm.DisplayVersion}"
+             + (target is { IsProduction: false } t ? $"  —  {t.Name.ToUpperInvariant()} ({t.ApiHost})" : "");
     }
 
     private void RefreshSiteUrl() => _shell.SetFrontendUrl(SiteUrl());
@@ -1129,7 +1165,7 @@ public sealed class MainForm : Form
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add(new ToolStripMenuItem("&About", null, (_, _) =>
         {
-            using var about = new AboutForm(_config);
+            using var about = new AboutForm(_config, _api.Session?.Target);
             about.ShowDialog(this);
         }));
 
@@ -1889,6 +1925,7 @@ public sealed class MainForm : Form
         // Drop straight to the signed-out UI in place rather than restarting the process; the
         // game-status poll keeps running, and the top bar shows the "Sign In" button again.
         _shell.SetSignedOut();
+        ApplyEnvironmentTitle(null);
         // The tiles are gone, so nothing is "imported" any more — stop naming an account on the
         // helper link, which would otherwise select it for whoever signs in next in that browser.
         RefreshSiteUrl();

@@ -13,6 +13,13 @@ public sealed class AuthSession
     public string? Email { get; init; }
     public string? DisplayName { get; init; }
 
+    /// <summary>
+    /// The environment this session belongs to — fixed when the handoff code is redeemed, and read by
+    /// every call after it (API base, Firebase key for refresh, the site "Open RSL Companion" opens).
+    /// A dev session can never talk to prod or the reverse: its tokens would mean nothing there.
+    /// </summary>
+    public required ApiTarget Target { get; init; }
+
     /// <summary>True when the ID token is within two minutes of expiry (refresh before using it).</summary>
     public bool IsExpiringSoon => DateTime.UtcNow >= ExpiresAtUtc.AddMinutes(-2);
 

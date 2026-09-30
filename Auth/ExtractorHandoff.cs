@@ -41,25 +41,28 @@ public sealed class ExtractorHandoff
     }
 
     /// <summary>
-    /// Redeems <paramref name="code"/> and returns the resulting signed-in session. Throws
-    /// <see cref="HandoffException"/> with a message meant for the user; every other failure comes
-    /// out of <see cref="FirebaseAuthClient"/> already humanized.
+    /// Redeems a launch's code at the environment it names and returns the resulting signed-in
+    /// session, which carries that environment for the rest of its life. Throws
+    /// <see cref="HandoffException"/> with a message meant for the user — including when the launch
+    /// names an API that is not allow-listed, in which case <b>nothing is sent anywhere</b>; every
+    /// other failure comes out of <see cref="FirebaseAuthClient"/> already humanized.
     /// </summary>
-    public async Task<AuthSession> SignInAsync(string code, CancellationToken ct = default)
+    internal async Task<AuthSession> SignInAsync(HandoffLaunch launch, CancellationToken ct = default)
     {
-        var customToken = await ExchangeAsync(code, retryOnThrottle: true, ct);
-        return await _auth.SignInWithCustomTokenAsync(customToken, ct);
+        var target = launch.ResolveTarget(_config) ?? throw new HandoffException(launch.RefusalMessage);
+        var customToken = await ExchangeAsync(launch.Code, target, retryOnThrottle: true, ct);
+        return await _auth.SignInWithCustomTokenAsync(customToken, target, ct);
     }
 
-    private async Task<string> ExchangeAsync(string code, bool retryOnThrottle, CancellationToken ct)
+    private async Task<string> ExchangeAsync(string code, ApiTarget target, bool retryOnThrottle, CancellationToken ct)
     {
-        var url = $"{_config.ApiBaseUrl}{_config.HandoffExchangeEndpoint}";
+        var url = $"{target.ApiBaseUrl}{_config.HandoffExchangeEndpoint}";
         using var resp = await _http.PostAsJsonAsync(url, new { code }, ct);
 
         if (resp.StatusCode == HttpStatusCode.TooManyRequests && retryOnThrottle)
         {
             await Task.Delay(ThrottleBackoff, ct);
-            return await ExchangeAsync(code, retryOnThrottle: false, ct);
+            return await ExchangeAsync(code, target, retryOnThrottle: false, ct);
         }
 
         if (!resp.IsSuccessStatusCode)

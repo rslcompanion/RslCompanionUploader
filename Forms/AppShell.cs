@@ -62,6 +62,7 @@ public sealed class AppShell : Panel
     private string? _busyKind;               // "export" | null — drives which button shows progress
     private bool _exportAvailable;
     private string? _frontendUrl;            // target of the "Open RSL Companion" button
+    private object? _environment;            // { label, host } when the session is not on prod, else null
     private bool _logDetail;                 // false = plain-language activity only; true = engine diagnostics too
     private bool _isAdmin;                   // RSL Companion admin: the only viewer who gets diagnostics at all
 
@@ -149,11 +150,14 @@ public sealed class AppShell : Panel
     }
 
     /// <summary>Marks the UI signed in and sets the identity shown in the top-bar account menu.</summary>
-    public void SetUser(string? name, string? email)
+    public void SetUser(string? name, string? email, ApiTarget target)
     {
         _signedIn = true;
         _user = name;
         _email = email;
+        // A dev session is badged in the top bar for as long as it lasts, so an upload to dev is never
+        // mistaken for a prod sync. Prod shows nothing: it is what every user is on.
+        _environment = target.IsProduction ? null : new { label = target.Name.ToUpperInvariant(), host = target.ApiHost };
         PushState();
     }
 
@@ -166,6 +170,7 @@ public sealed class AppShell : Panel
         _signedIn = false;
         _user = null;
         _email = null;
+        _environment = null;
         _accounts = Array.Empty<Tile>();
         _identified = null;
         _detectedUserId = null;
@@ -323,6 +328,7 @@ public sealed class AppShell : Panel
             busyKind = _busyKind,
             exportAvailable = _exportAvailable,
             frontendUrl = _frontendUrl,
+            environment = _environment,
             logDetail = _isAdmin && _logDetail,
             isAdmin = _isAdmin,
         });
@@ -443,6 +449,11 @@ public sealed class AppShell : Panel
   #pill .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #pill .dot { width:8px; height:8px; border-radius:50%; background:currentColor; flex:none; }
   #pill.connected { color:var(--ok); background:var(--okbg); }
+  /* Non-prod session. Solid and loud on purpose: its one job is to stop a dev upload passing for a
+     prod sync, and a badge that blends in fails at exactly that. */
+  #env { display:none; flex:none; align-items:center; gap:6px; padding:3px 9px; border-radius:6px;
+         font-size:11px; font-weight:700; letter-spacing:.04em; color:#fff; background:#c2410c; }
+  #env .host { font-weight:500; letter-spacing:0; opacity:.9; }
   #pill.loading, #pill.needsCalibration, #pill.signedOut { color:var(--warn); background:var(--warnbg); }
   #pill.calibrating { color:var(--accent); background:var(--accentbg); }
   #pill.notRunning { color:var(--mut); background:var(--panel); }
@@ -622,6 +633,7 @@ public sealed class AppShell : Panel
 <body>
   <div id='topbar'>
     <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span></div>
+    <div id='env'><span class='label'></span><span class='host'></span></div>
     <div id='pill'><span class='dot'></span><span class='txt'></span></div>
     <button id='signin' type='button'>Sign In</button>
     <button id='account' type='button' aria-label='Account'><span id='accountAvatar'></span></button>
@@ -741,6 +753,15 @@ public sealed class AppShell : Panel
       signin.style.display = 'inline-block';
       account.style.display = 'none';
       closeAccountMenu();
+    }
+    var env = $('env');
+    if (state.environment) {
+      env.style.display = 'inline-flex';
+      env.querySelector('.label').textContent = state.environment.label;
+      env.querySelector('.host').textContent = state.environment.host;
+      env.title = 'Signed in to ' + state.environment.host + ' - uploads go there, not to rslcompanion.com';
+    } else {
+      env.style.display = 'none';
     }
     var pill = $('pill');
     if (state.status) {

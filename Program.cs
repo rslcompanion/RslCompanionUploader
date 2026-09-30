@@ -28,15 +28,15 @@ internal static class Program
 
         var config = AppConfig.Load();
         var http = new HttpClient { Timeout = TimeSpan.FromSeconds(100) };
-        var auth = new FirebaseAuthClient(http, config.FirebaseApiKey);
+        var auth = new FirebaseAuthClient(http);
         var handoff = new ExtractorHandoff(http, config, auth);
-        var sessions = new SessionManager(auth);
+        var sessions = new SessionManager(auth, config);
         var api = new RslCompanionApiClient(http, config, auth, session: null);
 
         // Nothing authenticates here any more. Restoring a session is a network call, and with the
         // Windows Hello option it also prompts the user — neither belongs in front of a window that
         // has not been drawn yet. MainForm does it on Load instead, so the window always opens
         // immediately and fills in the signed-in state when it arrives.
-        Application.Run(new MainForm(config, handoff, api, sessions, ProtocolHandler.TryGetHandoffCode(args)));
+        Application.Run(new MainForm(config, handoff, api, sessions, ProtocolHandler.TryGetHandoff(args)));
     }
 }

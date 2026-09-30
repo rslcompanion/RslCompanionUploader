@@ -16,6 +16,12 @@ namespace RslCompanionUploader;
 /// as possible. A refresh token mints ID tokens indefinitely; the code buys a single sign-in for
 /// about a minute. <c>rt</c> is no longer sent by the site and is deliberately not read here:
 /// accepting it would keep the old credential path alive on the one surface it was removed from.</para>
+///
+/// <para>Since 1.32 the URI may also name the API that minted the code
+/// (<c>&amp;api=https%3A%2F%2Fapi-dev.rslcompanion.com</c>), because dev and prod are separate
+/// databases and separate Firebase projects. Any web page can open this scheme, so the value is
+/// allow-listed (<see cref="ApiTarget.TryResolve"/>) — otherwise a page could name its own host and
+/// receive the user's whole account export.</para>
 /// </summary>
 internal static class ProtocolHandler
 {
@@ -48,26 +54,73 @@ internal static class ProtocolHandler
     }
 
     /// <summary>
-    /// Extracts the one-time handoff code from a protocol launch, or null when the app was started
-    /// normally (no protocol argument, or one without a code — the site's install check launches a
-    /// bare <c>rslcompanion-extractor://ping</c>, which must not be mistaken for a sign-in).
+    /// Reads a <c>sync</c> launch: the one-time handoff code, plus the optional <c>api</c> naming the
+    /// environment that minted it. Returns null when the app was started normally (no protocol
+    /// argument, or one without a code — the site's install check launches a bare
+    /// <c>rslcompanion-extractor://ping</c>, which must not be mistaken for a sign-in).
+    ///
+    /// <para><see cref="HandoffLaunch.Api"/> is the raw value, still unvalidated: whether it is
+    /// allowed is decided in one place, <see cref="HandoffLaunch.ResolveTarget"/>. A repeated
+    /// <c>api</c> is recorded as ambiguous rather than first-wins, so a link cannot put one value in
+    /// front of whatever reads the first and another in front of whatever reads the last.</para>
+    ///
+    /// <para>Unknown parameters are ignored, as every release since 1.8.0 has done — which is what
+    /// let the site start sending <c>api</c> before any build read it.</para>
     /// </summary>
-    public static string? TryGetHandoffCode(string[] args)
+    public static HandoffLaunch? TryGetHandoff(string[] args)
     {
         var uriArg = args.FirstOrDefault(a => a.StartsWith(Scheme + ":", StringComparison.OrdinalIgnoreCase));
         if (uriArg is null || !Uri.TryCreate(uriArg, UriKind.Absolute, out var uri))
             return null;
 
+        string? code = null;
+        string? api = null;
+        var apiCount = 0;
+
         foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
             var eq = pair.IndexOf('=');
             if (eq <= 0) continue;
-            if (!pair.AsSpan(0, eq).Equals("code", StringComparison.OrdinalIgnoreCase)) continue;
-
+            var name = pair.AsSpan(0, eq);
             var value = Uri.UnescapeDataString(pair[(eq + 1)..]);
-            return string.IsNullOrWhiteSpace(value) ? null : value;
+
+            if (name.Equals("code", StringComparison.OrdinalIgnoreCase))
+                code ??= value; // first wins, as it always has
+            else if (name.Equals("api", StringComparison.OrdinalIgnoreCase))
+            {
+                apiCount++;
+                api = value;
+            }
         }
 
-        return null;
+        if (string.IsNullOrWhiteSpace(code)) return null;
+        return new HandoffLaunch(code, api, ApiAmbiguous: apiCount > 1);
     }
+}
+
+/// <summary>
+/// A <c>sync</c> launch as the URI carried it. <see cref="Api"/> is null when the parameter was
+/// absent — every site build before 2026-09-30 — which is not the same as present-and-empty.
+/// </summary>
+internal sealed record HandoffLaunch(string Code, string? Api, bool ApiAmbiguous = false)
+{
+    /// <summary>
+    /// The environment this code must be redeemed at, or null when the launch names one this app will
+    /// not talk to. An absent <c>api</c> means the built-in target, so older site builds keep working.
+    ///
+    /// <para><b>A refused value never falls back to the built-in target.</b> The code was minted by
+    /// whatever the link names and would only fail at prod, and switching quietly would hide a link
+    /// that tried to point the upload somewhere else.</para>
+    /// </summary>
+    public ApiTarget? ResolveTarget(AppConfig config) =>
+        ApiAmbiguous ? null
+        : Api is null ? ApiTarget.BuiltIn(config)
+        : ApiTarget.TryResolve(Api);
+
+    /// <summary>What to tell the user when <see cref="ResolveTarget"/> refused the launch.</summary>
+    public string RefusalMessage =>
+        "This sign-in link names a server this app doesn't recognise"
+        + (string.IsNullOrWhiteSpace(Api) || ApiAmbiguous ? "" : $" ({Api})")
+        + ", so it was not used and nothing was sent. Open the Extractor from rslcompanion.com, "
+        + "or use Sign In here.";
 }

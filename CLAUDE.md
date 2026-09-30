@@ -337,6 +337,31 @@ credential path alive on the one surface it was removed from. Server contract:
 `docs/extractor-handoff.md` in the RaidTools repo. **An uploader older than this cannot sign in from
 the website at all** — the launch URI carries a parameter it does not read.
 
+**The launch URI may name its API (`&api=<origin>`, 1.32+), and a session belongs to that API for
+life.** RaidTools runs prod (`api.rslcompanion.com`) and dev (`api-dev.rslcompanion.com`) with
+separate databases **and separate Firebase projects**, so an environment is three things that cannot
+be mixed — API, site, Firebase key — and [ApiTarget.cs](ApiTarget.cs) holds them together.
+`AuthSession.Target` carries it: the exchange, `signInWithCustomToken`, every refresh, every API call
+(`RslCompanionApiClient.BuildRequestAsync` takes server-relative paths only, so a Bearer never leaves
+its API), "Open RSL Companion" and the saved session (`SavedCredentials.ApiBaseUrl`, omitted for
+prod so a prod file is byte-for-byte what 1.31 wrote) all read it off the session. There is no
+"current environment" global and there should not be one.
+
+- **The allow-list is the security boundary, not a convenience.** Any web page can open
+  `rslcompanion-extractor://`; without it, a page names its own host and receives the account export.
+  `ApiTarget.TryResolve` parses the value and compares scheme + host + port exactly, and refuses
+  user-info, paths beyond one trailing `/`, query, fragment, case or whitespace variants. **Never
+  replace it with a prefix/contains check** — `https://api.rslcompanion.com.evil.example` and
+  `https://api.rslcompanion.com@evil.example` are the tests' first cases for that reason. localhost
+  is compiled into Debug builds only, and the release workflow runs the tests in Release.
+- **Refused means refused.** A present-but-disallowed (or repeated, or empty) `api` shows a warning
+  and sends nothing; it never falls back to the built-in API. The code was minted elsewhere and would
+  only fail at prod, and switching quietly hides a hostile link.
+- **Absent means the built-in API**, because every site build before 2026-09-30 sends none, and every
+  release from 1.8.0 to 1.31.0 ignores the parameter (so the site could ship it first).
+- **A non-prod session is labelled everywhere it could be mistaken for prod**: the page's DEV badge,
+  the title bar (taskbar, Alt+Tab), a log line, Help ▸ About.
+
 ## Staying signed in
 
 Once signed in, the app never needs the website again: it holds a Firebase **refresh token**, and
@@ -596,7 +621,7 @@ them optional for that reason).
 
 | Key | Purpose | Default |
 | --- | --- | --- |
-| `ApiBaseUrl` | RSL Companion API origin | `https://api.rslcompanion.com` |
+| `ApiBaseUrl` | RSL Companion API origin when the launch URI names none (see `ApiTarget`) | `https://api.rslcompanion.com` |
 | `Endpoints.SyncConsolidated` | Parser sync path for "Update user data" | `/api/sync/consolidated/raw` |
 | `Endpoints.BuildCertification` | Memory-map lookup for an uncovered game build | `/api/extractor/offsets` |
 | `Endpoints.HeroBaseStats` | Newer champion base-stat catalog for `champions[].baseStats`; nothing serves it yet | `/api/hero-base-stats` |

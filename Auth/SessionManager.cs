@@ -17,8 +17,13 @@ namespace RslCompanionUploader.Auth;
 public sealed class SessionManager
 {
     private readonly FirebaseAuthClient _auth;
+    private readonly AppConfig _config;
 
-    public SessionManager(FirebaseAuthClient auth) => _auth = auth;
+    public SessionManager(FirebaseAuthClient auth, AppConfig config)
+    {
+        _auth = auth;
+        _config = config;
+    }
 
     /// <summary>Whether there is anything on disk to restore — checked before we prompt for anything.</summary>
     public static bool HasSavedSession => CredentialStore.HasSavedSession;
@@ -39,6 +44,16 @@ public sealed class SessionManager
         if (saved is null || string.IsNullOrEmpty(saved.RefreshToken))
             return null;
 
+        // The environment the token was minted in. A file older than 1.32 has none and was prod.
+        // One naming an API this build does not allow (a Debug build's localhost, restored by a
+        // Release build) can never be refreshed here — forget it rather than fail every launch.
+        var target = saved.ApiBaseUrl is null ? ApiTarget.BuiltIn(_config) : ApiTarget.TryResolve(saved.ApiBaseUrl);
+        if (target is null)
+        {
+            await ForgetAsync();
+            return null;
+        }
+
         var seed = new AuthSession
         {
             IdToken = string.Empty,
@@ -47,6 +62,7 @@ public sealed class SessionManager
             Uid = saved.Uid,
             Email = saved.Email,
             DisplayName = saved.DisplayName,
+            Target = target,
         };
 
         try
@@ -98,6 +114,8 @@ public sealed class SessionManager
             Uid = session.Uid,
             DisplayName = session.DisplayName,
             RefreshToken = session.RefreshToken,
+            // Omitted for the built-in target, so a prod session writes exactly what 1.31 wrote.
+            ApiBaseUrl = session.Target == ApiTarget.BuiltIn(_config) ? null : session.Target.ApiBaseUrl,
         };
 
         if (await CredentialStore.SaveAsync(saved, settings.SessionProtection))
