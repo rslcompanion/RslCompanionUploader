@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 32** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 33** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -62,6 +62,9 @@ there is no partial/patch mode.
   "arenaTeam":  { … } | null,               // object|null — Classic Arena's one saved team
   "arena3v3Teams": [ … ],                   // array or ABSENT — Tag Team (3v3) Arena's saved teams
   "siegePresets":  [ … ],                   // array or ABSENT — Siege's per-slot presets
+  "soloEvents":  [ … ],                     // array or ABSENT — active solo events (schema 33)
+  "tournaments": [ … ],                     // array or ABSENT — active tournaments (schema 33)
+  "battlePass":  { … },                     // object or ABSENT — the current Forge Pass (schema 33)
   "baseStatsCatalog": { … },                // object or ABSENT — provenance of champions[].baseStats
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
@@ -1321,6 +1324,108 @@ presets stay where they were, in `siegePresets[]`.
 
 ---
 
+## Time-limited content — `soloEvents`, `tournaments`, `battlePass`
+
+New in **schema 33**. The events and tournaments the account is in right now, what it has earned and
+claimed in each, and the current Forge Pass. Same rules as Mode progress: each block is **absent when
+its read could not be validated**, and the two arrays are **`[]` when the read worked and nothing is
+active** — never the other way round. Claims are id sets. Only the account's own data: tournament
+leaderboards and cooperation-event leaderboards describe other players and are never read. Cost ~80 ms,
+no memory scan. Full mapping: the engine's `docs/events-findings.md`.
+
+```jsonc
+"soloEvents": [
+  { "eventId": 4428, "questPrototypeId": 364428, "soloTypeId": 1,
+    "title": "Gear Enhancement Event", "titleId": 3516,
+    "startsAt": "2026-09-28T09:00:00Z", "endsAt": "2026-10-01T09:00:00Z", "claimUntil": "2026-10-02T09:00:00Z",
+    "points": 4971, "claimedRewardIds": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    "rewards": [
+      { "id": 1, "points": 100, "prize": { "resources": [{ "id": 1, "amount": 50 }] } },
+      { "id": 3, "points": 625, "prize": { "items": [{ "id": 8050, "amount": 5 }] } },
+      { "id": 10, "points": 4775, "prize": { "champions": [{ "typeId": 10820, "count": 1 }] } }
+      /* … 12 tiers … */ ] },
+  { "eventId": 4420, "questPrototypeId": 364420, "soloTypeId": 2, "title": "Wicked Path Event",
+    "points": 4341, "boardCurrency": 3841, "claimedRewardIds": [105],
+    "rewards": [
+      { "id": 105, "cost": 500, "row": 1, "column": 5, "parentIds": [], "prize": { "resources": [{ "id": 1111, "amount": 500 }] } },
+      { "id": 203, "cost": 1000, "row": 2, "column": 3, "parentIds": [105], "prize": { "items": [{ "id": 19002, "amount": 1 }] } }
+      /* … 30 cells … */ ] }
+],
+"tournaments": [
+  { "eventId": 4431, "questPrototypeId": 3364431, "tournamentKindId": 7, "title": "Fire Knight Tournament",
+    "startsAt": "2026-09-29T11:00:00Z", "endsAt": "2026-10-01T11:00:00Z", "claimUntil": "2026-10-05T11:00:00Z",
+    "points": 2054, "bracketIndex": 1, "claimedRewardIds": [1, 2, 3, 4],
+    "rewards": [ { "id": 1, "points": 250, "prize": { … } } /* … 7 tiers … */ ] }
+],
+"battlePass": { "passId": 1037, "kindId": 2, "status": 1, "points": 245,
+  "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 24] },
+              { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] }
+```
+
+### Where it comes from
+
+Every one of them is a **quest** on the account (`UserQuestData.OpenedStates`). A solo event is a quest
+with `GlobalEventSoloTypeId` set; a tournament is one completed `ByTournament`, whose `GlobalRatingInfo`
+holds the account's points, bracket, own rank and **its bracket's** tier table with a `Taken` flag per
+tier. The event's id, title, dates and — for solo events — reward table come from the **server-sent
+event catalog** (`GlobalEvents`), not static data. **That is why reward contents ride on this payload
+while Mode progress rewards do not:** these tables exist only while the event runs, in no static file,
+so a consumer has nowhere else to get them. When the catalog cannot be read, `eventId`, `title`,
+`titleId`, `startsAt`, `endsAt` and a solo event's `rewards` are omitted and everything else still
+ships; key on `questPrototypeId`, which is always present.
+
+### "Active"
+
+An event is on the payload when its quest is **open and its claim window (`claimUntil`) has not
+closed** — so a tournament that ended yesterday but still has prizes to take is here, and one whose
+prizes expired is not. Events the account has never entered (the in-game teasers) are not here. The
+deadline is compared as UTC; that the client's times are UTC is inferred from their `:00` alignment,
+not proven.
+
+### Fields that are not what they look like
+
+- **`points` on a board event (`soloTypeId` 2) is points *earned*.** The board is bought cell by cell
+  with the same points, so `boardCurrency` is what is left to spend, and `points − boardCurrency` is
+  the cost of the cells taken. A board cell carries `cost` (and `row`, `column`, `parentIds`) instead of
+  `points`. Observed: 4,341 earned = 3,841 unspent + 500 for cell 105.
+- **Solo-event `points` is `TotalPoints` when the game sets it, else the sum of the per-day progress.**
+  On the Supporters Summon Pool (`soloTypeId` 5) the two disagreed on the mapping account (55 vs 40);
+  which one the screen shows is not yet confirmed. Summon pools carry no reward table (`rewards: []`).
+- **Tournament claims come from per-tier `Taken` flags**, not an id list (the game's id list is null on
+  tournament quests); `claimedRewardIds` is the set of tier ids with the flag set.
+- **`position` is the account's own rank** and is often absent or `0` (observed on tournaments with no
+  ranking); it is never anyone else's.
+- **`rewards` on a tournament is the account's bracket only.** Tables differ between brackets; position
+  (leaderboard) rewards are not exported.
+- **`prize` is a trimmed `UserPrize`**: `resources` (the `ResourceTypeId` space of `resources[]`, though
+  not every id is on that allowlist), `items` (inventory item ids — potions, chickens, Basalt 19002…),
+  `champions` (type ids), `souls`, `artifacts` (the `artifacts[]` id spaces), `avatarIds`, `frameIds`.
+  Any other populated kind is named in `otherKinds` rather than dropped, so an empty-looking prize
+  never is. Amounts are numbers (resources are stored as doubles).
+
+### `battlePass` — the Forge Pass
+
+The game calls it `BattlePass` internally; the wire keeps that name because `forge` already means the
+forge materials in `resources[]` (schema 22). It is **the pass with `status` 1 (active), else the newest
+one the account has** — the account keeps every pass it ever had (42 on the mapping account). `points`
+is `EarnedPoints`. `tracks` is the game's `CollectedLevelsByTypeId`: per reward track, the levels whose
+reward was collected. **Track ids: 1 = Free (certain), 2 = Gold, 3 = Platinum (inferred** — track 3
+first appears on pass 1028, when Platinum was introduced; the enum's value binding was not readable).
+An empty premium track does not say whether it was bought.
+
+**Levels and rewards are static data and are not here** (`StaticBattlePassData`, RslCompanionMetadata),
+the same split as Mode progress. Thresholds are **cumulative**: pass 1037 has L1 0, L2 20, L3 30 … L50
+500, so 245 points is level 24 — and the account had collected exactly 24 free levels.
+
+### Verified
+
+Live on 11.75.0 (2026-09-30), memory against memory: every solo event's points equal its per-day
+progress (Gear Enhancement 4,527 + 431 + 13 = 4,971, with tiers 1–10 ≤ 4,775 claimed and 11 at 5,600
+not), board currency plus cell costs equal points, and the pass's level count matches its thresholds.
+**Not yet checked against the in-game screens.**
+
+---
+
 ## Storage and read APIs
 
 Not part of the wire contract — this is the shape the payload is built for, recorded so the server
@@ -1386,6 +1491,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 33 | v1.32.0 | 2026-09-30 | **Additive: three new top-level blocks — `soloEvents[]`, `tournaments[]`, `battlePass`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). The solo events and tournaments the account is in and can still act on (open quest, claim window not closed), each with points, claimed reward ids and — because these tables exist in no static data — the reward table with trimmed prize contents; tournaments carry the account's own bracket and rank only, never a leaderboard. `battlePass` is the Forge Pass (internally `BattlePass`): the active pass or the newest, with points and collected levels per track (1 = Free; 2/3 = Gold/Platinum, inferred); its level table is static data and not here. Absent when unread, `[]` when nothing is active. Titles, dates and solo rewards come from the server-sent catalog and are omitted, not failed, when it is unreachable. Verified live (11.75.0) memory-against-memory; not yet against the in-game screens. A consumer that ignores them is exactly as correct as on schema 32. |
 | 32 | v1.31.0 | 2026-09-28 | **Additive: keys in hand** — `doomTower.goldKeys` / `silverKeys`, `cursedCity.keys`, `grimForest.keys`: each mode's key balance at export (resources `700` / `701` / `1301` / `10000`), one per mode for both difficulties (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Not in `resources[]` (`1301` is the Sacred Shard there). Absent, not 0, when the resources dictionary was not read. A consumer that ignores them is exactly as correct as on schema 31. |
 | 31 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].completedSlotIds`** — the map progress: every map slot completed this rotation (battles, chests, altars, random encounters, path nodes), by slot number 1–403, from the difficulty's `StageSlots`. The map layout is static data and not on the payload. Absent, not `[]`, when it cannot be read. Verified live (11.75.0, rotation 10): Hard 403/403, Normal 232. Ships in the same release as schema 30. A consumer that ignores it is exactly as correct as on schema 30. |
 | 30 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].passedStageIds`** — every stage won this rotation, as a set of stage ids (`ZZZZ D SSS`, zones 1401–1404; the metadata `mode_rewards.json` grimForest stage keys), from passed `StageStats` counted from the difficulty's `StageData.FirstVictoryTimeInRotation` (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Stages, not map slots: fixed battles and random-element battles both count. `[]` when entered with nothing won; absent, not `[]`, when it cannot be read reliably. Verified live (11.75.0, rotation 10) against the client's map: Normal 78, Hard 135, exact. RaidTools' `ConsolidatedJsonSyncAdapter` 4.8.0 already reads it. A consumer that ignores it is exactly as correct as on schema 29. |
