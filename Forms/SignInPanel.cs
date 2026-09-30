@@ -119,15 +119,31 @@ public sealed class SignInPanel : Panel
     /// <summary>Raised when the user backs out; the host puts the signed-out UI back.</summary>
     public event Action? Cancelled;
 
-    public SignInPanel(AppConfig config, ExtractorHandoff handoff)
+    /// <summary>
+    /// The server whose site the browser is sent to (Help ▸ Server…, else the built-in one). The code
+    /// that comes back still names its own server and is redeemed there, so this decides only where
+    /// the user is asked to sign in.
+    /// </summary>
+    private readonly ApiTarget _target;
+
+    public SignInPanel(AppConfig config, ExtractorHandoff handoff, ApiTarget target)
     {
         _config = config;
         _handoff = handoff;
+        _target = target;
 
         BackColor = Color.White;
         Font = new Font("Segoe UI", 9.75f);
 
         BuildLayout();
+
+        // Said before the user leaves, like the stay-signed-in choice: signing in to dev by accident
+        // is exactly the mistake the DEV badge exists to catch afterwards.
+        if (!target.IsProduction)
+        {
+            _status.Height = 84; // one more line than the invitation alone
+            _status.Text =$"Signing in to {target.Name.ToUpperInvariant()} ({target.ApiHost}), not rslcompanion.com.\n" + InviteText;
+        }
 
         _openBrowser.Click += (_, _) => OpenBrowser();
         _retry.LinkClicked += (_, _) => OpenBrowser();
@@ -287,7 +303,7 @@ public sealed class SignInPanel : Panel
         ShowWaiting("Finish signing in in your browser, and this window will take over.");
         try
         {
-            Process.Start(new ProcessStartInfo(_config.ConnectExtractorUrl) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(_target.FrontendUrl + _config.ConnectExtractorPath) { UseShellExecute = true });
         }
         catch (Exception ex)
         {

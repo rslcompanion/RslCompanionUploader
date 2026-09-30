@@ -30,6 +30,13 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    scheme, so an unchecked `api` would hand the user's account export to whoever wrote the link.
    Anything else refuses the launch with a warning and sends nothing; it never falls back to prod.
    A non-prod session shows a **DEV** badge with its host in the top bar and in the title bar.
+
+   **Help ▸ Server…** (1.34+) picks which site the in-app **Sign In** opens. It is shown only to
+   people RaidTools grants the `extractor-dev-server` feature (Admin ▸ Groups), to admins, and to
+   anyone already on a non-prod server, so there is always a way back to prod. Switching signs out of
+   the current server first, because a session belongs to one server. That is visibility only: each
+   server enforces its own rule. Dev refuses to mint a handoff code, redeem one or accept an upload
+   (403) from an account without access, and the app shows the server's message.
 1. **Sign in** — reuses RaidTools' auth (Firebase project `raid-account-manager`). There is no
    in-app credential form: the **Sign In** button opens the user's real default browser to
    rslcompanion.com, and whichever provider they use there (email/password, Google, Microsoft,

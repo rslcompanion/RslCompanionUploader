@@ -49,6 +49,16 @@ public sealed class MainForm : Form
     /// <summary>Help ▸ Session security. Enabled only while signed in — it re-saves the live session.</summary>
     private ToolStripMenuItem? _sessionSecurityItem;
 
+    /// <summary>
+    /// Help ▸ Server…, which picks the server the in-app Sign In goes to. Shown only to someone
+    /// RaidTools grants <see cref="ApiTarget.DevAccessFeature"/> to, or an admin, or anyone already
+    /// on a non-prod server (so there is always a way back). See <see cref="RefreshServerPickerAsync"/>.
+    /// </summary>
+    private ToolStripMenuItem? _serverItem;
+
+    /// <summary>Where the in-app Sign In goes: the picked server if still allowed, else the built-in one.</summary>
+    private ApiTarget PreferredTarget => ApiTarget.Preferred(_config, UserSettings.Current.ServerApiBaseUrl);
+
     private readonly AppShell _shell = new() { Dock = DockStyle.Fill };
 
     /// <summary>Hosts whatever occupies the window below the menu: the shell, or sign-in over it.</summary>
@@ -312,8 +322,11 @@ public sealed class MainForm : Form
             {
                 // Codes die after ~60s, so a launch that queued behind a slow start legitimately
                 // arrives dead. Say so in the log and fall through to the saved session.
-                Log("Couldn't finish signing in from the website — the link may have expired. "
-                  + "Use Sign In to try again.");
+                // A HandoffException is already phrased for the user — including a server that
+                // refused this account (403), which "the link may have expired" would misreport.
+                Log(ex is HandoffException
+                    ? ex.Message
+                    : "Couldn't finish signing in from the website — the link may have expired. Use Sign In to try again.");
                 Log("Handoff exchange failed: " + ex.Message, detail: true);
             }
         }
@@ -344,7 +357,7 @@ public sealed class MainForm : Form
     {
         if (_signIn is not null) return;
 
-        var panel = new SignInPanel(_config, _handoff) { Dock = DockStyle.Fill };
+        var panel = new SignInPanel(_config, _handoff, PreferredTarget) { Dock = DockStyle.Fill };
         panel.Completed += async (session, protection) => await OnSignInCompletedAsync(session, protection);
         panel.Cancelled += CloseSignIn;
 
@@ -447,6 +460,7 @@ public sealed class MainForm : Form
         RefreshSiteUrl(); // "Open RSL Companion" follows the session to its own site
         if (!session.Target.IsProduction)
             Log($"Signed in to {session.Target.Name} ({session.Target.ApiHost}). Uploads go there, not to rslcompanion.com.");
+        _ = RefreshServerPickerAsync(session);
         ApplyAdminState();
         if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = true;
 #if EXTRACTION
@@ -1085,6 +1099,72 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
+    /// Decides whether Help ▸ Server… is shown, from what the session's own server says.
+    ///
+    /// <para><b>This is visibility, not permission.</b> Each server enforces its own rule on sign-in
+    /// and on every upload (RaidTools' <c>ExtractorAccessService</c>), so a user who got the item
+    /// some other way would still be refused by dev. The list lives in RaidTools: the
+    /// <see cref="ApiTarget.DevAccessFeature"/> feature, granted per group in Admin ▸ Groups.
+    /// Admins see it without being in a group, and a session already on a non-prod server always
+    /// does, so nobody gets stuck off prod.</para>
+    /// </summary>
+    private async Task RefreshServerPickerAsync(AuthSession session)
+    {
+        if (_serverItem is null) return;
+        var show = !session.Target.IsProduction || !PreferredTarget.IsProduction || session.IsAdmin
+                   || await _api.IsFeatureOnAsync(ApiTarget.DevAccessFeature);
+        // The flag is fetched over the network: if the user signed out or switched meanwhile, that
+        // path has already set the item, and this stale answer must not override it. (Compared by
+        // identity and server, not reference — a token refresh replaces the session object.)
+        if (_api.Session is { } live && live.Uid == session.Uid && live.Target == session.Target)
+            _serverItem.Visible = show;
+    }
+
+    /// <summary>
+    /// Help ▸ Server…: picks the server the in-app Sign In goes to. Switching signs out of the
+    /// current one, because a session belongs to one server for life — the tokens mean nothing on
+    /// the other. Picking the server you are already on does nothing.
+    /// </summary>
+    private async Task ChooseServerAsync()
+    {
+        var current = _api.Session?.Target ?? PreferredTarget;
+
+        var buttons = ApiTarget.Allowed.Select(t => new TaskDialogRadioButton(
+            t.IsProduction ? $"{t.Name} — {t.FrontendUrl}" : $"{t.Name.ToUpperInvariant()} — {t.FrontendUrl}")
+            {
+                Checked = t.ApiBaseUrl == current.ApiBaseUrl,
+                Tag = t,
+            }).ToList();
+
+        var page = new TaskDialogPage
+        {
+            Caption = "RSL Companion",
+            Heading = "Which server should this app use?",
+            Text = _api.IsAuthenticated
+                ? $"You're signed in to {current.ApiHost}. Switching signs you out here and opens the other site to sign in. "
+                  + "Dev is a separate database and a separate account: nothing uploaded to one appears on the other."
+                : "Sign In will open the site you pick. Dev is a separate database and a separate account.",
+            Icon = TaskDialogIcon.Information,
+            AllowCancel = true,
+            Buttons = { TaskDialogButton.OK, TaskDialogButton.Cancel },
+        };
+        foreach (var b in buttons) page.RadioButtons.Add(b);
+
+        if (TaskDialog.ShowDialog(this, page) != TaskDialogButton.OK) return;
+        if (buttons.FirstOrDefault(b => b.Checked)?.Tag is not ApiTarget picked) return;
+
+        // Stored as null for the built-in server, so a later build's different default applies.
+        UserSettings.Current.ServerApiBaseUrl = picked == ApiTarget.BuiltIn(_config) ? null : picked.ApiBaseUrl;
+        UserSettings.Current.Save();
+
+        if (picked.ApiBaseUrl == current.ApiBaseUrl) return;
+
+        Log($"Server set to {picked.Name} ({picked.ApiHost}).");
+        if (_api.IsAuthenticated) await SignOutCoreAsync(everywhere: false);
+        SignIn();
+    }
+
+    /// <summary>
     /// The title bar names a non-prod environment too, not just the page's badge: it is what shows on
     /// the taskbar and in Alt+Tab, where the page is not visible.
     /// </summary>
@@ -1161,6 +1241,14 @@ public sealed class MainForm : Form
         })
         { Enabled = false };
         help.DropDownItems.Add(_sessionSecurityItem);
+
+        // Hidden until RefreshServerPickerAsync decides otherwise: only people RaidTools lets use a
+        // non-prod server ever see it.
+        _serverItem = new ToolStripMenuItem("Se&rver…", null, async (_, _) => await ChooseServerAsync())
+        {
+            Visible = !PreferredTarget.IsProduction,
+        };
+        help.DropDownItems.Add(_serverItem);
 
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add(new ToolStripMenuItem("&About", null, (_, _) =>
@@ -1723,7 +1811,8 @@ public sealed class MainForm : Form
             // app is out of date for. So the second consecutive rejection stops advising patience and
             // goes and looks — the check lights the banner if a release exists, and says so in the log
             // if it doesn't, which also rules the theory out instead of leaving the user to wonder.
-            _uploadRejections = result.Success ? 0 : _uploadRejections + 1;
+            // A 403 is the server deciding about this account, not a sign of an old uploader.
+            _uploadRejections = result.Success ? 0 : result.Forbidden ? _uploadRejections : _uploadRejections + 1;
             if (_uploadRejections >= 2)
             {
                 Log($"That's {_uploadRejections} uploads in a row RSL Companion wouldn't take — "
@@ -1901,8 +1990,13 @@ public sealed class MainForm : Form
     {
         var everywhere = AskSignOutScope();
         if (everywhere is null) return; // cancelled
+        await SignOutCoreAsync(everywhere.Value);
+    }
 
-        if (everywhere.Value)
+    /// <summary>The sign-out itself, shared by the Sign out menu and a server switch.</summary>
+    private async Task SignOutCoreAsync(bool everywhere)
+    {
+        if (everywhere)
         {
             Log("Signing out everywhere…");
             if (await _api.RevokeSessionAsync())
@@ -1926,6 +2020,9 @@ public sealed class MainForm : Form
         // game-status poll keeps running, and the top bar shows the "Sign In" button again.
         _shell.SetSignedOut();
         ApplyEnvironmentTitle(null);
+        // Signed out, the server can't be asked who may pick — so the picker stays only for someone
+        // already pointed off prod, who must always have the way back.
+        if (_serverItem is not null) _serverItem.Visible = !PreferredTarget.IsProduction;
         // The tiles are gone, so nothing is "imported" any more — stop naming an account on the
         // helper link, which would otherwise select it for whoever signs in next in that browser.
         RefreshSiteUrl();
