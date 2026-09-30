@@ -72,6 +72,21 @@ public sealed record ApiTarget(
                             IsProduction: config.ApiBaseUrl == Production.ApiBaseUrl);
 
     /// <summary>
+    /// Where the in-app Sign In button goes: the server Help ▸ Server… picked, if it is still on the
+    /// allow-list, else the built-in one. A stored value that no longer resolves (a Debug build's
+    /// localhost read by a Release build) falls back silently. It named nothing that could be used
+    /// anyway, and the picker is where it gets changed.
+    /// </summary>
+    public static ApiTarget Preferred(AppConfig config, string? storedApiBaseUrl) =>
+        TryResolve(storedApiBaseUrl) ?? BuiltIn(config);
+
+    /// <summary>
+    /// The feature key RaidTools grants per group for the Extractor on a non-prod server. On dev it is
+    /// what the server enforces for sign-in and upload; on prod it is what shows Help ▸ Server….
+    /// </summary>
+    public const string DevAccessFeature = "extractor-dev-server";
+
+    /// <summary>
     /// Maps an <c>api</c> value to an allowed target, or null. The value is <b>parsed</b> and its
     /// scheme, host and port compared exactly — never a prefix or substring test, which is what would
     /// let <c>https://api.rslcompanion.com.evil.example</c> or

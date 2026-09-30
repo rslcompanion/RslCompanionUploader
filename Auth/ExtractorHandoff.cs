@@ -65,6 +65,13 @@ public sealed class ExtractorHandoff
             return await ExchangeAsync(code, target, retryOnThrottle: false, ct);
         }
 
+        // 403: this server does not let this account use the Extractor (dev without access). The
+        // server's own message says who to ask; relaunching would only be refused again.
+        if (resp.StatusCode == HttpStatusCode.Forbidden)
+            throw new HandoffException(
+                Api.RslCompanionApiClient.ServerMessage(await resp.Content.ReadAsStringAsync(ct))
+                ?? $"Your account doesn't have access to {target.ApiHost}. Ask an RSL Companion admin for access.");
+
         if (!resp.IsSuccessStatusCode)
             throw new HandoffException(Describe(resp.StatusCode));
 

@@ -362,6 +362,19 @@ prod so a prod file is byte-for-byte what 1.31 wrote) all read it off the sessio
 - **A non-prod session is labelled everywhere it could be mistaken for prod**: the page's DEV badge,
   the title bar (taskbar, Alt+Tab), a log line, Help ▸ About.
 
+**Help ▸ Server… is visibility, not permission (1.34).** It stores `serverApiBaseUrl` in
+`settings.json`, re-resolved through the allow-list on every read (`ApiTarget.Preferred`), and it
+decides only which site the in-app Sign In opens. Website launches still name their own server. It is
+shown when the session's server reports the `extractor-dev-server` feature on
+(`GET /api/features/effective`), when the session is an admin, or when the session or the stored
+choice is already off prod. The last rule exists so nobody is stranded on dev. **The permission lives
+in RaidTools, per environment** (`ExtractorAccessService`, `docs/extractor-handoff.md` there): prod
+is open, and dev requires admin or that same feature, **checked live** at mint, at exchange and on
+every upload, answering 403. Dev and prod have separate databases, so the owner grants the group on
+each. Do not move the decision into this app. A client-side gate is a UI nicety, and a 403 from the
+server is the only thing that stops an upload. A 403 upload is `UploadResult.Forbidden` and does not
+count towards `_uploadRejections`, because a refusal is not a sign of an out-of-date uploader.
+
 ## Staying signed in
 
 Once signed in, the app never needs the website again: it holds a Firebase **refresh token**, and

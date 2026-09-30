@@ -64,6 +64,31 @@ public sealed class RslCompanionApiClient
         return req;
     }
 
+    /// <summary>
+    /// Whether RaidTools' resolved feature flags (global ▸ group ▸ user, <c>GET /api/features/effective</c>)
+    /// have <paramref name="key"/> on for this user on the session's server. An absent key is off:
+    /// every key this app asks about is dark by default. Any failure is "off" too — it decides only
+    /// whether a menu item is shown, and the server enforces what the item leads to.
+    /// </summary>
+    public async Task<bool> IsFeatureOnAsync(string key, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Get, "/api/features/effective", ct);
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return false;
+            using var doc = System.Text.Json.JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+            return doc.RootElement.TryGetProperty("effective", out var eff)
+                && eff.ValueKind == System.Text.Json.JsonValueKind.Object
+                && eff.TryGetProperty(key, out var on)
+                && on.ValueKind == System.Text.Json.JsonValueKind.True;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Fetches the accounts linked to the signed-in user (dropdown source).</summary>
     public async Task<List<AccountSummary>> GetAccountsAsync(CancellationToken ct = default)
     {
@@ -97,6 +122,15 @@ public sealed class RslCompanionApiClient
               + "Please try again later. If it's still happening after a while, use Help → Check for "
               + "updates: a newer version of this app may be sending to a route this one doesn't know.",
                 $"404 from {endpoint}: {Trim(body)}");
+
+        // 403 is a decision about this account on this server (dev without Extractor access), not a
+        // fault — so it says who to ask, and is marked so the caller does not count it towards the
+        // "maybe you're out of date" check that a run of rejections triggers.
+        if (resp.StatusCode == HttpStatusCode.Forbidden)
+            return UploadResult.Fail(
+                ServerMessage(body)
+                ?? $"Your account isn't allowed to upload to {Session!.Target.ApiHost}. Ask an RSL Companion admin for access.",
+                $"403 from {endpoint}: {Trim(body)}") with { Forbidden = true };
 
         if (!resp.IsSuccessStatusCode)
             return UploadResult.Fail(
@@ -234,6 +268,25 @@ public sealed class RslCompanionApiClient
     }
 
     private static string Trim(string s) => s.Length > 500 ? s[..500] + "…" : s;
+
+    /// <summary>The <c>message</c> of a RaidTools error body, when there is one worth showing.</summary>
+    internal static string? ServerMessage(string body)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("message", out var m)
+                && m.ValueKind == System.Text.Json.JsonValueKind.String
+                && m.GetString() is { Length: > 0 and <= 500 } text
+                    ? text
+                    : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
 }
 
 /// <summary>
@@ -245,6 +298,12 @@ public readonly record struct UploadResult(bool Success, string Message, string?
 {
     public static UploadResult Ok(string message, string? detail = null) => new(true, message, detail);
     public static UploadResult Fail(string message, string? detail = null) => new(false, message, detail);
+
+    /// <summary>
+    /// The server refused this account (403), which retrying or updating will not change. It is kept
+    /// apart from other failures so a refusal never triggers the "you may be out of date" check.
+    /// </summary>
+    public bool Forbidden { get; init; }
 }
 
 public enum CertificationStatus

@@ -75,6 +75,15 @@ public sealed class UserSettings
     [JsonPropertyName("activityLogDetail")]
     public bool ActivityLogDetail { get; set; }
 
+    /// <summary>
+    /// The server Help ▸ Server… picked, as its API origin, or null for the built-in one. It decides
+    /// only which site the in-app Sign In button opens. A launch from a website still names its own
+    /// server, and the value is re-checked against <see cref="ApiTarget.Allowed"/> on every read
+    /// (<see cref="ApiTarget.Preferred"/>), so an edited file cannot name anything else.
+    /// </summary>
+    [JsonPropertyName("serverApiBaseUrl")]
+    public string? ServerApiBaseUrl { get; set; }
+
     private static string Path_ => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "RslCompanion", "settings.json");
