@@ -1388,7 +1388,7 @@ records (every member's damage) are reachable and are not read, the same rule as
   difficulties attacked; `[]` = none yet; ABSENT when the clan record could not be read. Read from the
   clan's boss record, **this account's own row only** (`AttackInfoByUserId`, keyed by account id) — the
   other members' rows are never read. `difficultyId` is the game's own: Demon Lord 0–5 = Easy …
-  Ultra-Nightmare; Hydra 0–3 and Chimera 1–6, names below once confirmed in game.
+  Ultra-Nightmare; Hydra 0–3 = Normal, Hard, Brutal, Nightmare; Chimera 1–6 = Easy … Ultra-Nightmare (each confirmed in game 2026-10-03: Hydra 2 = Brutal, Chimera 5 = Nightmare).
 - **Not exported:** champions used per attack (`HeroInfos`) and team power.
 - Each sub-block is present whenever `clanBosses` is; the whole block is ABSENT when the alliance data
   could not be validated.
@@ -1562,7 +1562,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 37 | next | 2026-10-03 | **Additive: `clanBosses.{demonLord,hydra,chimera}.difficulties[]`** — `{ difficultyId, keysSpent, damage }` per difficulty attacked: the Demon Lord's current boss, Hydra's and Chimera's current week. Read from the clan's boss record, this account's own row only. Verified live (11.75.0): the key balances fell by exactly the keys read. A consumer that ignores it is exactly as correct as on schema 36. |
+| 37 | v1.39.0 | 2026-10-03 | **Additive: `clanBosses.{demonLord,hydra,chimera}.difficulties[]`** — `{ difficultyId, keysSpent, damage }` per difficulty attacked: the Demon Lord's current boss, Hydra's and Chimera's current week. Read from the clan's boss record, this account's own row only. Verified live (11.75.0): the key balances fell by exactly the keys read. A consumer that ignores it is exactly as correct as on schema 36. |
 | 36 | v1.38.0 | 2026-10-03 | **Additive: `clanBosses.demonLord.bossStartedAt` / `nextResetAt`** — the clan's Demon Lord boss start and next reset, UTC, read off the clan record (`AllianceBossData`). The reset slides by minutes daily, so it is read, not computed. Absent when the clan record could not be read. A consumer that ignores them is exactly as correct as on schema 35. |
 | 35 | v1.37.0 | 2026-10-03 | **Additive: `clanBosses`** — Demon Lord, Hydra and Chimera: keys in hand (resources 300 / 1000 / 1050, whole keys; the Demon Lord's accrues continuously and is truncated), battles per day from the game's activity log (~37 days), the Hydra and Chimera reset times, and per Demon Lord difficulty the boss revision whose chest was last taken (difficulty key 0–5 = Easy…Ultra-Nightmare). Own state only. Verified live (11.75.0). A consumer that ignores it is exactly as correct as on schema 34. |
 | 34 | v1.36.0 | 2026-10-03 | **Additive: Grim Forest shop and quests** — `grimForest.difficulties[].shopPurchases` (items bought this rotation: `itemId`, `purchaseCount`, curio `boughtCurioRank`; prices and limits in the metadata catalog's `shop`) and `completedQuestIds` / `claimedQuestIds` (Grim Forest quest prototype ids; the quest list is catalog data). Absent, not `[]`, when unread. Verified live (11.75.0, rotation 10). A consumer that ignores them is exactly as correct as on schema 33. |
