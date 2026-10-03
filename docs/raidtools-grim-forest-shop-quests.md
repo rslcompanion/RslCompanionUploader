@@ -46,8 +46,9 @@ The quest LIST lives in the metadata catalog; the account upload says only which
     "prize": { "resources": [ { "id": 10202, "name": "Extra Grim Gold", "amount": 50 } ], "items": [] } }
   ```
   `kind` is `collect` (map elements of `mapElementTypes`, named by `grimForest.elementTypes`) or
-  `battle`. The quests are server-sent and captured live once per rotation, so **use them only when
-  `quests.rotation === grimForest.rotation`**; otherwise draw the count without a total.
+  `battle`. The quests are server-sent, but **the same every rotation** (owner, 2026-10-03), so the
+  list applies whatever `quests.rotation` says. Join on the id's place in its family (`id % 10000`),
+  not the whole id: the `1071` prefix was rotation 10's and is not confirmed to stay.
 - **`grimForest.difficulties[d].shop`** (already there): `[{ id, price: [{id, name, amount}], limit }]`,
   10 items per difficulty. What the items *are* is not in any game table yet. From the in-game shop
   strings: items 2–7 are curios, 8 / 9 / 10 are the small / medium / large chests, and item 1 (limit
@@ -91,7 +92,7 @@ The quest LIST lives in the metadata catalog; the account upload says only which
      bought = Σ min(purchaseCount, limit), total = Σ limit (14 on 11.75.0: item 1's limit is 5). `done`
      when equal, otherwise `open` (the shop has no claimable state). Popup: one step per catalog item:
      label, price chips, `{purchaseCount} / {limit}`, and for a curio `rank {boughtCurioRank}`.
-   - Catalog quests missing or from another rotation: value `{claimed} claimed`, no total, no popup.
+   - Catalog quests missing: value `{claimed} claimed`, no total, no popup.
      Field absent on the upload: value "—" with a hint that the uploader needs updating (the existing
      `NEEDS_UPLOADER`-style hint).
 
@@ -115,7 +116,8 @@ The quest LIST lives in the metadata catalog; the account upload says only which
    - Shop shows `5 / 14 bought` for the block above (items 2, 4, 8, 9, 10). Normal shows `3 / 14`
      for items 8, 9, 10.
    - Absent fields draw "—", not `0 / 13`.
-   - A catalog with `quests.rotation` ≠ the upload's rotation draws no total.
+   - A catalog from another rotation still draws the total, including when the ids carry another
+     family prefix.
    - Cursed City Hard on rotation 35 (48 stages passed, `takenStageRewards: [25]`) shows `1 / 6 claimed`,
      with "Pass 25 stages" collected and the others open, except awakening, which reads unknown.
      Normal (entered with nothing won) shows `0 / 6 claimed`.
