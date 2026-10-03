@@ -4,8 +4,8 @@
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
   "schemaVersion": 34,
-  "x-uploaderVersion": "1.33.0",
-  "x-lastUpdated": "2026-09-30",
+  "x-uploaderVersion": "1.36.0",
+  "x-lastUpdated": "2026-10-03",
   "x-relatedCatalogs": {
     "roles": "role-names.json — champions[].roleId to role name. Static game metadata (the HeroRole enum), shipped here because roleId is an opaque int without it.",
     "artifacts": "artifact-enums.json — artifacts[]/accessories[] kindId (slot), statKindId, rankId and setKindId to names. Static game metadata (the ArtifactKindId / StatKindId / ArtifactRankId / ArtifactSetKindId enums).",

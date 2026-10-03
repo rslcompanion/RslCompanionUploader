@@ -15,7 +15,7 @@ The quest LIST lives in the metadata catalog; the account upload says only which
 
 ## Inputs
 
-### Account (export schema 34, next uploader release) — new on `grimForest.difficulties[]`
+### Account (export schema 34, uploader v1.36.0) — new on `grimForest.difficulties[]`
 
 ```jsonc
 "grimForest": { "rotation": 10, "difficulties": [
