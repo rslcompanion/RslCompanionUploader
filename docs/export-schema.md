@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 35** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 36** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1349,6 +1349,8 @@ presets stay where they were, in `siegePresets[]`.
 "clanBosses": {
   "demonLord": {
     "keys": 0,                                       // resource 300, truncated: the game held 0.731
+    "bossStartedAt": "2026-10-03T10:14:03Z",        // schema 36
+    "nextResetAt":   "2026-10-04T10:08:18Z",        // schema 36
     "battlesByDay": [ { "date": "2026-10-02", "battles": 2 }, { "date": "2026-10-03", "battles": 2 } /* … */ ],
     "chestBossRevisionByDifficulty": { "0": 830, "1": 1362, "2": 1891, "3": 1931, "4": 1932, "5": 1932 }
   },
@@ -1370,7 +1372,10 @@ records (every member's damage) are reachable and are not read, the same rule as
   Boss Keys continuously (it holds e.g. 0.731); the export **truncates**, so that is 0 — only keys that can
   be spent count. ABSENT, never 0, when the resources dictionary was not read.
 - **`nextResetAt`** — when the Hydra week (`NextRaidRefreshTime`) / Chimera keys (`NextKeysRefreshTime`)
-  reset, UTC. Days left = this − now. The Demon Lord has no reset field; its keys regenerate.
+  reset, UTC. Days left = this − now. **Demon Lord (schema 36):** `bossStartedAt` / `nextResetAt` are the
+  clan's current boss start and its replacement, read off the clan record (`AllianceBossData.StartTime`,
+  `NextRefreshTime`). The time **slides by minutes from day to day** (10:14:03 → 10:08:18 UTC), so never
+  derive it from a fixed hour. A snapshot whose `nextResetAt` has passed describes an earlier boss.
 - **`chestBossRevisionByDifficulty`** — per Demon Lord difficulty, the boss revision (one boss per day)
   whose chest the account last took, current clan only. It says which difficulties are being hit (those
   on the highest revision), **not** how many keys went into each. **Key = the game's dictionary key, 0–5
@@ -1551,6 +1556,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 36 | next | 2026-10-03 | **Additive: `clanBosses.demonLord.bossStartedAt` / `nextResetAt`** — the clan's Demon Lord boss start and next reset, UTC, read off the clan record (`AllianceBossData`). The reset slides by minutes daily, so it is read, not computed. Absent when the clan record could not be read. A consumer that ignores them is exactly as correct as on schema 35. |
 | 35 | v1.37.0 | 2026-10-03 | **Additive: `clanBosses`** — Demon Lord, Hydra and Chimera: keys in hand (resources 300 / 1000 / 1050, whole keys; the Demon Lord's accrues continuously and is truncated), battles per day from the game's activity log (~37 days), the Hydra and Chimera reset times, and per Demon Lord difficulty the boss revision whose chest was last taken (difficulty key 0–5 = Easy…Ultra-Nightmare). Own state only. Verified live (11.75.0). A consumer that ignores it is exactly as correct as on schema 34. |
 | 34 | v1.36.0 | 2026-10-03 | **Additive: Grim Forest shop and quests** — `grimForest.difficulties[].shopPurchases` (items bought this rotation: `itemId`, `purchaseCount`, curio `boughtCurioRank`; prices and limits in the metadata catalog's `shop`) and `completedQuestIds` / `claimedQuestIds` (Grim Forest quest prototype ids; the quest list is catalog data). Absent, not `[]`, when unread. Verified live (11.75.0, rotation 10). A consumer that ignores them is exactly as correct as on schema 33. |
 | 33 | v1.33.0 | 2026-09-30 | **Additive: three new top-level blocks — `soloEvents[]`, `tournaments[]`, `battlePass`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). The solo events and tournaments the account is in and can still act on (open quest, claim window not closed), each with points, claimed reward ids and — because these tables exist in no static data — the reward table with trimmed prize contents; tournaments carry the account's own bracket and rank only, never a leaderboard. `battlePass` is the Forge Pass (internally `BattlePass`): the active pass or the newest, with points and collected levels per track (1 = Free; 2/3 = Gold/Platinum, inferred); its level table is static data and not here. Absent when unread, `[]` when nothing is active. Titles, dates and solo rewards come from the server-sent catalog and are omitted, not failed, when it is unreachable. Verified live (11.75.0) memory-against-memory; not yet against the in-game screens. A consumer that ignores them is exactly as correct as on schema 32. |
