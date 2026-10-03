@@ -50,10 +50,15 @@ The quest LIST lives in the metadata catalog; the account upload says only which
   list applies whatever `quests.rotation` says. Join on the id's place in its family (`id % 10000`),
   not the whole id: the `1071` prefix was rotation 10's and is not confirmed to stay.
 - **`grimForest.difficulties[d].shop`** (already there): `[{ id, name, price: [{id, name, amount}],
-  limit }]`, 10 items per difficulty. `name` is new: 1 "Change team decks" (limit 5), 2–7 "Curio",
-  8 / 9 / 10 "Small chest" / "Medium chest" / "Large chest". No game table names the items, so the
-  metadata side binds these by hand; draw `name`, and fall back to "Item {id}" only when it is null.
-  Do not keep a label map in RaidTools.
+  limit }]`, 10 items per difficulty, the same every rotation. `name` is the shop screen's: 1 "Change
+  Team Decks" (limit 5), 2–7 "Curio", 8 / 9 / 10 "Small / Medium / Large Vendor Chest".
+- **`grimForest.map.difficulties[d].shop`** (new) — **what items 2–7 sell THIS rotation**, by id:
+  `[{ id, curioId, items }]`, same `id` as the static shop. The curios change every rotation, so the
+  curio is looked up, never named from the static shop: `curioId` → **`grimForest.curios`** (new, curio
+  id → name, 18 curios: e.g. 13 "Amber Parasite", 17 "Phoenix Quill"). Items 1 and 8–10 carry `items`
+  (inventory ids) and `curioId: null`; keep their static `name`. Use the offer only when
+  `map.rotation === grimForest.rotation`; otherwise label items 2–7 "Curio". The account upload carries
+  shop **item** ids only, so this join is what turns "item 3" into "Amber Parasite".
 - **`cursedCity.difficulties[d]`** (already there): `passedStages` {25, 50, 101}, `awakeningStages`
   {6, 12}, `mainBoss` — the Cursed City quests and their prizes.
 
@@ -91,7 +96,9 @@ The quest LIST lives in the metadata catalog; the account upload says only which
    - **`{Name} shop`** — value **`{bought} / {total} bought`**, counting purchases against limits:
      bought = Σ min(purchaseCount, limit), total = Σ limit (14 on 11.75.0: item 1's limit is 5). `done`
      when equal, otherwise `open` (the shop has no claimable state). Popup: one step per catalog item:
-     label, price chips, `{purchaseCount} / {limit}`, and for a curio `rank {boughtCurioRank}`.
+     label (the curio's name for items 2–7, via the rotation offer and `grimForest.curios`; the static
+     `name` otherwise), price chips, `{purchaseCount} / {limit}`, and for a bought curio
+     `rank {boughtCurioRank}`.
    - Catalog quests missing: value `{claimed} claimed`, no total, no popup.
      Field absent on the upload: value "—" with a hint that the uploader needs updating (the existing
      `NEEDS_UPLOADER`-style hint).
@@ -128,4 +135,8 @@ The quest LIST lives in the metadata catalog; the account upload says only which
   in-game list, e.g. "Collect 10 Chests on the Grim Forest Map on Hard" and "Win all Battles in a
   Nightmare Region (Purple) on Normal".
 - Grim Forest shop, Hard: items 2 (curio rank 2), 4 (curio rank 1), 8, 9 and 10. Normal: 8, 9 and 10.
-  Checked memory against memory, not yet against the shop screen.
+- Rotation 10 offer, checked against the owner's Normal shop screenshot: items 2–7 sell Runecipher,
+  Amber Parasite, Phoenix Quill, Vial of Vitality, Netherbite Knife and Sapphire Elixir. That is
+  exactly the six curios on screen, with the three Vendor Chests "Purchased", matching the upload.
+  Hard sells Vial of Vitality, Phoenix Quill, Old Captain's Pipe, Apple of Avarice, Hypnotic Statuette
+  and Sapphire Elixir, so bought items 2 and 4 are Vial of Vitality and Old Captain's Pipe.
