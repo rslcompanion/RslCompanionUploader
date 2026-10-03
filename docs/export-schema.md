@@ -1348,7 +1348,7 @@ presets stay where they were, in `siegePresets[]`.
 ```jsonc
 "clanBosses": {
   "demonLord": {
-    "keys": 0.731,                                   // resource 300, a DOUBLE: keys accrue continuously
+    "keys": 0,                                       // resource 300, truncated: the game held 0.731
     "battlesByDay": [ { "date": "2026-10-02", "battles": 2 }, { "date": "2026-10-03", "battles": 2 } /* … */ ],
     "chestBossRevisionByDifficulty": { "0": 830, "1": 1362, "2": 1891, "3": 1931, "4": 1932, "5": 1932 }
   },
@@ -1366,9 +1366,9 @@ records (every member's damage) are reachable and are not read, the same rule as
   log (`BattleCountByArea`, areas 4 / 8 / 13). Oldest first; days with no battle are left out; the client
   keeps about 37 days. `[]` = no battles in that window. Count a Hydra / Chimera week from the days at or
   after the previous reset (`nextResetAt` − 7 days).
-- **`keys`** — keys in hand at export (resources 300 / 1000 / 1050). The Demon Lord's is a **double**: the
-  game accrues Clan Boss Keys continuously, so 0.731 means no key usable yet and 73% of the next. Hydra and
-  Chimera are whole numbers. ABSENT, never 0, when the resources dictionary was not read.
+- **`keys`** — keys in hand at export (resources 300 / 1000 / 1050), whole numbers. The game accrues Clan
+  Boss Keys continuously (it holds e.g. 0.731); the export **truncates**, so that is 0 — only keys that can
+  be spent count. ABSENT, never 0, when the resources dictionary was not read.
 - **`nextResetAt`** — when the Hydra week (`NextRaidRefreshTime`) / Chimera keys (`NextKeysRefreshTime`)
   reset, UTC. Days left = this − now. The Demon Lord has no reset field; its keys regenerate.
 - **`chestBossRevisionByDifficulty`** — per Demon Lord difficulty, the boss revision (one boss per day)
@@ -1552,7 +1552,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 35 | next | 2026-10-03 | **Additive: `clanBosses`** — Demon Lord, Hydra and Chimera: keys in hand (resources 300 / 1000 / 1050; the Demon Lord's is a double, keys accrue continuously), battles per day from the game's activity log (~37 days), the Hydra and Chimera reset times, and per Demon Lord difficulty the boss revision whose chest was last taken (difficulty key 0–5, mapping to Easy…Ultra-Nightmare inferred). Own state only. Verified live (11.75.0). A consumer that ignores it is exactly as correct as on schema 34. |
+| 35 | next | 2026-10-03 | **Additive: `clanBosses`** — Demon Lord, Hydra and Chimera: keys in hand (resources 300 / 1000 / 1050, whole keys; the Demon Lord's accrues continuously and is truncated), battles per day from the game's activity log (~37 days), the Hydra and Chimera reset times, and per Demon Lord difficulty the boss revision whose chest was last taken (difficulty key 0–5, mapping to Easy…Ultra-Nightmare inferred). Own state only. Verified live (11.75.0). A consumer that ignores it is exactly as correct as on schema 34. |
 | 34 | v1.36.0 | 2026-10-03 | **Additive: Grim Forest shop and quests** — `grimForest.difficulties[].shopPurchases` (items bought this rotation: `itemId`, `purchaseCount`, curio `boughtCurioRank`; prices and limits in the metadata catalog's `shop`) and `completedQuestIds` / `claimedQuestIds` (Grim Forest quest prototype ids; the quest list is catalog data). Absent, not `[]`, when unread. Verified live (11.75.0, rotation 10). A consumer that ignores them is exactly as correct as on schema 33. |
 | 33 | v1.33.0 | 2026-09-30 | **Additive: three new top-level blocks — `soloEvents[]`, `tournaments[]`, `battlePass`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). The solo events and tournaments the account is in and can still act on (open quest, claim window not closed), each with points, claimed reward ids and — because these tables exist in no static data — the reward table with trimmed prize contents; tournaments carry the account's own bracket and rank only, never a leaderboard. `battlePass` is the Forge Pass (internally `BattlePass`): the active pass or the newest, with points and collected levels per track (1 = Free; 2/3 = Gold/Platinum, inferred); its level table is static data and not here. Absent when unread, `[]` when nothing is active. Titles, dates and solo rewards come from the server-sent catalog and are omitted, not failed, when it is unreachable. Verified live (11.75.0) memory-against-memory; not yet against the in-game screens. A consumer that ignores them is exactly as correct as on schema 32. |
 | 32 | v1.31.0 | 2026-09-28 | **Additive: keys in hand** — `doomTower.goldKeys` / `silverKeys`, `cursedCity.keys`, `grimForest.keys`: each mode's key balance at export (resources `700` / `701` / `1301` / `10000`), one per mode for both difficulties (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Not in `resources[]` (`1301` is the Sacred Shard there). Absent, not 0, when the resources dictionary was not read. A consumer that ignores them is exactly as correct as on schema 31. |
