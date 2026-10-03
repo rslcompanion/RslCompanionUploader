@@ -49,11 +49,11 @@ The quest LIST lives in the metadata catalog; the account upload says only which
   `battle`. The quests are server-sent, but **the same every rotation** (owner, 2026-10-03), so the
   list applies whatever `quests.rotation` says. Join on the id's place in its family (`id % 10000`),
   not the whole id: the `1071` prefix was rotation 10's and is not confirmed to stay.
-- **`grimForest.difficulties[d].shop`** (already there): `[{ id, price: [{id, name, amount}], limit }]`,
-  10 items per difficulty. What the items *are* is not in any game table yet. From the in-game shop
-  strings: items 2–7 are curios, 8 / 9 / 10 are the small / medium / large chests, and item 1 (limit
-  5) is unidentified. Label them "Curio", "Small chest", "Medium chest", "Large chest", and fall back to
-  "Item {id}". Keep those labels in one map so the metadata side can replace them later.
+- **`grimForest.difficulties[d].shop`** (already there): `[{ id, name, price: [{id, name, amount}],
+  limit }]`, 10 items per difficulty. `name` is new: 1 "Change team decks" (limit 5), 2–7 "Curio",
+  8 / 9 / 10 "Small chest" / "Medium chest" / "Large chest". No game table names the items, so the
+  metadata side binds these by hand; draw `name`, and fall back to "Item {id}" only when it is null.
+  Do not keep a label map in RaidTools.
 - **`cursedCity.difficulties[d]`** (already there): `passedStages` {25, 50, 101}, `awakeningStages`
   {6, 12}, `mainBoss` — the Cursed City quests and their prizes.
 
