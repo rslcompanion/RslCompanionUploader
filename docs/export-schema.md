@@ -1159,7 +1159,11 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
 "grimForest": { "rotation": 10, "keys": 20, "difficulties": [   // keys: schema 32
   { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true,
     "passedStageIds": [14012002, 14012003 /* … */, 14042103],       // schema 30
-    "completedSlotIds": [1, 2, 3 /* … */, 403] }                      // schema 31
+    "completedSlotIds": [1, 2, 3 /* … */, 403],                       // schema 31
+    "shopPurchases": [ { "itemId": 2, "purchaseCount": 1, "boughtCurioRank": 2 },
+                       { "itemId": 8, "purchaseCount": 1 } /* … */ ],   // schema 34
+    "completedQuestIds": [10711001, 10711002 /* … */, 10711013],     // schema 34
+    "claimedQuestIds":   [10711001, 10711002 /* … */, 10711013] }    // schema 34
 ]}
 ```
 
@@ -1270,6 +1274,23 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   denominator and the node kinds from the metadata catalog. `[]` = nothing completed; **absent**, never
   `[]`, when it could not be read. Verified live (11.75.0, rotation 10): Hard 403 of 403 (map fully
   cleared, as the player confirmed), Normal 232.
+- **`grimForest.difficulties[].shopPurchases` (schema 34) is the Grim Forest shop** — one entry per
+  shop item bought at least once this rotation: `itemId`, `purchaseCount`, and for a curio item the
+  `boughtCurioRank`. Source: the difficulty's `ShopData.ShopItems` (`UserFoggyForestShopItem {Id,
+  PurchasesCount, BoughtCurioRank}`; the rank is a `Nullable<int>`). The shop itself — 10 items per
+  difficulty, each with a price and a purchase limit — is static data in the metadata catalog
+  (`mode_rewards.json` `grimForest.difficulties[d].shop`, same ids); an item absent from this list has
+  not been bought. `[]` = nothing bought; **absent** when it could not be read. Verified live (11.75.0,
+  rotation 10): Hard items 2 (curio rank 2), 4 (curio rank 1), 8, 9, 10; Normal 8, 9, 10.
+- **`grimForest.difficulties[].completedQuestIds` / `claimedQuestIds` (schema 34) are the GRIM FOREST
+  QUESTS** — quest prototype ids completed this rotation, and of those the ones whose reward was
+  collected. How many are complete is the array's length; the quest **list** (names, targets, prizes) is
+  catalog data in the metadata repo (`grimForest.quests`), not on this payload. The quests are ordinary
+  server-sent `QuestState`s (no client static data defines them), recognised by their completion:
+  `ByFoggyForest` (collect map elements) or `ByBattle` with `AreaTypeId` 14, taken by prototype family
+  (id / 10 000) so a Grim Forest achievement with the same battle condition is not mistaken for one.
+  13 per difficulty on rotation 10 (`10710001–013` Normal, `10711001–013` Hard). **absent** when not read.
+  Verified live (11.75.0, rotation 10): 13 / 13 completed and claimed on both difficulties.
 - **Keys in hand (schema 32): `doomTower.goldKeys` / `silverKeys`, `cursedCity.keys`, `grimForest.keys`**
   — how many of each mode's key the account holds at export, one balance per mode shared by both
   difficulties (the game has one pool). They are the account's resources `700`, `701`, `1301` and
@@ -1491,6 +1512,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 34 | next | 2026-10-03 | **Additive: Grim Forest shop and quests** — `grimForest.difficulties[].shopPurchases` (items bought this rotation: `itemId`, `purchaseCount`, curio `boughtCurioRank`; prices and limits in the metadata catalog's `shop`) and `completedQuestIds` / `claimedQuestIds` (Grim Forest quest prototype ids; the quest list is catalog data). Absent, not `[]`, when unread. Verified live (11.75.0, rotation 10). A consumer that ignores them is exactly as correct as on schema 33. |
 | 33 | v1.33.0 | 2026-09-30 | **Additive: three new top-level blocks — `soloEvents[]`, `tournaments[]`, `battlePass`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). The solo events and tournaments the account is in and can still act on (open quest, claim window not closed), each with points, claimed reward ids and — because these tables exist in no static data — the reward table with trimmed prize contents; tournaments carry the account's own bracket and rank only, never a leaderboard. `battlePass` is the Forge Pass (internally `BattlePass`): the active pass or the newest, with points and collected levels per track (1 = Free; 2/3 = Gold/Platinum, inferred); its level table is static data and not here. Absent when unread, `[]` when nothing is active. Titles, dates and solo rewards come from the server-sent catalog and are omitted, not failed, when it is unreachable. Verified live (11.75.0) memory-against-memory; not yet against the in-game screens. A consumer that ignores them is exactly as correct as on schema 32. |
 | 32 | v1.31.0 | 2026-09-28 | **Additive: keys in hand** — `doomTower.goldKeys` / `silverKeys`, `cursedCity.keys`, `grimForest.keys`: each mode's key balance at export (resources `700` / `701` / `1301` / `10000`), one per mode for both difficulties (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). Not in `resources[]` (`1301` is the Sacred Shard there). Absent, not 0, when the resources dictionary was not read. A consumer that ignores them is exactly as correct as on schema 31. |
 | 31 | v1.30.0 | 2026-09-27 | **Additive: `grimForest.difficulties[].completedSlotIds`** — the map progress: every map slot completed this rotation (battles, chests, altars, random encounters, path nodes), by slot number 1–403, from the difficulty's `StageSlots`. The map layout is static data and not on the payload. Absent, not `[]`, when it cannot be read. Verified live (11.75.0, rotation 10): Hard 403/403, Normal 232. Ships in the same release as schema 30. A consumer that ignores it is exactly as correct as on schema 30. |
