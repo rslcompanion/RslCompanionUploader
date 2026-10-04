@@ -689,3 +689,21 @@ Installer: `installer/setup.iss` (Inno Setup 6). Releases: push a `v*` tag —
 `.github/workflows/release.yml` builds (with submodule), compiles the installer, and attaches
 it + SHA-256 checksum to a GitHub Release. CI needs the `EXTRACTION_REPO_TOKEN` secret (PAT
 with read access to the private extraction repo) to fetch the submodule.
+
+**Dev builds are pre-releases, and production installs never see them.** Tag `v1.2.0-dev.1` (any
+`-<label>`) and the workflow publishes a GitHub *pre-release* that is never marked latest. Production
+installs read `/releases/latest`, which never returns a pre-release, and get.rslcompanion.com
+redirects through the same "latest". So nobody is offered a build they didn't ask for. The exe,
+installer and MSIX are stamped with the numeric part (`1.2.0`, since none of them accepts a label).
+The full name (`1.2.0-dev.1`) is the informational version, which is what the title bar and About
+show and what `ReleaseVersion.Current` reads.
+
+**The dev channel is decided per install, at check time** (`MainForm.UpdateChannelIncludesPrereleases`).
+It is on when the session's server is not prod, or Help ▸ Server picks dev while signed out, or the
+running build is itself a pre-release. It reads `/releases` and takes the newest non-draft release
+by `ReleaseVersion`, which orders semver-style: `1.2.0-dev.1 < 1.2.0-dev.2 < 1.2.0 < 1.3.0-dev.1`.
+So a dev install is offered the next dev build, then the production release it led up to, and on
+that build it drops back to the prod channel. Signing in to a dev server re-checks immediately,
+because the startup check ran before any session existed. **Never make `/releases/latest` return a
+pre-release** (by marking one latest by hand on GitHub). That one flag is what keeps dev builds away
+from players.

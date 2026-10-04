@@ -468,6 +468,12 @@ public sealed class MainForm : Form
 #endif
         await LoadAccountsAsync();
 
+        // The startup check ran before there was a session, so on the production channel. A session
+        // on a dev server moves this install to the channel that includes pre-releases; ask again
+        // now rather than up to an hour from now. Same opt-in as the poll itself.
+        if (!session.Target.IsProduction && UserSettings.Current.AutoUpdateChecks && !PackagedAppInfo.IsPackaged)
+            _ = CheckForUpdateAsync(silent: true);
+
         // One loop per session, not one per sign-in: signing out and back in must not leave two
         // refreshers running against the same tiles.
         if (!_accountRefreshStarted)
@@ -1507,6 +1513,15 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
+    /// Whether update checks include pre-releases (<c>v1.2.0-dev.1</c>). Production users never do:
+    /// the dev channel is for someone working against a dev server — this session's, or the one
+    /// picked in Help ▸ Server while signed out — or already running a pre-release build, which must
+    /// go on being offered the next dev build and then the production release it led up to.
+    /// </summary>
+    private bool UpdateChannelIncludesPrereleases =>
+        !(_api.Session?.Target ?? PreferredTarget).IsProduction || ReleaseVersion.Current.IsPrerelease;
+
+    /// <summary>
     /// On a background check (<paramref name="silent"/> = true) failures and "already up to date" are
     /// not reported at the user level — only a real update lights up the banner. A manual check always
     /// logs the outcome. Either way the outcome goes out at the detail level, so "did it even check?"
@@ -1520,7 +1535,7 @@ public sealed class MainForm : Form
         var status = UpdateCheckStatus.Failed;
         try
         {
-            var result = await UpdateChecker.CheckForUpdateAsync();
+            var result = await UpdateChecker.CheckForUpdateAsync(UpdateChannelIncludesPrereleases);
             status = result.Status;
             switch (result.Status)
             {

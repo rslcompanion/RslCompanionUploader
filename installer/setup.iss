@@ -16,6 +16,11 @@
 #ifndef MyAppVersion
   #define MyAppVersion "1.0.0"
 #endif
+; The exe's version resource takes numbers only, so a pre-release (1.2.0-dev.1) passes its numeric
+; part separately (/DMyAppNumericVersion=1.2.0). For a normal release the two are the same.
+#ifndef MyAppNumericVersion
+  #define MyAppNumericVersion MyAppVersion
+#endif
 #define MyAppPublisher "RSL Companion"
 #define MyAppURL "https://rslcompanion.com"
 #define MyAppExeName "RslCompanionUploader.exe"
@@ -40,6 +45,7 @@
 AppId={{8E0E4C6B-2B7D-4C43-9A31-5D9F6C1A7E42}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppNumericVersion}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}

@@ -16,7 +16,7 @@ namespace RslCompanionUploader;
 /// <c>.msix</c> that cannot install on a machine that has not already trusted the certificate.</para>
 /// </summary>
 public sealed record UpdateInfo(
-    Version Version,
+    ReleaseVersion Version,
     string ReleaseUrl,
     string? InstallerUrl = null,
     string? InstallerName = null,
@@ -28,7 +28,8 @@ public enum UpdateCheckStatus { UpdateAvailable, UpToDate, Failed }
 public sealed record UpdateCheckResult(UpdateCheckStatus Status, UpdateInfo? Info = null);
 
 /// <summary>
-/// Checks GitHub's "latest release" API for a newer version than the one currently running.
+/// Checks GitHub for a newer release than the one currently running: the "latest release" API for
+/// production installs, the release list (pre-releases included) on the dev channel.
 /// Never throws — a failed/slow check (offline, rate-limited, GitHub down) reports
 /// <see cref="UpdateCheckStatus.Failed"/> rather than blocking or crashing the caller.
 /// </summary>
@@ -36,6 +37,10 @@ public static class UpdateChecker
 {
     private const string LatestReleaseApiUrl =
         "https://api.github.com/repos/rslcompanion/RslCompanionUploader/releases/latest";
+
+    /// <summary>The release list, pre-releases included — only read on the dev channel.</summary>
+    private const string ReleasesApiUrl =
+        "https://api.github.com/repos/rslcompanion/RslCompanionUploader/releases?per_page=30";
 
     // 10 s, not 5: the check that matters most runs seconds after launch, against a connection that
     // may still be coming up, and a cold DNS + TLS handshake to api.github.com can eat most of a
@@ -54,11 +59,21 @@ public static class UpdateChecker
     public static Version CurrentVersion =>
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
 
-    public static async Task<UpdateCheckResult> CheckForUpdateAsync()
+    /// <summary>
+    /// Asks GitHub whether a newer release than the running one exists.
+    ///
+    /// <para><paramref name="includePrereleases"/> picks the channel. <b>False is what every
+    /// production user gets</b>: <c>/releases/latest</c>, which GitHub never answers with a
+    /// pre-release — that is what keeps a <c>v1.2.0-dev.1</c> build away from people who did not ask
+    /// for one (the release workflow publishes every labelled tag as a pre-release, never "latest").
+    /// True reads the release list and takes the newest non-draft one, pre-release or not, so a dev
+    /// install is offered the next dev build and, when it ships, the production release.</para>
+    /// </summary>
+    public static async Task<UpdateCheckResult> CheckForUpdateAsync(bool includePrereleases = false)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, LatestReleaseApiUrl);
+            using var request = new HttpRequestMessage(HttpMethod.Get, includePrereleases ? ReleasesApiUrl : LatestReleaseApiUrl);
             request.Headers.UserAgent.Add(new ProductInfoHeaderValue("RslCompanionUploader", CurrentVersion.ToString()));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
@@ -67,35 +82,68 @@ public static class UpdateChecker
                 return new UpdateCheckResult(UpdateCheckStatus.Failed);
 
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStreamAsync());
-            var tag = doc.RootElement.GetProperty("tag_name").GetString();
-            if (string.IsNullOrEmpty(tag) || !Version.TryParse(tag.TrimStart('v'), out var latest))
-                return new UpdateCheckResult(UpdateCheckStatus.Failed);
-
-            if (latest <= CurrentVersion)
-                return new UpdateCheckResult(UpdateCheckStatus.UpToDate);
-
-            var releaseUrl = doc.RootElement.TryGetProperty("html_url", out var h)
-                ? h.GetString() ?? DownloadPageUrl
-                : DownloadPageUrl;
-
-            var assets = ReadAssets(doc.RootElement);
-            var installer = PickInstaller(assets, latest);
-            var checksum = installer is null
-                ? null
-                : assets.FirstOrDefault(a => a.Name.Equals(installer.Name + ".sha256", StringComparison.OrdinalIgnoreCase));
-
-            return new UpdateCheckResult(UpdateCheckStatus.UpdateAvailable, new UpdateInfo(
-                latest,
-                releaseUrl,
-                installer?.Url,
-                installer?.Name,
-                installer?.Size ?? 0,
-                checksum?.Url));
+            var release = includePrereleases ? PickNewestRelease(doc.RootElement) : doc.RootElement;
+            return release is { } r
+                ? Evaluate(r, ReleaseVersion.Current)
+                : new UpdateCheckResult(UpdateCheckStatus.Failed);
         }
         catch
         {
             return new UpdateCheckResult(UpdateCheckStatus.Failed);
         }
+    }
+
+    /// <summary>
+    /// The newest release in a <c>/releases</c> list by version (not by date — a hotfix to an older
+    /// line can be published after a newer dev build). Drafts and tags that don't parse are skipped.
+    /// </summary>
+    internal static JsonElement? PickNewestRelease(JsonElement releases)
+    {
+        if (releases.ValueKind != JsonValueKind.Array) return null;
+
+        JsonElement? best = null;
+        ReleaseVersion? bestVersion = null;
+        foreach (var release in releases.EnumerateArray())
+        {
+            if (release.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True) continue;
+            var tag = release.TryGetProperty("tag_name", out var t) ? t.GetString() : null;
+            if (!ReleaseVersion.TryParse(tag, out var v)) continue;
+            if (bestVersion is null || v > bestVersion)
+            {
+                best = release;
+                bestVersion = v;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>Compares one release against the running build and picks its installer.</summary>
+    internal static UpdateCheckResult Evaluate(JsonElement release, ReleaseVersion current)
+    {
+        var tag = release.TryGetProperty("tag_name", out var t) ? t.GetString() : null;
+        if (!ReleaseVersion.TryParse(tag, out var latest))
+            return new UpdateCheckResult(UpdateCheckStatus.Failed);
+
+        if (latest <= current)
+            return new UpdateCheckResult(UpdateCheckStatus.UpToDate);
+
+        var releaseUrl = release.TryGetProperty("html_url", out var h)
+            ? h.GetString() ?? DownloadPageUrl
+            : DownloadPageUrl;
+
+        var assets = ReadAssets(release);
+        var installer = PickInstaller(assets, latest);
+        var checksum = installer is null
+            ? null
+            : assets.FirstOrDefault(a => a.Name.Equals(installer.Name + ".sha256", StringComparison.OrdinalIgnoreCase));
+
+        return new UpdateCheckResult(UpdateCheckStatus.UpdateAvailable, new UpdateInfo(
+            latest,
+            releaseUrl,
+            installer?.Url,
+            installer?.Name,
+            installer?.Size ?? 0,
+            checksum?.Url));
     }
 
     private sealed record Asset(string Name, string Url, long Size);
@@ -127,7 +175,7 @@ public static class UpdateChecker
     /// it is signed with a self-signed certificate and cannot install itself onto a machine that
     /// hasn't already trusted it.</para>
     /// </summary>
-    private static Asset? PickInstaller(List<Asset> assets, Version version) =>
+    private static Asset? PickInstaller(List<Asset> assets, ReleaseVersion version) =>
         assets.FirstOrDefault(a => a.Name.EndsWith($"-Setup-{version}.exe", StringComparison.OrdinalIgnoreCase))
         ?? assets.FirstOrDefault(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                                    && a.Name.Contains("Setup", StringComparison.OrdinalIgnoreCase));

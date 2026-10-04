@@ -139,3 +139,10 @@ The stable frontend download URL
 the latest release asset. A code-signing step is stubbed in the workflow — enable it once a
 signing identity (e.g. Azure Trusted Signing) exists, so the published checksum matches the
 signed binary.
+
+**Dev builds.** Tag with a label, e.g. `v1.40.0-dev.1`, and the workflow publishes a GitHub
+*pre-release* that is never marked latest. Production installs check `/releases/latest`, and the
+get.rslcompanion.com link resolves through the same "latest", so neither ever sees it. An install
+whose session is on a dev server (or that Help ▸ Server points at dev, or that is already running a
+pre-release) checks the full release list instead. It is offered the newest dev build, and then the
+production release that follows it.
