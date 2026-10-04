@@ -7,7 +7,8 @@ namespace RslCompanionUploader.Forms;
 /// Sign-in: the user finishes in their real browser at rslcompanion.com's <c>/connect-extractor</c>,
 /// and this panel is what the window shows around that. The page mints a one-time handoff code,
 /// launches <c>rslcompanion-extractor://sync?code=…</c>, Windows routes it to this app, and the
-/// forwarded launch arrives here through <see cref="SingleInstance.SecondInstanceLaunched"/>.
+/// forwarded launch is routed here by <see cref="MainForm"/>, the single receiver of
+/// <see cref="SingleInstance"/>, through <see cref="AcceptLaunch"/>.
 ///
 /// <para><b>The panel opens on an invitation, and the user launches the browser themselves.</b>
 /// Clicking "Sign In" used to throw a browser window over the app immediately, which reads as the app
@@ -148,8 +149,6 @@ public sealed class SignInPanel : Panel
         _openBrowser.Click += (_, _) => OpenBrowser();
         _retry.LinkClicked += (_, _) => OpenBrowser();
         _cancel.LinkClicked += (_, _) => Cancelled?.Invoke();
-
-        SingleInstance.SecondInstanceLaunched += OnSecondInstance;
     }
 
     private void BuildLayout()
@@ -329,20 +328,13 @@ public sealed class SignInPanel : Panel
         SetStatus(message, isError);
     }
 
-    // Fires on the single-instance pipe thread — marshal onto the UI thread before touching anything.
-    private void OnSecondInstance(string[] args)
-    {
-        if (IsDisposed) return;
-        try { BeginInvoke(() => HandleForwardedArgs(args)); }
-        catch { /* handle destroyed between the guard and the marshal — ignore */ }
-    }
-
-    private void HandleForwardedArgs(string[] args)
-    {
-        var launch = ProtocolHandler.TryGetHandoff(args);
-        if (launch is null) return; // some other launch arg (e.g. ping) — keep waiting
-        _ = RedeemAsync(launch);
-    }
+    /// <summary>
+    /// A <c>sync</c> launch forwarded by <see cref="MainForm"/> while this panel is up, on the UI
+    /// thread. The panel no longer listens to <see cref="SingleInstance"/> itself: with two listeners
+    /// the window and the panel would both redeem one single-use code, and with only the panel
+    /// listening (as before 1.40) a launch that arrived while it was closed was dropped.
+    /// </summary>
+    internal void AcceptLaunch(HandoffLaunch launch) => _ = RedeemAsync(launch);
 
     // A launch naming an API that is not allow-listed surfaces here as a HandoffException carrying
     // HandoffLaunch.RefusalMessage, thrown before anything is sent — same path as any other refusal.
@@ -389,7 +381,6 @@ public sealed class SignInPanel : Panel
     {
         if (disposing)
         {
-            SingleInstance.SecondInstanceLaunched -= OnSecondInstance;
             _tips.Dispose();
         }
         base.Dispose(disposing);

@@ -31,6 +31,12 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    Anything else refuses the launch with a warning and sends nothing; it never falls back to prod.
    A non-prod session shows a **DEV** badge with its host in the top bar and in the title bar.
 
+   Since 1.40 a launch reaches an app that is **already open**. The second process Windows starts
+   hands the URI to the running window over a named pipe and exits. The window comes to the front,
+   redeems the code straight away and switches to that sign-in, after any export in progress has
+   finished. Before 1.40 a signed-in window ignored the launch, and the site reported that the app
+   didn't respond.
+
    **Help ▸ Server…** (1.34+) picks which site the in-app **Sign In** opens. It is shown only to
    people RaidTools grants the `extractor-dev-server` feature (Admin ▸ Groups), to admins, and to
    anyone already on a non-prod server, so there is always a way back to prod. Switching signs out of

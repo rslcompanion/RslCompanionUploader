@@ -1,8 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Unit tests for the parts of the uploader that can be tested without a window, a network or a
-       running game: today the launch-URI parser and the api allow-list (ApiTargetTests,
-       ProtocolHandlerTests). The framework must match the app's, which it references directly. -->
+       running game: the launch-URI parser and the api allow-list (ApiTargetTests,
+       ProtocolHandlerTests), the second-launch pipe (SingleInstanceTests, on a throwaway pipe name)
+       and the handoff-exchange failure messages (ExtractorHandoffTests, against a canned handler).
+       The framework must match the app's, which it references directly. -->
   <PropertyGroup>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
