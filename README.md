@@ -41,6 +41,10 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    **Update user data** as soon as Raid's account is readable. If Raid isn't open yet, it waits up
    to 10 minutes. Launches from the app's own Sign In only sign in.
 
+   Since 1.42 the link may name the card that was clicked (`&account=<in-game id>`). If Raid is on a
+   different account, the app still syncs the one in Raid, which is the only one it can read, and
+   says so in a notice.
+
    **Help ▸ Server…** (1.34+) picks which site the in-app **Sign In** opens. It is shown only to
    people RaidTools grants the `extractor-dev-server` feature (Admin ▸ Groups), to admins, and to
    anyone already on a non-prod server, so there is always a way back to prod. Switching signs out of

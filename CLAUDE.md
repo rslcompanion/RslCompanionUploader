@@ -379,9 +379,15 @@ button, and `MainForm.RequestSiteUpdate` records it in a [SiteUpdateRequest](Sit
 - **No double upload.** If an export was already running when the button was pressed, that export
   answers it.
 - **Sign-out drops it.** It was asked for on behalf of the session that ended.
-- **It updates the account open in Raid**, the only one this app can read. "Update Data" on another
-  account's card updates the one being played. The server files the upload by the in-game id. A
-  site-side `account` hint could refuse that case later; nothing sends one today.
+- **It updates the account open in Raid**, the only one this app can read. The server files the
+  upload by the in-game id.
+- **A mismatch is reported, never blocked (1.42).** The site may name the card that was clicked
+  (`&account=<in-game id>`, the id the app's own "Open RSL Companion" link uses). When Raid is on a
+  different account, the update still runs. The notice banner and the log say which account was
+  synced and how to update the other one (`SiteUpdateRequest.MismatchNotice`). This is the owner's
+  call (2026-10-04): blocking would leave nothing synced and the same switch still to make. The id
+  is a label, never a target. A missing or malformed value is ignored and never costs the sign-in.
+  RaidTools side: [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md).
 - **Don't route `/connect-extractor` launches here.** Signing in from the app is not a request to upload.
 
 The app registers `rslcompanion-extractor://` under HKCU on every startup
@@ -674,6 +680,11 @@ means the events ended and must replace what is stored. Same standing: a summary
 [docs/raidtools-events-display.md](docs/raidtools-events-display.md) is its frontend step. It puts
 the events inside the existing Events & progress tiles, maps `eventPrize` onto the metadata `Prize` so
 `prizeChips` draws it, and uses tier **ids** (not thresholds) for claims.
+
+[docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md) is the prompt for the
+site's half of 1.42's mismatch notice: "Update Data" passes the card's in-game id on the launch URI
+as `&account=`, and its "click Export account there" message goes, since 1.41 starts the update
+itself. Same standing: a summary, never the contract.
 
 [docs/raidtools-uploaded-data-and-metadata.md](docs/raidtools-uploaded-data-and-metadata.md) is the
 cross-cutting one: how RaidTools joins the payload's ids to its `MetadataType` catalogs, which side

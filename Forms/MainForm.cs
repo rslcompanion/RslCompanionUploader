@@ -326,7 +326,7 @@ public sealed class MainForm : Form
                 // Started by a button on the site, so the button's purpose applies: update the data.
                 // The game poll has usually not identified the account yet this early, which is why
                 // this records a request rather than exporting on the spot.
-                RequestSiteUpdate();
+                RequestSiteUpdate(launch.AccountId);
 #endif
                 return;
             }
@@ -496,7 +496,7 @@ public sealed class MainForm : Form
             if (exportAlreadyRunning)
                 Log("Your data was just sent to RSL Companion by the update that was already running.");
             else
-                RequestSiteUpdate();
+                RequestSiteUpdate(launch.AccountId);
 #endif
         }
         catch (Exception ex)
@@ -1999,9 +1999,9 @@ public sealed class MainForm : Form
     private readonly SiteUpdateRequest _siteUpdate = new();
 
     /// <summary>Records a website button's request to update, runs it if possible, and says what it waits on if not.</summary>
-    private void RequestSiteUpdate()
+    private void RequestSiteUpdate(int? accountId)
     {
-        _siteUpdate.Request(DateTime.UtcNow);
+        _siteUpdate.Request(DateTime.UtcNow, accountId);
         if (TryRunSiteUpdate()) return;
 
         Log(_gameState switch
@@ -2023,9 +2023,21 @@ public sealed class MainForm : Form
         switch (_siteUpdate.Evaluate(DateTime.UtcNow,
                     signedIn: _api.IsAuthenticated,
                     idle: !_busy && !_calibrating,
-                    accountReadable: _gameState == GameState.Connected))
+                    accountReadable: _gameState == GameState.Connected,
+                    out var requestedAccountId))
         {
             case SiteUpdateRequest.Decision.Run:
+                // Informed, not blocked: the running game is the only account this app can read.
+                var mismatch = _liveUserId is int liveId
+                    ? SiteUpdateRequest.MismatchNotice(requestedAccountId,
+                        _loadedAccounts.FirstOrDefault(a => a.UserId == requestedAccountId)?.Name,
+                        liveId, _liveName ?? $"account #{liveId}")
+                    : null;
+                if (mismatch is not null)
+                {
+                    Log(mismatch);
+                    _shell.SetNotice(mismatch);
+                }
                 Log("Updating your data, as requested from rslcompanion.com.");
                 _ = ExportAccountAsync();
                 return true;

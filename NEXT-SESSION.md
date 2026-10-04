@@ -42,10 +42,11 @@ There is no `dev` branch in this repo.
 
 ## Open in this repo
 
-1. **"Update Data" on one account's card updates the account open in Raid,** which may be another
-   one. The app can only read the running game. A site-side `account` hint on the launch URI would
-   let the app refuse a mismatch instead. That needs a RaidTools change first. Old builds ignore
-   unknown parameters, so the site can ship it first.
+1. **The site half of the account-mismatch notice.** Since 1.42 the app reads `&account=<in-game id>`
+   on the launch URI, and when Raid is on a different account it syncs that one anyway and says so
+   (the owner chose informing over blocking). The site doesn't send the parameter yet, and its
+   post-click message still says to click "Export account". Prompt:
+   [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md).
 2. **Confirm the site's `/handoff/status` check on prod** reports "launched" for an already-open
    1.40+ app. The fix was verified from the app's side (redeemed ~1 s after the click), not from
    the site's.
