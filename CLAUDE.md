@@ -322,6 +322,32 @@ would lock out every Google and Microsoft user and put a password back into a de
 but only the app can be asked whether the *app* should stay signed in, because only the app writes to
 this disk — so the question is asked while the browser works and read when the code comes back.
 
+**A launch that arrives while the app is already open is handled by `MainForm`, never dropped
+(1.40).** Before 1.40 the only listener on [SingleInstance.cs](SingleInstance.cs) was the sign-in
+panel, so a signed-in window received "Update Data" from the site, raised an event nobody heard, and
+the code expired unredeemed. The site now confirms a launch by asking the server whether the code was
+redeemed, so that showed up as "the Extractor didn't respond". The rules now:
+
+- **One receiver.** `SingleInstance.SetHandler` is set by `MainForm` on Load. Launches arriving
+  before that are queued, not raised into the void. `MainForm.HandleForwardedLaunchAsync` routes to an
+  open `SignInPanel.AcceptLaunch` or handles the launch itself. Never let a second component subscribe:
+  two listeners would both redeem one single-use code.
+- **Same rules as a fresh launch.** It uses the same allow-list (`RefuseLaunch`) and the same exchange.
+  The session switches to whatever the link signed in, another account or server included, and is
+  saved per the standing protection choice (`KeepSessionPerChoiceAsync`).
+- **Redeem now, switch when idle.** The code lives ~60 s and the site watches for its redemption, so
+  the exchange never waits. Only the session swap waits for `_busy` (export, calibration) and
+  `_sessionGate` (the startup restore), and it says so in the log.
+- **Every launch, `ping` included, brings the window forward.** The forwarding process calls
+  `AllowSetForegroundWindow` for the primary's PID (`GetNamedPipeServerProcessId`) before it
+  writes. It was started by the browser on a click, so it holds the foreground right that the primary
+  lacks.
+- **Forwarded means acknowledged.** [LaunchChannel](SingleInstance.cs) waits for a one-byte ack. A
+  sender that gets none waits up to 5 s for a closing primary to release the mutex and takes over.
+  Failing that, it shows a message box rather than exiting silently with the code. Both pipe ends are
+  `CurrentUserOnly`, because the pipe name is machine-wide and guessable.
+- Exchange failures go to the notice banner as well as the log (`ReportHandoffFailure`).
+
 The app registers `rslcompanion-extractor://` under HKCU on every startup
 ([ProtocolHandler.cs](ProtocolHandler.cs)); the installer also registers it at install time. A code
 arriving on the launch URI at startup (site-initiated: dashboard → "Sync New Account") is redeemed by

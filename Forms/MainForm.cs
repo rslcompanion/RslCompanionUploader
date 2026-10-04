@@ -46,6 +46,12 @@ public sealed class MainForm : Form
     /// </summary>
     private HandoffLaunch? _launch;
 
+    /// <summary>
+    /// Serialises the two things that can replace the session without the user clicking anything:
+    /// the startup restore, and a launch forwarded from the website while the window is open.
+    /// </summary>
+    private readonly SemaphoreSlim _sessionGate = new(1, 1);
+
     /// <summary>Help ▸ Session security. Enabled only while signed in — it re-saves the live session.</summary>
     private ToolStripMenuItem? _sessionSecurityItem;
 
@@ -206,6 +212,7 @@ public sealed class MainForm : Form
         // Last thing this process does: hand a downloaded-but-unapplied update to the installer, so
         // quitting is a real way to apply one and not just a way to postpone it.
         FormClosed += (_, _) => ApplyStagedUpdateOnExit();
+        FormClosed += (_, _) => SingleInstance.SetHandler(null);
 
         Load += async (_, _) =>
         {
@@ -224,6 +231,9 @@ public sealed class MainForm : Form
             // until there is a session — the window opens signed-out and the user signs in from the
             // top bar (see SignIn).
             _shell.SetSignedOut();
+            // From here on, a launch from the website reaches this window — including any that
+            // arrived while it was being built, which SingleInstance held until now.
+            SingleInstance.SetHandler(OnForwardedLaunch);
             await RestoreSessionAsync();
 
             // Asked last, on a painted window with the session already settled: this is a question
@@ -286,24 +296,22 @@ public sealed class MainForm : Form
     /// </summary>
     private async Task RestoreSessionAsync()
     {
+        // Held for the whole restore so a launch forwarded meanwhile (see OnForwardedLaunch) applies
+        // after it rather than racing it for the session.
+        await _sessionGate.WaitAsync();
+        try { await RestoreSessionCoreAsync(); }
+        finally { _sessionGate.Release(); }
+    }
+
+    private async Task RestoreSessionCoreAsync()
+    {
         // The launch code wins: it is fresher than anything on disk, expires in about a minute, and
         // is the reason this process was started at all.
         var launch = Interlocked.Exchange(ref _launch, null);
         if (launch is not null && launch.ResolveTarget(_config) is null)
         {
-            // A link naming an API that is not ours. Refused out loud, in a dialog rather than only
-            // the log: any web page can open this scheme, and one that names its own host is asking
-            // for the account export. Nothing was sent. The saved session below is unaffected — it
-            // belongs to an environment the user already chose.
-            Log(launch.RefusalMessage);
-            TaskDialog.ShowDialog(this, new TaskDialogPage
-            {
-                Caption = "RSL Companion",
-                Heading = "Sign-in link refused",
-                Text = launch.RefusalMessage,
-                Icon = TaskDialogIcon.ShieldWarningYellowBar,
-                Buttons = { TaskDialogButton.OK },
-            });
+            // The saved session below is unaffected — it belongs to an environment the user already chose.
+            RefuseLaunch(launch);
             launch = null;
         }
 
@@ -313,21 +321,14 @@ public sealed class MainForm : Form
             {
                 var session = await _handoff.SignInAsync(launch);
                 await AdoptSessionAsync(session);
-                // Asked after the UI is up, not before: this path had no sign-in screen to put a
-                // checkbox on, so the question arrives once the user can see what it applies to.
-                await AskProtectionIfUnansweredAsync(session);
+                await KeepSessionPerChoiceAsync(session);
                 return;
             }
             catch (Exception ex)
             {
                 // Codes die after ~60s, so a launch that queued behind a slow start legitimately
-                // arrives dead. Say so in the log and fall through to the saved session.
-                // A HandoffException is already phrased for the user — including a server that
-                // refused this account (403), which "the link may have expired" would misreport.
-                Log(ex is HandoffException
-                    ? ex.Message
-                    : "Couldn't finish signing in from the website — the link may have expired. Use Sign In to try again.");
-                Log("Handoff exchange failed: " + ex.Message, detail: true);
+                // arrives dead. Say so and fall through to the saved session.
+                ReportHandoffFailure(ex);
             }
         }
 
@@ -346,6 +347,150 @@ public sealed class MainForm : Form
         }
 
         await AdoptSessionAsync(restored);
+    }
+
+    /// <summary>
+    /// A link naming an API that is not ours. Refused out loud, in a dialog rather than only the log:
+    /// any web page can open this scheme, and one that names its own host is asking for the account
+    /// export. Nothing was sent.
+    /// </summary>
+    private void RefuseLaunch(HandoffLaunch launch)
+    {
+        Log(launch.RefusalMessage);
+        TaskDialog.ShowDialog(this, new TaskDialogPage
+        {
+            Caption = "RSL Companion",
+            Heading = "Sign-in link refused",
+            Text = launch.RefusalMessage,
+            Icon = TaskDialogIcon.ShieldWarningYellowBar,
+            Buttons = { TaskDialogButton.OK },
+        });
+    }
+
+    /// <summary>
+    /// A website launch whose code could not be redeemed. Logged and put on the notice banner, since
+    /// the user is looking at the site waiting for something to happen and the console may be
+    /// collapsed. A <see cref="HandoffException"/> is already phrased for the user and already says
+    /// what to do — expired/used (401), refused by the server (403, its own message), throttled
+    /// after the one retry (429), down (503) — which "the link may have expired" would misreport.
+    /// </summary>
+    private void ReportHandoffFailure(Exception ex)
+    {
+        var message = ex is HandoffException
+            ? ex.Message
+            : "Couldn't finish signing in from the website — the link may have expired. Launch the Extractor again from rslcompanion.com.";
+        Log(message);
+        Log("Handoff exchange failed: " + ex.Message, detail: true);
+        _shell.SetNotice(message);
+    }
+
+    /// <summary>
+    /// Saves a website-launched session the way the user already decided, or asks if they never have.
+    /// Asked after the UI is up, not before: this path had no sign-in screen to put a checkbox on, so
+    /// the question arrives once the user can see what it applies to. When it <i>was</i> answered, the
+    /// new session replaces the saved one — leaving the old file would reopen the previous session
+    /// (possibly another account) on the next launch.
+    /// </summary>
+    private async Task KeepSessionPerChoiceAsync(AuthSession session)
+    {
+        if (UserSettings.Current.SessionProtectionChosen)
+            await _sessions.PersistAsync(session);
+        else
+            await AskProtectionIfUnansweredAsync(session);
+    }
+
+    /// <summary>
+    /// Receives every launch forwarded by a second process (<see cref="SingleInstance"/>), on the pipe
+    /// thread. <b>This window is the only receiver</b> — see <see cref="HandleForwardedLaunchAsync"/>.
+    /// </summary>
+    private void OnForwardedLaunch(string[] args)
+    {
+        if (IsDisposed || !IsHandleCreated) return;
+        try { BeginInvoke(() => _ = HandleForwardedLaunchAsync(args)); }
+        catch { /* handle destroyed between the guard and the marshal — the app is closing */ }
+    }
+
+    /// <summary>
+    /// A launch from the website while this window is already open — "Update Data" on the site with
+    /// the app running is the ordinary case. Until 1.40 only an open sign-in panel listened for
+    /// these, so a signed-in window silently dropped the code: no exchange, no window coming forward,
+    /// and the site reporting that the app didn't respond.
+    ///
+    /// <para>Handled exactly like a fresh launch: same allow-list, same exchange, and the session
+    /// switches to whatever the link signed in (another account or another server included). The
+    /// window comes forward for any launch, <c>ping</c> included — that is the answer to "open the
+    /// app" when it is already open.</para>
+    ///
+    /// <para><b>The code is redeemed immediately, the switch is what waits.</b> It is single-use and
+    /// lives about 60 seconds, and the site watches for the redemption to decide whether the app
+    /// responded, so it cannot sit behind a ~5 s export or a ~40 s calibration. Swapping the session
+    /// under a running export can, so that part waits for the window to be idle and says so.</para>
+    /// </summary>
+    private async Task HandleForwardedLaunchAsync(string[] args)
+    {
+        BringToForeground();
+
+        var launch = ProtocolHandler.TryGetHandoff(args);
+        if (launch is null) return; // ping, or a plain second start: surfacing the window was the answer
+
+        if (_signIn is { } panel)
+        {
+            panel.AcceptLaunch(launch); // the panel is waiting for exactly this, and owns its checkbox
+            return;
+        }
+
+        if (launch.ResolveTarget(_config) is null)
+        {
+            RefuseLaunch(launch);
+            return;
+        }
+
+        Log("Signing in from rslcompanion.com…");
+        AuthSession session;
+        try
+        {
+            session = await _handoff.SignInAsync(launch);
+        }
+        catch (Exception ex)
+        {
+            ReportHandoffFailure(ex);
+            return;
+        }
+
+        await _sessionGate.WaitAsync();
+        try
+        {
+            if (_busy)
+            {
+                Log("Signed in from the website. Switching to it as soon as the current task finishes…");
+                while (_busy && !IsDisposed) await Task.Delay(250);
+                if (IsDisposed) return;
+            }
+
+            // The user may have opened Sign In while the exchange ran; this launch answers it.
+            CloseSignIn();
+
+            if (_api.Session is { } previous && (previous.Uid != session.Uid || previous.Target != session.Target))
+            {
+                // The tiles and the admin state belong to the account being left.
+                _api.SignOut();
+                ApplyAdminState();
+                _loadedAccounts.Clear();
+            }
+
+            _shell.SetNotice(null); // an earlier failed launch's notice is answered now
+            await AdoptSessionAsync(session);
+            Log($"Signed in from rslcompanion.com as {session.Email ?? session.DisplayName ?? session.Uid}.");
+            await KeepSessionPerChoiceAsync(session);
+        }
+        catch (Exception ex)
+        {
+            Log("Couldn't switch to the website's sign-in: " + ex.Message);
+        }
+        finally
+        {
+            _sessionGate.Release();
+        }
     }
 
     /// <summary>
@@ -438,11 +583,18 @@ public sealed class MainForm : Form
     /// used for sign-in). Toggling <see cref="Form.TopMost"/> is used deliberately: a plain
     /// <see cref="Form.Activate"/> from a background process is reduced to a taskbar flash by Windows'
     /// foreground lock, whereas the TopMost toggle reliably raises the window without staying pinned.
+    ///
+    /// <para>A launch forwarded from the website arrives with the foreground already granted to this
+    /// process (<see cref="LaunchChannel.TrySend"/> calls <c>AllowSetForegroundWindow</c> first), so
+    /// <see cref="Form.Activate"/> works there too; the toggle stays for the paths without a grant.</para>
     /// </summary>
     private void BringToForeground()
     {
+        if (!Visible) Show();
+        // SW_RESTORE rather than WindowState = Normal: a window minimised from maximised comes back
+        // maximised, as it would from the taskbar.
         if (WindowState == FormWindowState.Minimized)
-            WindowState = FormWindowState.Normal;
+            ShowWindow(Handle, SW_RESTORE);
 
         bool wasTopMost = TopMost;
         TopMost = true;
@@ -450,6 +602,12 @@ public sealed class MainForm : Form
         BringToFront();
         TopMost = wasTopMost;
     }
+
+    private const int SW_RESTORE = 9;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     /// <summary>Populates the signed-in UI: identity, export availability, accounts, and update check.</summary>
     private async Task EnterSignedInAsync()

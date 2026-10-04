@@ -91,7 +91,7 @@ public sealed class ExtractorHandoff
     private static string Describe(HttpStatusCode status) => status switch
     {
         HttpStatusCode.Unauthorized =>
-            "This sign-in link has already been used or has expired. Click Sign In again to get a new one.",
+            "This sign-in link has already been used or has expired. Launch the Extractor again from rslcompanion.com to get a new one.",
         HttpStatusCode.TooManyRequests =>
             "Too many sign-in attempts from this network. Wait a moment, then try again.",
         HttpStatusCode.ServiceUnavailable =>
