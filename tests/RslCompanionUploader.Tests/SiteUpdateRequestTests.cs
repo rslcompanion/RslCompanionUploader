@@ -91,14 +91,11 @@ public class SiteUpdateRequestTests
     }
 
     [Fact]
-    public void Asking_for_another_account_informs_and_names_both()
-    {
-        var notice = MismatchNotice(111, "RslCompanion", 95604564, "Magikwolf");
-        Assert.NotNull(notice);
-        Assert.Contains("You asked to update RslCompanion", notice);
-        Assert.Contains("Raid is signed in to Magikwolf", notice);
-        Assert.Contains("switch to it in Raid", notice);
-    }
+    public void Asking_for_another_account_informs_in_one_sentence() =>
+        // Informs what is about to happen and stops there; what to do next is the user's call.
+        Assert.Equal(
+            "You asked to update RslCompanion, but Raid is signed in to Magikwolf, so Magikwolf is the account being synced.",
+            MismatchNotice(111, "RslCompanion", 95604564, "Magikwolf"));
 
     [Fact]
     public void An_account_with_no_known_name_is_named_by_its_id() =>

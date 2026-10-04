@@ -73,6 +73,6 @@ internal sealed class SiteUpdateRequest
         if (requestedId is not int asked || asked == liveId) return null;
         var wanted = string.IsNullOrWhiteSpace(requestedName) ? $"account #{asked}" : requestedName;
         return $"You asked to update {wanted}, but Raid is signed in to {liveName}, so {liveName} is the "
-             + $"account being synced. To update {wanted}, switch to it in Raid and press Update user data.";
+             + "account being synced.";
     }
 }
