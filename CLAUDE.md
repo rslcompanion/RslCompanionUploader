@@ -384,8 +384,10 @@ button, and `MainForm.RequestSiteUpdate` records it in a [SiteUpdateRequest](Sit
 - **A mismatch is reported, never blocked (1.42).** The site may name the card that was clicked
   (`&account=<in-game id>`, the id the app's own "Open RSL Companion" link uses). When Raid is on a
   different account, the update still runs. The notice banner and the log say which account was
-  synced and how to update the other one (`SiteUpdateRequest.MismatchNotice`). This is the owner's
-  call (2026-10-04): blocking would leave nothing synced and the same switch still to make. The id
+  asked for and which is being synced, in one sentence, and nothing more
+  (`SiteUpdateRequest.MismatchNotice`). The owner's call (2026-10-04): blocking would leave nothing
+  synced and the same switch still to make, and the notice only informs. It doesn't tell the user
+  what to do next (1.42.1 dropped a second sentence that did). The id
   is a label, never a target. A missing or malformed value is ignored and never costs the sign-in.
   RaidTools side: [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md).
 - **Don't route `/connect-extractor` launches here.** Signing in from the app is not a request to upload.
