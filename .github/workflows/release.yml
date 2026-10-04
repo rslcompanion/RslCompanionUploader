@@ -5,6 +5,17 @@
 #
 # The stable download URL (get.rslcompanion.com/RslCompanionAccountDataExtractor-Setup.exe)
 # should redirect to the versioned asset of the latest release.
+#
+# Two kinds of release:
+#   v1.2.0        production. Marked "latest": installed apps are offered it (UpdateChecker reads
+#                 /releases/latest) and get.rslcompanion.com serves it.
+#   v1.2.0-dev.1  a build for testing (e.g. against api-dev). Published as a GitHub *pre-release*
+#                 and never marked latest, so /releases/latest — and therefore every installed
+#                 app's update check and the get.rslcompanion.com redirect — never sees it. Install
+#                 it by hand from its release page. Any "-<label>" suffix works the same way.
+#   The numeric part (1.2.0) is what the exe, the installer and the MSIX are stamped with, since
+#   none of them accepts a label; the full name (1.2.0-dev.1) is the release, the asset names and
+#   what the app shows in its title bar and About box.
 
 name: Release
 
@@ -14,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 1.2.0)"
+        description: "Version to build (e.g. 1.2.0, or 1.2.0-dev.1 for a pre-release users are not offered)"
         required: true
 
 permissions:
@@ -75,8 +86,18 @@ jobs:
           } else {
             '${{ github.ref_name }}'.TrimStart('v')
           }
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version '$v' is not in X.Y.Z form." }
+          if ($v -notmatch '^(\d+\.\d+\.\d+)(-[0-9A-Za-z][0-9A-Za-z.]*)?$') {
+            throw "Version '$v' is not in X.Y.Z or X.Y.Z-label form."
+          }
+          $numeric = $Matches[1]
+          $prerelease = if ($Matches[2]) { 'true' } else { 'false' }
           "version=$v" >> $env:GITHUB_OUTPUT
+          "numeric=$numeric" >> $env:GITHUB_OUTPUT
+          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
+          # A pre-release must never become "latest": that is the whole mechanism keeping it away
+          # from installed apps and from get.rslcompanion.com.
+          "make_latest=$(if ($prerelease -eq 'true') { 'false' } else { 'true' })" >> $env:GITHUB_OUTPUT
+          Write-Host "Version $v (numeric $numeric, prerelease $prerelease)"
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -96,6 +117,8 @@ jobs:
         run: >
           dotnet publish RslCompanionUploader.csproj -c Release -r win-x64 --self-contained true
           -p:Version=${{ steps.ver.outputs.version }}
+          -p:AssemblyVersion=${{ steps.ver.outputs.numeric }}.0
+          -p:FileVersion=${{ steps.ver.outputs.numeric }}.0
           -o publish\win-x64
 
       # Whether code signing runs is gated on the Azure Trusted Signing secrets being configured, so
@@ -138,7 +161,7 @@ jobs:
           Copy-Item "Package\Assets" "$layout\Assets" -Recurse -Force
 
           [xml]$manifest = Get-Content "Package\Package.appxmanifest"
-          $manifest.Package.Identity.Version = "${{ steps.ver.outputs.version }}.0"
+          $manifest.Package.Identity.Version = "${{ steps.ver.outputs.numeric }}.0"
           $manifest.Save("$PWD\$layout\AppxManifest.xml")
 
       # Whether MSIX signing runs is gated on the self-signed cert secrets being configured (see
@@ -215,7 +238,7 @@ jobs:
           # Inno Setup 6 is preinstalled on GitHub's Windows runner images; install it if missing.
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
-          & $iscc /DMyAppVersion=${{ steps.ver.outputs.version }} installer\setup.iss
+          & $iscc /DMyAppVersion=${{ steps.ver.outputs.version }} /DMyAppNumericVersion=${{ steps.ver.outputs.numeric }} installer\setup.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 
       # Sign the finished installer — this is the file SmartScreen checks on download. Must run
@@ -269,6 +292,8 @@ jobs:
         with:
           tag_name: v${{ steps.ver.outputs.version }}
           name: v${{ steps.ver.outputs.version }}
+          prerelease: ${{ steps.ver.outputs.prerelease }}
+          make_latest: ${{ steps.ver.outputs.make_latest }}
           generate_release_notes: true
           files: |
             installer/dist/RslCompanionAccountDataExtractor-Setup-*.exe
@@ -278,6 +303,8 @@ jobs:
             installer/dist/*.sha256
             installer/dist/*.cer
           body: |
+            ${{ steps.ver.outputs.prerelease == 'true' && '> **Dev build (pre-release).** Not offered to installed apps on the production channel and not served by get.rslcompanion.com. Installs signed in to a dev server are offered it automatically.' || '' }}
+
             **SHA-256 (installer):** `${{ steps.art.outputs.sha256 }}`
             **SHA-256 (MSIX):** `${{ steps.msixart.outputs.sha256 }}`
 
