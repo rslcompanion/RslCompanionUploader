@@ -4,3 +4,6 @@ obj/
 *.user
 publish/
 installer/dist/
+
+# WebView2 bootstrapper, downloaded by CI (see installer/setup.iss)
+installer/redist/

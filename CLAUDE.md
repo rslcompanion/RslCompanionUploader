@@ -44,15 +44,31 @@ uploads, so one call still snapshots the account while a consumer can load eithe
 ## UI: native shell + WebView2 page
 
 The **entire UI is one full-window WebView2 page** ([Forms/AppShell.cs](Forms/AppShell.cs)), styled to
-match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native shell: title bar + a
-File/Help `MenuStrip`, hosting `AppShell` docked fill. `MainForm` stays the backend — it runs the
+match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native shell: the title bar
+and `AppShell` docked fill, nothing else. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
-flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL).
-The page posts back nine actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
-`installUpdate`, `logDetail`, `copyLog`, `feedback`. Check for
-updates, recalibrate and about stay native menu items calling straight into `MainForm` — no bridge
-needed. There is no uncovered-build bridge action or banner: covering an uncovered build is triggered
-automatically from `MainForm`, not from anything the page posts back.
+flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL,
+Help menu).
+The page posts back ten actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
+`installUpdate`, `logDetail`, `copyLog`, `feedback`, `menu`. There is no uncovered-build bridge action
+or banner: covering an uncovered build is triggered automatically from `MainForm`, not from anything
+the page posts back.
+
+**The Help menu is drawn by the page and owned by the native items (1.41).** The `MenuStrip` that
+used to sit above the page is still built (`BuildMenu`) but hidden. Its `ToolStripMenuItem`s are
+the one record of each item's state: `_serverItem.Visible`, `_sessionSecurityItem.Enabled`,
+`_autoUpdateItem.Checked`. Every change to one re-pushes the page's copy (`PushHelpMenu`, hooked to
+each item's `EnabledChanged`, `AvailableChanged` and `CheckedChanged`). A click in the page posts
+`menu` with the item's `Name`, and `MainForm` calls `PerformClick` on it, deferred with `BeginInvoke`
+because several items open modal dialogs. **To add a menu item, add a `ToolStripMenuItem` to
+`BuildMenu`; the page needs no change.** The strip becomes visible again only when WebView2 fails to
+start (`AppShell.WebViewUnavailable`), because that also takes the page's menu. "Open
+rslcompanion.com" was dropped with the move: the page's own "Open RSL Companion" button does it.
+
+**The installer brings the WebView2 runtime when a machine lacks it (1.41).** CI downloads
+Microsoft's Evergreen bootstrapper into `installer/redist/` and refuses it unless Microsoft signed it.
+`setup.iss` extracts and runs it (`/silent /install`, per-user, no elevation) only when `NeedsWebView2`
+finds no runtime at the three documented registry locations. A failure doesn't fail setup.
 
 **The update banner downloads the update; it does not open GitHub, and it never closes the app.**
 Clicking it fetches the release's Inno installer ([UpdateInstaller.cs](UpdateInstaller.cs)) and checks

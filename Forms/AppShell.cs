@@ -12,13 +12,13 @@ namespace RslCompanionUploader.Forms;
 /// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>,
 /// <c>installUpdate</c> (the update banner, which installs rather than opening a page),
 /// <c>logDetail</c> (the activity console's diagnostics toggle — admins only), and the "Send
-/// feedback" dialog's <c>copyLog</c> and <c>feedback</c> (its submit). Check for
-/// updates, recalibrate, and about stay on the native Help menu, which calls into
-/// <see cref="MainForm"/> directly and needs no bridge. An uncovered game build is covered
+/// feedback" dialog's <c>copyLog</c> and <c>feedback</c> (its submit), and <c>menu</c> (a Help
+/// menu item, by id). The Help menu's rows come from <see cref="MainForm"/>'s hidden native menu
+/// items (<see cref="SetHelpMenu"/>), which stay the record of their state. An uncovered game build is covered
 /// automatically (server certify, then local calibration) rather than through anything on this page.
 ///
-/// The page is a top bar (brand + connection pill + identity, whose account dropdown holds refresh
-/// and sign out), an optional update banner, the accounts grid, and a collapsible activity console,
+/// The page is a top bar (brand + connection pill + Help menu + identity, whose account dropdown
+/// holds refresh and sign out), an optional update banner, the accounts grid, and a collapsible activity console,
 /// with an "Open RSL Companion" bar above it.
 ///
 /// <para><b>Tiles are status, with one exception: the account the running game is on.</b> That tile
@@ -65,6 +65,7 @@ public sealed class AppShell : Panel
     private object? _environment;            // { label, host } when the session is not on prod, else null
     private bool _logDetail;                 // false = plain-language activity only; true = engine diagnostics too
     private bool _isAdmin;                   // RSL Companion admin: the only viewer who gets diagnostics at all
+    private IReadOnlyList<MenuEntry> _helpMenu = Array.Empty<MenuEntry>(); // the top bar's Help dropdown
 
     // Log lines produced before the page is ready, flushed on load. Detail lines are kept even while
     // they are hidden, so switching the toggle on reveals what already happened rather than starting
@@ -112,6 +113,24 @@ public sealed class AppShell : Panel
     /// </summary>
     public event Action<string, string, bool>? FeedbackSubmitted;
 
+    /// <summary>Raised with the <see cref="MenuEntry.Id"/> of a Help menu item the user picked.</summary>
+    public event Action<string>? MenuItemInvoked;
+
+    /// <summary>
+    /// Raised once if the WebView2 runtime could not be started. The page and its Help menu are then
+    /// missing, so the form brings its native menu back as the way to reach Check for updates and About.
+    /// </summary>
+    public event Action? WebViewUnavailable;
+
+    /// <summary>
+    /// One row of the top bar's Help menu: an action, or a separator (<see cref="Separator"/>).
+    /// <see cref="Checked"/> is null for a plain action and true/false for a toggle.
+    /// </summary>
+    public sealed record MenuEntry(string Id, string Label, bool Enabled = true, bool? Checked = null, bool Separator = false);
+
+    /// <summary>Replaces the Help menu's rows. <see cref="MainForm"/> builds them from its menu items' live state.</summary>
+    public void SetHelpMenu(IReadOnlyList<MenuEntry> entries) { _helpMenu = entries; PushState(); }
+
     public AppShell()
     {
         Controls.Add(_fallback);
@@ -145,7 +164,10 @@ public sealed class AppShell : Panel
         catch (Exception ex)
         {
             _fallback.Visible = true;
-            _fallback.Text = "This app needs the WebView2 runtime, which appears to be missing.\n\n" + ex.Message;
+            _fallback.Text = "This app needs the Microsoft Edge WebView2 Runtime, which appears to be missing.\n\n"
+                           + "Reinstall the app to add it, or get it from https://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n"
+                           + ex.Message;
+            WebViewUnavailable?.Invoke();
         }
     }
 
@@ -331,6 +353,7 @@ public sealed class AppShell : Panel
             environment = _environment,
             logDetail = _isAdmin && _logDetail,
             isAdmin = _isAdmin,
+            helpMenu = _helpMenu.Select(m => new { id = m.Id, label = m.Label, enabled = m.Enabled, @checked = m.Checked, sep = m.Separator }),
         });
     }
 
@@ -361,6 +384,9 @@ public sealed class AppShell : Panel
                         root.TryGetProperty("category", out var fc) ? fc.GetString() ?? "general" : "general",
                         text,
                         root.TryGetProperty("includeLog", out var fl) && fl.ValueKind == JsonValueKind.True);
+                    break;
+                case "menu" when root.TryGetProperty("id", out var mi) && mi.GetString() is string menuId:
+                    MenuItemInvoked?.Invoke(menuId);
                     break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
@@ -485,6 +511,25 @@ public sealed class AppShell : Panel
                           padding:11px 16px; border:none; background:none; font-family:inherit; font-size:13px;
                           color:var(--fg); cursor:pointer; }
   #accountMenu .am-item:hover { background:var(--panel); }
+
+  /* Help button + dropdown: the app menu that used to be a native MenuStrip above the page. It takes
+     the top bar's free space (margin-left:auto) so Sign In / the avatar sit beside it at the right. */
+  #help { flex:none; margin-left:auto; height:32px; padding:0 12px; border-radius:16px;
+          border:1px solid var(--line); background:none; color:var(--sub); font-family:inherit;
+          font-size:12px; font-weight:600; cursor:pointer; }
+  #help:hover, #help.open { color:var(--fg); background:var(--panel); }
+  #help ~ #signin, #help ~ #account { margin-left:0; }
+  #helpMenu { display:none; position:absolute; top:calc(100% + 6px); right:12px; z-index:30; min-width:240px;
+              background:var(--card); border:1px solid var(--line); border-radius:12px;
+              box-shadow:0 10px 30px rgba(0,0,0,.22); overflow:hidden; padding:4px 0; }
+  #helpMenu.open { display:block; }
+  #helpMenu .hm-item { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+                       padding:9px 16px; border:none; background:none; font-family:inherit; font-size:13px;
+                       color:var(--fg); cursor:pointer; }
+  #helpMenu .hm-item:hover:not(:disabled) { background:var(--panel); }
+  #helpMenu .hm-item:disabled { color:var(--mut); cursor:default; }
+  #helpMenu .hm-check { width:14px; flex:none; text-align:center; color:var(--accent); font-weight:700; }
+  #helpMenu .hm-sep { height:1px; background:var(--line); margin:4px 0; }
 
   .banner { flex:none; display:none; padding:9px 16px; font-size:12px; font-weight:600; cursor:pointer;
             border-bottom:1px solid var(--line); }
@@ -635,6 +680,8 @@ public sealed class AppShell : Panel
     <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span></div>
     <div id='env'><span class='label'></span><span class='host'></span></div>
     <div id='pill'><span class='dot'></span><span class='txt'></span></div>
+    <button id='help' type='button' aria-haspopup='menu'>Help</button>
+    <div id='helpMenu' role='menu'></div>
     <button id='signin' type='button'>Sign In</button>
     <button id='account' type='button' aria-label='Account'><span id='accountAvatar'></span></button>
     <div id='accountMenu'>
@@ -738,7 +785,35 @@ public sealed class AppShell : Panel
     return null;
   }
 
+  // Rebuilt on every state push from state.helpMenu; a toggle carries a tick column so labels line up.
+  function renderHelpMenu() {
+    var m = $('helpMenu'), items = state.helpMenu || [];
+    var anyCheck = items.some(function(i){ return i.checked !== null && i.checked !== undefined; });
+    m.textContent = '';
+    items.forEach(function(i, idx){
+      if (i.sep) {
+        if (idx > 0 && idx < items.length - 1 && !items[idx - 1].sep) {
+          var s = document.createElement('div'); s.className = 'hm-sep'; m.appendChild(s);
+        }
+        return;
+      }
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'hm-item'; b.disabled = !i.enabled;
+      b.setAttribute('role', i.checked === null || i.checked === undefined ? 'menuitem' : 'menuitemcheckbox');
+      if (anyCheck) {
+        var c = document.createElement('span'); c.className = 'hm-check'; c.textContent = i.checked ? '✓' : '';
+        b.appendChild(c);
+        if (i.checked !== null && i.checked !== undefined) b.setAttribute('aria-checked', i.checked ? 'true' : 'false');
+      }
+      b.appendChild(document.createTextNode(i.label));
+      b.onclick = function(){ closeHelpMenu(); window.chrome.webview.postMessage({ type:'menu', id:i.id }); };
+      m.appendChild(b);
+    });
+    $('help').style.display = items.length ? 'inline-block' : 'none';
+  }
+
   function renderTopbar() {
+    renderHelpMenu();
     var signin = $('signin'), account = $('account');
     if (state.signedIn) {
       signin.style.display = 'none';
@@ -999,9 +1074,21 @@ public sealed class AppShell : Panel
     if (btn.id === 'btnData') window.chrome.webview.postMessage({ type:'export' });
   });
 
+  function closeHelpMenu(){ $('helpMenu').classList.remove('open'); $('help').classList.remove('open'); }
+  $('help').onclick = function(e){
+    e.stopPropagation();
+    closeAccountMenu();
+    var open = $('helpMenu').classList.toggle('open');
+    $('help').classList.toggle('open', open);
+  };
+  document.addEventListener('click', function(e){
+    if (!$('helpMenu').contains(e.target) && e.target !== $('help')) closeHelpMenu();
+  });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeHelpMenu(); });
   function closeAccountMenu(){ $('accountMenu').classList.remove('open'); $('account').classList.remove('open'); }
   $('account').onclick = function(e){
     e.stopPropagation();
+    closeHelpMenu();
     var open = $('accountMenu').classList.toggle('open');
     $('account').classList.toggle('open', open);
   };
