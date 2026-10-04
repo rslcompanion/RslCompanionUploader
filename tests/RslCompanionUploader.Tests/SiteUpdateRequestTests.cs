@@ -68,4 +68,45 @@ public class SiteUpdateRequestTests
         r.Request(T0.AddMinutes(9));
         Assert.Equal(Decision.Wait, r.Evaluate(T0.AddMinutes(15), true, true, false));
     }
+
+    [Fact]
+    public void The_run_reports_which_account_the_site_asked_for()
+    {
+        var r = new SiteUpdateRequest();
+        r.Request(T0, accountId: 111);
+        Assert.Equal(Decision.Wait, r.Evaluate(T0, true, true, false, out var whileWaiting));
+        Assert.Null(whileWaiting); // only a run hands it out
+        Assert.Equal(Decision.Run, r.Evaluate(T0, true, true, true, out var asked));
+        Assert.Equal(111, asked);
+    }
+
+    [Fact]
+    public void A_newer_press_replaces_the_account_too()
+    {
+        var r = new SiteUpdateRequest();
+        r.Request(T0, accountId: 111);
+        r.Request(T0, accountId: null); // e.g. "Sync New Account", which names none
+        Assert.Equal(Decision.Run, r.Evaluate(T0, true, true, true, out var asked));
+        Assert.Null(asked);
+    }
+
+    [Fact]
+    public void Asking_for_another_account_informs_and_names_both()
+    {
+        var notice = MismatchNotice(111, "RslCompanion", 95604564, "Magikwolf");
+        Assert.NotNull(notice);
+        Assert.Contains("You asked to update RslCompanion", notice);
+        Assert.Contains("Raid is signed in to Magikwolf", notice);
+        Assert.Contains("switch to it in Raid", notice);
+    }
+
+    [Fact]
+    public void An_account_with_no_known_name_is_named_by_its_id() =>
+        Assert.Contains("account #111", MismatchNotice(111, null, 95604564, "Magikwolf"));
+
+    [Theory]
+    [InlineData(95604564)] // the one being played
+    [InlineData(null)]     // the site didn't say (every site build so far)
+    public void Nothing_to_say_when_it_matches_or_was_not_named(int? asked) =>
+        Assert.Null(MismatchNotice(asked, "Magikwolf", 95604564, "Magikwolf"));
 }

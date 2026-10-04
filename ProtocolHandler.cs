@@ -76,6 +76,7 @@ internal static class ProtocolHandler
         string? code = null;
         string? api = null;
         var apiCount = 0;
+        int? account = null;
 
         foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -91,18 +92,29 @@ internal static class ProtocolHandler
                 apiCount++;
                 api = value;
             }
+            else if (name.Equals("account", StringComparison.OrdinalIgnoreCase)
+                     && account is null && int.TryParse(value, System.Globalization.NumberStyles.None,
+                         System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0)
+                account = id; // first valid wins; anything else is ignored, never an error
         }
 
         if (string.IsNullOrWhiteSpace(code)) return null;
-        return new HandoffLaunch(code, api, ApiAmbiguous: apiCount > 1);
+        return new HandoffLaunch(code, api, ApiAmbiguous: apiCount > 1, AccountId: account);
     }
 }
 
 /// <summary>
 /// A <c>sync</c> launch as the URI carried it. <see cref="Api"/> is null when the parameter was
 /// absent — every site build before 2026-09-30 — which is not the same as present-and-empty.
+///
+/// <para><see cref="AccountId"/> is the in-game id of the account card whose "Update Data" was
+/// clicked (<c>&amp;account=&lt;id&gt;</c>, 1.42+), the same id the app puts on its own
+/// "Open RSL Companion" link. <b>It is a label, never a target.</b> The app can only read the
+/// account open in Raid, and it syncs that one. When the two differ the user is told which was
+/// synced (<c>MainForm.TryRunSiteUpdate</c>). It is not allow-listed or validated beyond being a
+/// positive number, because nothing is sent anywhere on its account.</para>
 /// </summary>
-internal sealed record HandoffLaunch(string Code, string? Api, bool ApiAmbiguous = false)
+internal sealed record HandoffLaunch(string Code, string? Api, bool ApiAmbiguous = false, int? AccountId = null)
 {
     /// <summary>
     /// The environment this code must be redeemed at, or null when the launch names one this app will

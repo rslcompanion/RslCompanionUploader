@@ -100,4 +100,35 @@ public class ProtocolHandlerTests
     [Fact]
     public void The_first_code_wins_as_it_always_has() =>
         Assert.Equal("first", Parse("rslcompanion-extractor://sync?code=first&code=second")!.Code);
+
+    [Theory]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=95604564", 95604564)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&api=https%3A%2F%2Fapi.rslcompanion.com&account=95604564", 95604564)]
+    [InlineData("rslcompanion-extractor://sync?account=95604564&code=abc", 95604564)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=junk&account=7", 7)] // first *valid* wins
+    public void The_card_that_asked_is_read_from_account(string uri, int expected) =>
+        Assert.Equal(expected, Parse(uri)!.AccountId);
+
+    [Theory]
+    [InlineData("rslcompanion-extractor://sync?code=abc")]                 // every site build so far
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=")]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=-5")]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=0")]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=1e3")]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=99999999999")]
+    public void A_missing_or_unusable_account_is_simply_absent(string uri)
+    {
+        var launch = Parse(uri)!;
+        Assert.Equal("abc", launch.Code); // never costs the sign-in
+        Assert.Null(launch.AccountId);
+    }
+
+    [Fact]
+    public void An_account_never_affects_where_the_code_is_redeemed() =>
+        Assert.Same(ApiTarget.Production,
+            Parse("rslcompanion-extractor://sync?code=abc&account=95604564")!.ResolveTarget(Config));
+
+    [Fact]
+    public void An_account_without_a_code_is_still_not_a_sign_in() =>
+        Assert.Null(Parse("rslcompanion-extractor://sync?account=95604564"));
 }
