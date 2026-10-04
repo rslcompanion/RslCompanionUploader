@@ -232,6 +232,21 @@ jobs:
             Write-Host "Package\rsl-msix.cer not present — skipping (no cert for testers to trust yet)."
           }
 
+      # The installer carries Microsoft's WebView2 bootstrapper and runs it only on a machine without
+      # the runtime (fresh Windows 10). It is fetched per build rather than committed, and refused
+      # unless Microsoft signed it: it runs on users' machines from our installer.
+      - name: Fetch WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force installer\redist | Out-Null
+          $out = "installer\redist\MicrosoftEdgeWebview2Setup.exe"
+          Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile $out
+          $sig = Get-AuthenticodeSignature $out
+          if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            throw "WebView2 bootstrapper signature check failed: $($sig.Status) $($sig.SignerCertificate.Subject)"
+          }
+          Write-Host "WebView2 bootstrapper: $((Get-Item $out).Length) bytes, signed by $($sig.SignerCertificate.Subject)"
+
       - name: Compile installer
         shell: pwsh
         run: |

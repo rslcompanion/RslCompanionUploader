@@ -4,79 +4,65 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten 2026-08-25, right after **v1.16.0** shipped; **partially corrected 2026-09-03 when
-v1.17.0 was cut** — the repo table and the "nobody reads schema 18" section below were rewritten,
-the rest of the file has not been re-checked since 2026-08-25. **Check `git log` before trusting any
-state below**: more than one session works in `D:\Codex\RslCompanionUploader`, including its
-`extraction/` checkout, so a clean tree here is not evidence that nothing has moved.
+Rewritten 2026-10-04, when **v1.41.0** was cut. The "Open elsewhere" list is carried over from
+2026-09-03 and was not re-checked. **Check `git log` before trusting any state below**: more than one
+session works in `D:\Codex\RslCompanionUploader`, including its `extraction/` checkout, so a clean
+tree here is not evidence that nothing has moved.
 
 ---
 
-## Where the repos stand (2026-09-03)
+## Where the repos stand (2026-10-04)
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.17.0** (2026-09-03) carrying schema 19 and all nine `statBreakdown` columns |
-| `…\RslCompanionUploader\extraction` (private submodule) | `main` = `86bb833`, pointer matches |
-| `D:\Codex\RslCompanionMetadata` (private) | `df4629d`; **working tree dirty** — MetadataStudio, StatBreakdownProbe, ClashProbe, `docs/clash-findings.md` |
-| `D:\Codex\RaidTools` | the API + Angular frontend; its own TODO.md |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.41.0**. Payload **schema 37** (shipped in v1.39.0). |
+| `…\RslCompanionUploader\extraction` (private submodule) | pinned at `c903beb` (schema 37) |
+| `D:\Codex\RslCompanionMetadata` (private) | not re-checked |
+| `D:\Codex\RaidTools` | the API + Angular frontend; `main` and `dev` branches; its own TODO.md |
 
-**Payload contract: schema 19.** v1.17.0 is the first release that sends it. Consumers still read
-`payload.champions ?? payload.heroes`, and that fallback outlives the producer's half by a long way —
-pre-1.14 installs keep sending `heroes` alone, and installs update opt-in.
+**RSL Companion is not live yet.** Everything goes to `main` and ships as a plain `vX.Y.Z` tag.
+There is no `dev` branch in this repo.
 
-## Schema 18/19 is consumed now — but only by installs that have updated
+## What changed in 1.40 and 1.41
 
-**RaidTools reads the statBreakdown, its source list and the Great Hall's area grid** as of
-2026-09-03: the champion popup draws the game's Total Stats table with all nine producer columns plus
-a tenth, Area Bonuses, computed per a location picked from the game's own dropdown (`RaidTools/docs/
-stat-breakdown.md`). What is left is a **producer-side rollout problem, not a consumer gap**: every
-account still on v1.16.0 uploads `statBreakdownSources: [basic, artifacts, greatHall, arena]`, and
-the popup correctly draws four columns and names the five it is missing. The fix for a given account
-is that account updating the app and re-syncing.
-
-The fields, for reference:
-
-- `affinityBonuses[]` / `areaBonuses[]` — the Great Hall's two tabs as account data. The **whole
-  declared grid** rides on the wire (4×6 and 13×8), unbought tracks at `level: 0`, so a consumer can
-  draw the screen without hardcoding axes.
-- `champions[].statBreakdown` — the game's own Total Stats table per copy, with the client's
-  blank-vs-zero distinction preserved.
-- `statBreakdownSources` — which columns *that export* actually computed. A source missing from this
-  list is "not modelled yet", which is a third state distinct from "contributes nothing".
-- `champions[].elementId` — the copy's affinity, and the join key onto `affinityBonuses[]`.
-
-Contract: [docs/export-schema.md](docs/export-schema.md) / [.json](docs/export-schema.json).
-Derivation of the village tables: `extraction/docs/observatory-findings.md`.
-
-**Two traps a consumer will hit, both stated in the schema and both easy to skip past:**
-
-1. **`isAbsolute` is not constant inside either bonus table.** HP/ATK/DEF/C.DMG/IGN.DEF are fractions
-   of the Basic Stat; **RES/ACC/SPD are flat amounts**. Reading the table as percentages computes
-   `baseResistance × 80` where the game adds 80. That was a real bug on the producer side, and it
-   verified clean against the client because the test account held level 0 in exactly those stats.
-2. **`areaBonuses[]` will never appear in `statBreakdownSources`.** The game applies it for one
-   location the player picks from a dropdown, so there is no per-champion number. Account level is the
-   only place it is well defined.
+- **1.40: a website launch reaches an already-open app.** Before, only the sign-in panel listened
+  for forwarded launches, so a signed-in window dropped "Update Data" from the site. `MainForm` is
+  now the single receiver (`SingleInstance.SetHandler`). It brings the window forward, redeems the
+  code at once, and switches session when idle. See CLAUDE.md, "A launch that arrives while the
+  app is already open".
+- **1.40: dev builds can ship as pre-releases** (`v1.2.0-dev.N`). Production installs never see
+  them. Installs on a dev server, or already running a pre-release, are offered them. **Never used
+  yet.** The first `-dev` tag is the test.
+- **1.41: the site's "Update Data" runs the export,** not only the sign-in (`SiteUpdateRequest`).
+  It runs once Raid's account is readable, waits up to 10 minutes, and never on a launch from the
+  app's own Sign In.
+- **1.41: the Help menu lives in the page's top bar.** The native `MenuStrip` is hidden and stays
+  the record of the items' state. It reappears only if WebView2 fails.
+- **1.41: the installer brings the WebView2 runtime** on machines without it (fresh Windows 10).
 
 ## Open in this repo
 
-1. **Bundle the WebView2 runtime bootstrapper in the installer** ([TODO.md](TODO.md),
-   [installer/setup.iss](installer/setup.iss)). The whole UI is WebView2; Windows 11 ships it in-box,
-   a fresh Windows 10 machine may not, and there the app shows only the fallback label while sign-in
-   still works — a confusing half-broken state rather than an obvious one. Still the one open item
-   with real user impact.
-2. **Fold the native File/Help menu into the web top bar** — deliberately **deferred** until the
-   web-UI direction has been lived with. See TODO.md before starting it on a whim.
+1. **"Update Data" on one account's card updates the account open in Raid,** which may be another
+   one. The app can only read the running game. A site-side `account` hint on the launch URI would
+   let the app refuse a mismatch instead. That needs a RaidTools change first. Old builds ignore
+   unknown parameters, so the site can ship it first.
+2. **Confirm the site's `/handoff/status` check on prod** reports "launched" for an already-open
+   1.40+ app. The fix was verified from the app's side (redeemed ~1 s after the click), not from
+   the site's.
+3. **Code signing.** Releases are unsigned. Avast locked a fresh installer once on 2026-10-04, and
+   SmartScreen warns. The workflow has a stubbed signing step.
+4. **The WebView2 bootstrap path is untested on a machine without the runtime.** The detection
+   was checked against this machine's registry, and the compile was checked with and without the
+   file. A Windows 10 VM without WebView2 is the real test.
 
-## Open elsewhere
+## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
-- **Boss catalog, two unemitted fields.** `boss_index.json` ships (321 entries), but `HeroForm`'s
+- **Boss catalog, two unemitted fields.** `boss_index.json` ships, but `HeroForm`'s
   `AdditionalSkillTypeIds@+40` and `ChallengeSkillTypeIds@+48` are still not emitted. Additive change
   to a file that exists. Contract: `RslCompanionMetadata/docs/champion-index-contract.md`.
 - **Data hygiene.** Accounts synced on build 11.70.0 *before 2026-08-09* hold `factionId: 0` and
   `roleId: null` for every hero, and `Template_<id>` names for the nine oldest base ids. Neither field
-  distinguishes "could not read" from "has none" — **re-sync those accounts**; nothing to migrate
+  distinguishes "could not read" from "has none". **Re-sync those accounts**; nothing to migrate
   server-side.
 - **RaidTools' own TODO** (`D:\Codex\RaidTools\TODO.md`): rotate the Data Protection keys (still in git
   history), reset both legal documents to Version 1 before launch, robots.txt/sitemap.xml, GDPR
@@ -86,34 +72,46 @@ Derivation of the village tables: `extraction/docs/observatory-findings.md`.
 
 ## Release mechanics, so they don't get rediscovered
 
-- Push a `v*` tag; `.github/workflows/release.yml` builds with the submodule, compiles the Inno
-  installer and publishes the GitHub Release. ~2 minutes. CI needs `EXTRACTION_REPO_TOKEN` to fetch
-  the private engine, and **the submodule pointer must already be pushed** — the workflow fails fast
-  with a readable message when it is not.
+- Push a `v*` tag; `.github/workflows/release.yml` builds with the submodule, fetches and
+  signature-checks the WebView2 bootstrapper, compiles the Inno installer and publishes the GitHub
+  Release. ~2–3 minutes. CI needs `EXTRACTION_REPO_TOKEN` to fetch the private engine, and **the
+  submodule pointer must already be pushed**.
+- `vX.Y.Z` is a normal release, marked latest. `vX.Y.Z-label` is a pre-release, never latest. The
+  exe, installer and MSIX get the numeric part; the label is in the informational version.
 - **`get.rslcompanion.com` needs no per-release action.** Cloudflare 301s it to
   `github.com/…/releases/latest/download/RslCompanionAccountDataExtractor-Setup.exe`, and GitHub
-  resolves "latest" itself. What that *does* require is that every release keeps attaching the
-  **unversioned** `-Setup.exe` asset — the URL depends on that filename.
+  resolves "latest" itself. That requires every release to keep attaching the **unversioned**
+  `-Setup.exe` asset. It also requires that no pre-release is ever marked latest by hand.
 - The update banner picks the **version-stamped** installer and never the `.msix` (self-signed, and it
   cannot install on a machine that has not already trusted the certificate).
+- Compiling the installer locally needs `installer\redist\MicrosoftEdgeWebview2Setup.exe` first (see
+  the note in `setup.iss`); ISCC stops with an explanation without it.
+- Merging PRs from a Claude session needs a `Bash(gh pr merge:*)` allow rule in
+  `.claude/settings.local.json`. Auto mode blocks it otherwise, and it also blocks Claude from adding
+  that rule itself.
 
 ## Working notes — the expensive lessons
 
 - **Never re-add the clan roster export.** It is gone for **consent**, not cost. Collecting it is now
   provably free, and that must not be read as a reason to bring it back.
+- **An event with an optional listener is a place to lose data.** The single-instance pipe raised
+  forwarded launches to whoever subscribed. Only the sign-in panel did, so a signed-in window dropped
+  them silently for months. Anything carrying a single-use value needs exactly one owner, plus a
+  queue for when the owner isn't ready.
 - **One account's holdings are not the game's structure.** The area-bonus doc claimed "which stats a
-  location grants varies by location" — read off one player's *purchases*, where one location had two
-  tracks levelled and another eight. All three Observatory tiers declare the same eight. This is the
-  same shape of error that made the artifact set table wrong from id 4 onward, and it is why both
-  village tables now ship the whole declared grid rather than only the bought cells.
+  location grants varies by location" — read off one player's *purchases*. All three Observatory
+  tiers declare the same eight. This is why both village tables ship the whole declared grid.
 - **A negative result from a scan is worth exactly as much as the scan's stride.** Four occurrences
   here (page-stride vault scan, region-capped klass scan, shard/soul quantity signatures, the
   `typeId < 100` floor).
 - **A field that GATES other fields must be resolved by name, never left to calibration** —
   `Hero._type` being unresolved silently cost faction, role and typeId for an entire roster.
-- **Verify a computed column on data that can actually disagree.** The flat-vs-percentage bug above
-  passed a cell-for-cell check against the client because every cell that could have exposed it was
-  blank on the test account.
+- **Verify a computed column on data that can actually disagree.** The flat-vs-percentage bug passed
+  a cell-for-cell check against the client because every cell that could have exposed it was blank
+  on the test account.
+- **Running a local build re-registers `rslcompanion-extractor://` to that exe.** Put the HKCU
+  registration back to the installed exe afterwards, or the site's buttons start launching the
+  build folder.
 - **`bin\Debug\` can hold more than one framework folder.** The project targets
   `net10.0-windows10.0.19041.0`; a stale `net10.0-windows\` sat beside it for two weeks, and running
   it produced a fifteen-day-old app that looked current. Check `LastWriteTime` before believing a run.

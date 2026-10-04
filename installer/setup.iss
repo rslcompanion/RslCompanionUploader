@@ -40,6 +40,17 @@
 ; The folder is deliberately left absent rather than pre-populated: ISCC fails loudly on a missing
 ; source, which is a better outcome than packing a stale one.
 #define PublishDir "..\publish\win-x64"
+; Microsoft's WebView2 Evergreen bootstrapper (~2 MB). The app's whole UI is a WebView2 page, so the
+; runtime is load-bearing. Windows 11 ships it, but a fresh Windows 10 machine may not have it, and
+; there the app shows only a fallback label. CI downloads it into installer\redist\ and checks
+; Microsoft's Authenticode signature (.github/workflows/release.yml); it is gitignored, never
+; committed. For a local compile, fetch it the same way first:
+;   Invoke-WebRequest https://go.microsoft.com/fwlink/p/?LinkId=2124703 -OutFile installer\redist\MicrosoftEdgeWebview2Setup.exe
+; It only runs when the runtime is missing (NeedsWebView2 below).
+#define WebView2Bootstrapper "redist\MicrosoftEdgeWebview2Setup.exe"
+#if !FileExists(AddBackslash(SourcePath) + WebView2Bootstrapper)
+  #error installer\redist\MicrosoftEdgeWebview2Setup.exe is missing. See the WebView2Bootstrapper note in setup.iss.
+#endif
 
 [Setup]
 AppId={{8E0E4C6B-2B7D-4C43-9A31-5D9F6C1A7E42}
@@ -88,6 +99,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; to the exe on first run, and a shipped copy would only carry a heap address that died with
 ; whichever machine produced it. known-offsets.json is what spares users the calibration scan.
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.xml"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Extracted only when it is about to run, and removed afterwards.
+Source: "{#WebView2Bootstrapper}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsWebView2
 
 [Registry]
 ; rslcompanion-extractor:// protocol handler — lets rslcompanion.com launch the app and hand
@@ -133,6 +146,11 @@ Type: files; Name: "{localappdata}\RslCompanion\hero_base_stats.json"
 Type: dirifempty; Name: "{localappdata}\RslCompanion"
 
 [Run]
+; First, so the runtime is there before anything below starts the app. Not elevated, because this
+; installer is PrivilegesRequired=lowest, so the bootstrapper installs the runtime per-user. A failure
+; (offline, blocked by policy) does not fail setup: the app still installs and explains what is
+; missing in its fallback label.
+Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; StatusMsg: "Installing the Microsoft Edge WebView2 Runtime..."; Flags: waituntilterminated; Check: NeedsWebView2
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 ; The in-app update banner downloads this installer, runs it with /SILENT /relaunch=1 and exits so
 ; its files can be replaced — so without this entry an update would end with the app simply gone
@@ -143,6 +161,25 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait skipifnotsilent; Check: RelaunchRequested
 
 [Code]
+// Whether the WebView2 Runtime is missing. These are the three registry locations Microsoft documents
+// for detecting it (per-machine on 64-bit and 32-bit Windows, and per-user). An install shows a
+// non-empty version in "pv", and an uninstalled one can leave "0.0.0.0" behind.
+const
+  WebView2ClientKey = 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+
+function WebView2VersionAt(RootKey: Integer): Boolean;
+var
+  Version: String;
+begin
+  Result := RegQueryStringValue(RootKey, WebView2ClientKey, 'pv', Version)
+            and (Version <> '') and (Version <> '0.0.0.0');
+end;
+
+function NeedsWebView2(): Boolean;
+begin
+  Result := not (WebView2VersionAt(HKLM32) or (IsWin64 and WebView2VersionAt(HKLM64)) or WebView2VersionAt(HKCU));
+end;
+
 // Whether the caller asked for the app to be started again afterwards (the in-app updater does:
 // /SILENT /relaunch=1). Only consulted by the silent-mode [Run] entry above.
 function RelaunchRequested(): Boolean;

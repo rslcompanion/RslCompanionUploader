@@ -1238,7 +1238,7 @@ public sealed class MainForm : Form
 #endif
 
     /// <summary>
-    /// The site URL behind the page's "Open RSL Companion" button and Help → Open rslcompanion.com.
+    /// The site URL behind the page's "Open RSL Companion" button.
     ///
     /// When the running game is on an account this profile has already imported, that account is
     /// named in the URL (<c>?account=&lt;in-game id&gt;</c>) so the site opens on the account being
@@ -1351,9 +1351,49 @@ public sealed class MainForm : Form
 
         // Added after the Fill control on purpose: WinForms resolves docking from the highest child
         // index down, so the menu must be last to claim the top strip before the content fills.
+        //
+        // Hidden: the same items are drawn as the page's own Help menu in its top bar (see
+        // PushHelpMenu), so the window has no native chrome above the page. The strip stays as the
+        // items' state and their click handlers, and comes back into view only if WebView2 fails
+        // to start, which takes the page and its Help menu with it.
         var menu = BuildMenu();
+        menu.Visible = false;
         Controls.Add(menu);
         MainMenuStrip = menu;
+
+        _shell.WebViewUnavailable += () => menu.Visible = true;
+        // Deferred like SignInRequested: several of these open a modal dialog, and opening one
+        // inside the WebView2 message callback crashes the WebView2 host.
+        _shell.MenuItemInvoked += id => BeginInvoke(() =>
+        {
+            if (_helpMenu?.DropDownItems[id] is ToolStripMenuItem { Enabled: true, Available: true } item)
+                item.PerformClick();
+        });
+        PushHelpMenu();
+    }
+
+    /// <summary>The Help menu's items. Their Enabled/Available/Checked are the one record of its state.</summary>
+    private ToolStripMenuItem? _helpMenu;
+
+    /// <summary>
+    /// Sends the Help menu to the page as it stands now. Hidden items are left out, and a toggle
+    /// carries its tick. Called on every change to an item, so code that flips
+    /// <c>_serverItem.Visible</c> or <c>_sessionSecurityItem.Enabled</c> needs to know nothing
+    /// about the page.
+    /// </summary>
+    private void PushHelpMenu()
+    {
+        if (_helpMenu is null) return;
+        var entries = new List<AppShell.MenuEntry>();
+        foreach (ToolStripItem item in _helpMenu.DropDownItems)
+        {
+            if (!item.Available) continue;
+            if (item is ToolStripSeparator) { entries.Add(new AppShell.MenuEntry("", "", Separator: true)); continue; }
+            if (item is not ToolStripMenuItem mi) continue;
+            entries.Add(new AppShell.MenuEntry(mi.Name, mi.Text?.Replace("&", "") ?? "", mi.Enabled,
+                mi.CheckOnClick ? mi.Checked : null));
+        }
+        _shell.SetHelpMenu(entries);
     }
 
     private MenuStrip BuildMenu()
@@ -1390,9 +1430,6 @@ public sealed class MainForm : Form
                     force: true);
             }));
 #endif
-        // Evaluated per click, not once at build time: the account being played changes underneath it.
-        help.DropDownItems.Add(new ToolStripMenuItem("Open rslcompanion.com", null,
-            (_, _) => OpenUrl(SiteUrl())));
 
         // The stay-signed-in choice is made on the sign-in window, which someone with a remembered
         // session may not see for months. This is how they change their mind without the sign-out
@@ -1420,6 +1457,19 @@ public sealed class MainForm : Form
             using var about = new AboutForm(_config, _api.Session?.Target);
             about.ShowDialog(this);
         }));
+
+        // Names are the ids the page posts back (see BuildLayout), and the state hooks keep the
+        // page's copy of the menu in step with the items.
+        var n = 0;
+        foreach (ToolStripItem item in help.DropDownItems)
+        {
+            if (string.IsNullOrEmpty(item.Name)) item.Name = $"help{n}";
+            n++;
+            item.EnabledChanged += (_, _) => PushHelpMenu();
+            item.AvailableChanged += (_, _) => PushHelpMenu();
+            if (item is ToolStripMenuItem mi) mi.CheckedChanged += (_, _) => PushHelpMenu();
+        }
+        _helpMenu = help;
 
         var menu = new MenuStrip { Dock = DockStyle.Top };
         menu.Items.Add(help);
