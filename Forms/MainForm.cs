@@ -322,6 +322,12 @@ public sealed class MainForm : Form
                 var session = await _handoff.SignInAsync(launch);
                 await AdoptSessionAsync(session);
                 await KeepSessionPerChoiceAsync(session);
+#if EXTRACTION
+                // Started by a button on the site, so the button's purpose applies: update the data.
+                // The game poll has usually not identified the account yet this early, which is why
+                // this records a request rather than exporting on the spot.
+                RequestSiteUpdate();
+#endif
                 return;
             }
             catch (Exception ex)
@@ -460,6 +466,10 @@ public sealed class MainForm : Form
         await _sessionGate.WaitAsync();
         try
         {
+            // An export already in flight when the button was pressed is sending exactly what the
+            // button asks for, so it answers the request; a second one straight after would only
+            // upload the same snapshot again.
+            var exportAlreadyRunning = _busy && _busyKind == "export";
             if (_busy)
             {
                 Log("Signed in from the website. Switching to it as soon as the current task finishes…");
@@ -482,6 +492,12 @@ public sealed class MainForm : Form
             await AdoptSessionAsync(session);
             Log($"Signed in from rslcompanion.com as {session.Email ?? session.DisplayName ?? session.Uid}.");
             await KeepSessionPerChoiceAsync(session);
+#if EXTRACTION
+            if (exportAlreadyRunning)
+                Log("Your data was just sent to RSL Companion by the update that was already running.");
+            else
+                RequestSiteUpdate();
+#endif
         }
         catch (Exception ex)
         {
@@ -1169,6 +1185,7 @@ public sealed class MainForm : Form
                 Log(_loadedAccounts.Any(a => a.UserId == _liveUserId)
                     ? $"Playing as {_liveName} (#{_liveUserId}) — already imported."
                     : $"New account detected: {_liveName} (#{_liveUserId}) — not imported yet.");
+                TryRunSiteUpdate(); // a site button may be waiting for exactly this
                 break;
 
             case GameState.SignedOut:
@@ -1915,6 +1932,62 @@ public sealed class MainForm : Form
     private int _uploadRejections;
 
     /// <summary>
+    /// A website button's request to update that has not run yet.
+    ///
+    /// <para><b>Why the site's button now uploads.</b> Before 1.41, a launch from "Update Data" (or
+    /// "Sync New Account") only signed the app in. The user then had to find the window and press
+    /// Update user data, which is the step the button's name promised to do. The link itself
+    /// carries no intent. The site sends the same <c>sync?code=…</c> for its dashboard buttons and
+    /// for <c>/connect-extractor</c>, the page this app's own Sign In opens. That page's launch
+    /// always arrives while <see cref="SignInPanel"/> is waiting, and goes there, so any launch that
+    /// does <i>not</i> reach the panel came from a dashboard button. Those are the ones that set it.</para>
+    ///
+    /// <para>It reads the account open in Raid, the only one this app can read, and the server
+    /// files the upload by that account's id. So "Update Data" on a card for a different account
+    /// updates the one being played. The log names it.</para>
+    /// </summary>
+    private readonly SiteUpdateRequest _siteUpdate = new();
+
+    /// <summary>Records a website button's request to update, runs it if possible, and says what it waits on if not.</summary>
+    private void RequestSiteUpdate()
+    {
+        _siteUpdate.Request(DateTime.UtcNow);
+        if (TryRunSiteUpdate()) return;
+
+        Log(_gameState switch
+        {
+            GameState.NotRunning => "Start Raid and your data will update as soon as your account is readable.",
+            GameState.SignedOut => "Raid is signed out. Press Reconnect in the game, and your data will update after that.",
+            GameState.Calibrating or GameState.NeedsCalibration =>
+                "Your data will update once this Raid version is set up.",
+            _ => "Your data will update as soon as Raid has loaded your account.",
+        });
+    }
+
+    /// <summary>
+    /// Runs a pending site request if everything it needs is in place. Called when it is made,
+    /// when the game's account becomes readable, and whenever a task ends. Returns whether it ran.
+    /// </summary>
+    private bool TryRunSiteUpdate()
+    {
+        switch (_siteUpdate.Evaluate(DateTime.UtcNow,
+                    signedIn: _api.IsAuthenticated,
+                    idle: !_busy && !_calibrating,
+                    accountReadable: _gameState == GameState.Connected))
+        {
+            case SiteUpdateRequest.Decision.Run:
+                Log("Updating your data, as requested from rslcompanion.com.");
+                _ = ExportAccountAsync();
+                return true;
+            case SiteUpdateRequest.Decision.Expired:
+                Log("The update requested from rslcompanion.com timed out waiting for Raid. Press Update user data when the game is ready.");
+                return false;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
     /// Extracts the live account from the game, checks it against the accounts already created by
     /// this uploader, and exports it to RSL Companion. The consolidated profile carries the in-game
     /// account id — the "handle" identity, deliberately distinct from the signed-in uploader — and
@@ -2188,6 +2261,7 @@ public sealed class MainForm : Form
         if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = false;
 #if EXTRACTION
         _shell.SetExportAvailable(false);
+        _siteUpdate.Clear(); // it was asked for on behalf of the session that just ended
 #endif
         // Drop straight to the signed-out UI in place rather than restarting the process; the
         // game-status poll keeps running, and the top bar shows the "Sign In" button again.
@@ -2244,9 +2318,19 @@ public sealed class MainForm : Form
     private void SetBusy(bool busy, string? kind = null)
     {
         _busy = busy;
+        _busyKind = busy ? kind : null;
         UseWaitCursor = busy;
         _shell.SetBusy(busy, kind);
+#if EXTRACTION
+        // A site-requested update that was waiting for this task to finish can go now. Deferred so
+        // the task that is ending finishes unwinding first.
+        if (!busy && _siteUpdate.Pending && IsHandleCreated)
+            BeginInvoke(TryRunSiteUpdate);
+#endif
     }
+
+    /// <summary>What <see cref="SetBusy"/> last said is running ("export", or null).</summary>
+    private string? _busyKind;
 
     // Marshals to the UI thread: the extraction engine logs from a background thread (see
     // ConsoleLogWriter), and the shell may only be touched on the UI thread.

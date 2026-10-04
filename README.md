@@ -37,6 +37,10 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    finished. Before 1.40 a signed-in window ignored the launch, and the site reported that the app
    didn't respond.
 
+   Since 1.41 a launch from the site's dashboard ("Update Data", "Sync New Account") also runs
+   **Update user data** as soon as Raid's account is readable. If Raid isn't open yet, it waits up
+   to 10 minutes. Launches from the app's own Sign In only sign in.
+
    **Help ▸ Server…** (1.34+) picks which site the in-app **Sign In** opens. It is shown only to
    people RaidTools grants the `extractor-dev-server` feature (Admin ▸ Groups), to admins, and to
    anyone already on a non-prod server, so there is always a way back to prod. Switching signs out of

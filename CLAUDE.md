@@ -348,6 +348,26 @@ redeemed, so that showed up as "the Extractor didn't respond". The rules now:
   `CurrentUserOnly`, because the pipe name is machine-wide and guessable.
 - Exchange failures go to the notice banner as well as the log (`ReportHandoffFailure`).
 
+**A website button's launch runs the export too (1.41), and only a website button's.** "Update Data"
+and "Sync New Account" used to sign the app in and stop there. The user then had to find the window
+and press Update user data, the step the button's name promised. The link carries no intent: the
+site sends the same `sync?code=…` from its dashboard and from `/connect-extractor`, the page this
+app's own Sign In opens. But that page's launch always arrives while `SignInPanel` is waiting and
+goes there. So a launch that does *not* reach the panel, forwarded or fresh, came from a dashboard
+button, and `MainForm.RequestSiteUpdate` records it in a [SiteUpdateRequest](SiteUpdateRequest.cs).
+
+- **It runs when it can, once.** That means signed in, not busy or calibrating, and the game
+  `Connected`. It is re-tried when the account becomes readable and whenever `SetBusy(false)` ends a
+  task. Until then the log says what it waits on: start Raid, Reconnect, the version setup.
+- **It gives up after 10 minutes** and says so, so an update nobody is waiting for doesn't fire later.
+- **No double upload.** If an export was already running when the button was pressed, that export
+  answers it.
+- **Sign-out drops it.** It was asked for on behalf of the session that ended.
+- **It updates the account open in Raid**, the only one this app can read. "Update Data" on another
+  account's card updates the one being played. The server files the upload by the in-game id. A
+  site-side `account` hint could refuse that case later; nothing sends one today.
+- **Don't route `/connect-extractor` launches here.** Signing in from the app is not a request to upload.
+
 The app registers `rslcompanion-extractor://` under HKCU on every startup
 ([ProtocolHandler.cs](ProtocolHandler.cs)); the installer also registers it at install time. A code
 arriving on the launch URI at startup (site-initiated: dashboard → "Sync New Account") is redeemed by
