@@ -4,18 +4,18 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten 2026-10-04, when **v1.41.0** was cut. The "Open elsewhere" list is carried over from
+Rewritten 2026-10-04, when **v1.41.0** was cut; brought up to **v1.42.1** on 2026-10-05. The "Open elsewhere" list is carried over from
 2026-09-03 and was not re-checked. **Check `git log` before trusting any state below**: more than one
 session works in `D:\Codex\RslCompanionUploader`, including its `extraction/` checkout, so a clean
 tree here is not evidence that nothing has moved.
 
 ---
 
-## Where the repos stand (2026-10-04)
+## Where the repos stand (2026-10-05)
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.41.0**. Payload **schema 37** (shipped in v1.39.0). |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.42.1**. Payload **schema 37** (shipped in v1.39.0). Builds with 0 warnings. |
 | `…\RslCompanionUploader\extraction` (private submodule) | pinned at `c903beb` (schema 37) |
 | `D:\Codex\RslCompanionMetadata` (private) | not re-checked |
 | `D:\Codex\RaidTools` | the API + Angular frontend; `main` and `dev` branches; its own TODO.md |
@@ -23,7 +23,7 @@ tree here is not evidence that nothing has moved.
 **RSL Companion is not live yet.** Everything goes to `main` and ships as a plain `vX.Y.Z` tag.
 There is no `dev` branch in this repo.
 
-## What changed in 1.40 and 1.41
+## What changed in 1.40 – 1.42
 
 - **1.40: a website launch reaches an already-open app.** Before, only the sign-in panel listened
   for forwarded launches, so a signed-in window dropped "Update Data" from the site. `MainForm` is
@@ -39,6 +39,12 @@ There is no `dev` branch in this repo.
 - **1.41: the Help menu lives in the page's top bar.** The native `MenuStrip` is hidden and stays
   the record of the items' state. It reappears only if WebView2 fails.
 - **1.41: the installer brings the WebView2 runtime** on machines without it (fresh Windows 10).
+- **1.42: a mismatch is reported, never blocked.** When the site names a card (`&account=<id>`)
+  and Raid is on a different account, the update syncs the account open in Raid and says so in
+  one sentence. 1.42.1 dropped a second sentence that told the user what to do.
+- **2026-10-05: the v1.39.0 "Update Data dropped by an open app" report was re-checked** against
+  the code. Every requirement in it (forwarding with ack, allow-list, prompt redemption, foreground,
+  401/403/429/503 messages) is already in 1.40+. Nothing to fix; the reporter needs to update.
 
 ## Open in this repo
 
