@@ -1406,8 +1406,9 @@ public sealed class MainForm : Form
         {
             if (!item.Available) continue;
             if (item is ToolStripSeparator) { entries.Add(new AppShell.MenuEntry("", "", Separator: true)); continue; }
-            if (item is not ToolStripMenuItem mi) continue;
-            entries.Add(new AppShell.MenuEntry(mi.Name, mi.Text?.Replace("&", "") ?? "", mi.Enabled,
+            // BuildMenu names every item; one without a name could not be clicked back from the page.
+            if (item is not ToolStripMenuItem { Name: { Length: > 0 } name } mi) continue;
+            entries.Add(new AppShell.MenuEntry(name, mi.Text?.Replace("&", "") ?? "", mi.Enabled,
                 mi.CheckOnClick ? mi.Checked : null));
         }
         _shell.SetHelpMenu(entries);
