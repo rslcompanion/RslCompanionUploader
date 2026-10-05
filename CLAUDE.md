@@ -685,6 +685,12 @@ means the events ended and must replace what is stored. Same standing: a summary
 [docs/raidtools-events-display.md](docs/raidtools-events-display.md) is its frontend step. It puts
 the events inside the existing Events & progress tiles, maps `eventPrize` onto the metadata `Prize` so
 `prizeChips` draws it, and uses tier **ids** (not thresholds) for claims.
+[docs/raidtools-frontier-event.md](docs/raidtools-frontier-event.md) is the prompt for schema 39's
+**Frontier Event** (the game's `ConquestEvent`, `soloTypeId` 8). Its map is server-sent per event, so
+it rides on the event's `soloEvents[]` entry as `frontier`: outposts, rarity unlock thresholds, reward
+slots on the Basic and Explorer tracks, and per-outpost progress. Its traps: an unrevealed outpost has
+quest ids but `quests: []`, and quest prototype ids repeat across outposts. Same standing: a summary,
+never the contract.
 
 [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md) is the prompt for the
 site's half of 1.42's mismatch notice: "Update Data" passes the card's in-game id on the launch URI

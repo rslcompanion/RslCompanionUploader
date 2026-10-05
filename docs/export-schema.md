@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 38** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 39** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1559,9 +1559,61 @@ quests, which the server sends per pass. On Forge Pass 1037: 4 daily challenges 
 5 weekly challenges × 12 = **60 a week**, over 4 weeks of challenges. That is at most 800 points against
 500 for level 50. These are observations of one pass, not a rule. They are not exported.
 
+### `frontier` — the Frontier Event map (schema 39)
+
+A **Frontier Event** (internally `ConquestEvent`) is a `soloEvents[]` entry with `soloTypeId` **8**, so
+title and dates arrive the usual way. Its reward table is not a tier list but a **map**, sent by the
+server for that event only, so it rides on the entry as `frontier`, beside the account's progress. Its
+`rewards` stays `[]`. **Since schema 39 its `points` is the account's Frontier Points**
+(`UserConquestEvent.EarnedPoints`); before, it read 0.
+
+```jsonc
+{ "eventId": 4447, "soloTypeId": 8, "title": "Frightful Frontier",
+  "startsAt": "2026-10-05T10:30:00Z", "endsAt": "2026-10-23T10:30:00Z", "claimUntil": "2026-10-24T10:30:00Z",
+  "points": 4, "claimedRewardIds": [], "rewards": [],
+  "frontier": {
+    "purchaseStatus": 0,
+    "unlockPoints": [ { "rarity": 2, "points": 15 }, { "rarity": 3, "points": 25 },
+                      { "rarity": 4, "points": 40 }, { "rarity": 5, "points": 60 } ],
+    "outposts": [
+      { "id": 2, "rarity": 1, "typeId": 1, "neighbourIds": [1, 3, 9, 10],
+        "questPrototypeIds": [10860200, 10860850, 10860750, 10860450],
+        "rewards": [ { "slot": 0, "track": 1, "prize": { "items": [{ "id": 10002, "amount": 1 }] } },
+                     { "slot": 2, "track": 2, "prize": { "resources": [{ "id": 3000, "amount": 25 }] } } /* … 4 */ ],
+        "started": true, "completedQuestIds": [], "claimedSlots": [],
+        "quests": [ { "questPrototypeId": 10860200, "completed": false, "condition": "Battle",
+                      "countRequired": 10, "countCollected": 0, "points": 1 } /* … 4 */ ] }
+      /* … 22 outposts */ ] } }
+```
+
+**How the event works** (from the data and the game's own strings):
+
+- Each outpost has **4 quests**, and each quest pays **1 Frontier Point** (item 26000). That is 88
+  points across the 22 outposts of event 4447.
+- An outpost opens when an **adjacent outpost is completed** and the account has **the points its rarity
+  needs** (`unlockPoints`): Rare 15, Epic 25, Legendary 40, Mythical 60. These are the event's
+  milestones. Outpost 1 (`typeId` 2) is open from the start. The final outpost (`typeId` 5) opens only
+  once all the others are completed. A time-limited outpost carries `unlockAfterMinutes` / `unlocksAt`
+  (none on 4447).
+- **Rarity** 1–5 = Uncommon, Rare, Epic, Legendary, Mythical Zone, which are the game's five labels in
+  order. This is not yet checked against the screen.
+- Each outpost has **4 reward slots**, each on **track 1 = Basic** (free) or **track 2 = Explorer** (the
+  paid Explorer Pass). A slot is collected when it is in `claimedSlots`. An outpost is completed when
+  `completedQuestIds` holds all of its `questPrototypeIds`.
+- **`quests` is `[]` on an outpost the game has not revealed.** The server creates its quest states only
+  when it opens, so until then only the prototype ids are known. Prototype ids repeat across outposts,
+  so key a quest on (outpost, prototype). There is no quest-type id or text on a quest: `condition` is
+  the completion kind (Battle, Hero, Artifact, …) with its counts.
+- After `endsAt` the event is in its reward phase: no more points or quests, but slots can still be
+  claimed until `claimUntil`.
+- `purchaseStatus` is raw: 0 = Explorer Pass not bought; other values have not been seen.
+- `TopRewards`, the event's five headline prizes, have no points and are not exported.
+
 ### Verified
 
-Passes (schema 38), live on 11.75.0 (2026-10-05): Forge Pass 1037 at 365 points with free levels 1–36
+Frontier (schema 39), live on 11.75.0 (2026-10-05): event 4447, 4 Frontier Points = 4 completed quests
+at 1 point each; Outpost 1 completed with slots 0–3 claimed; Outposts 2 and 9 started, one quest at 4/10;
+unlock thresholds 15 / 25 / 40 / 60. Passes (schema 38), live on 11.75.0 (2026-10-05): Forge Pass 1037 at 365 points with free levels 1–36
 collected, 2026-09-16 09:00 → 2026-10-14 09:00; Champion Pass 2004 ended at 2,820 points with 1–25
 collected, 2026-05-19 11:30 → 2026-07-20 11:30. Live on 11.75.0 (2026-09-30), memory against memory: every solo event's points equal its per-day
 progress (Gear Enhancement 4,527 + 431 + 13 = 4,971, with tiers 1–10 ≤ 4,775 claimed and 11 at 5,600
@@ -1635,6 +1687,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 39 | v1.43.0 | 2026-10-05 | **Additive: `soloEvents[].frontier` — the Frontier Event map and progress; corrective: a Frontier Event's `points`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). A Frontier Event (internally `ConquestEvent`, `soloTypeId` 8) now carries `frontier`: every outpost with its rarity, type, neighbours, optional unlock time, 4 quest ids and 4 reward slots (track 1 Basic, 2 Explorer), plus the account's state per outpost (started, completed quests, claimed slots) and its revealed quests (condition, counts, points), and `unlockPoints`, the Frontier Points each rarity needs (4447: 15 / 25 / 40 / 60). Its `points` was 0 on every Frontier Event and is now the account's Frontier Points. Its `rewards` stays `[]`. Absent on other events, and when unread. Verified live (11.75.0, event 4447). A consumer that ignores `frontier` is exactly as correct as on schema 38, except that it now sees a Frontier Event's real points. |
 | 38 | v1.43.0 | 2026-10-05 | **Additive: `battlePasses[]`, and `startsAt` / `endsAt` on every pass; `battlePass` is deprecated and changes selection** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). `battlePasses[]` carries every pass kind the account has, one entry per `kindId`: the running pass of that kind, else its newest. This matters when two run at once, e.g. the Forge Pass and the Champion Pass. `kindId` 2 = Forge Pass and 3 = Champion Pass (internally `hero-pass`; there is no "Hero Path") are confirmed. Kind 0, the 12 oldest Forge Passes, is never sent. `[]` = no pass, absent = unread. Each pass now has `startsAt` (static `Start`) and `endsAt` (`Start` + `DurationDays`; the game stores no end instant, and on pass 1037 this equals the server's challenge-quest deadline). Both are omitted when unread, and `endsAt` on a force-stopped pass. There is no `claimUntil` on passes: the game defines no claim window. **`battlePass` stays until the first schema released on or after 2027-01-05** and is now the running Forge Pass, else the newest pass of any kind (before: the first running pass of any kind). Track ids are unchanged: 1 = Free certain, 2/3 inferred. Level tables went to RslCompanionMetadata `battle_pass_index.json`, not the payload. Verified live (11.75.0). A consumer that ignores the new fields is exactly as correct as on schema 37, except while a Champion Pass runs without a Forge Pass, when `battlePass` now names the newest pass rather than the Champion Pass. That is the same pass unless an older Champion Pass is still running. |
 | 37 | v1.39.0 | 2026-10-03 | **Additive: `clanBosses.{demonLord,hydra,chimera}.difficulties[]`** — `{ difficultyId, keysSpent, damage }` per difficulty attacked: the Demon Lord's current boss, Hydra's and Chimera's current week. Read from the clan's boss record, this account's own row only. Verified live (11.75.0): the key balances fell by exactly the keys read. A consumer that ignores it is exactly as correct as on schema 36. |
 | 36 | v1.38.0 | 2026-10-03 | **Additive: `clanBosses.demonLord.bossStartedAt` / `nextResetAt`** — the clan's Demon Lord boss start and next reset, UTC, read off the clan record (`AllianceBossData`). The reset slides by minutes daily, so it is read, not computed. Absent when the clan record could not be read. A consumer that ignores them is exactly as correct as on schema 35. |
