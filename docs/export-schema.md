@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 37** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 38** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -64,7 +64,8 @@ there is no partial/patch mode.
   "siegePresets":  [ … ],                   // array or ABSENT — Siege's per-slot presets
   "soloEvents":  [ … ],                     // array or ABSENT — active solo events (schema 33)
   "tournaments": [ … ],                     // array or ABSENT — active tournaments (schema 33)
-  "battlePass":  { … },                     // object or ABSENT — the current Forge Pass (schema 33)
+  "battlePass":  { … },                     // object or ABSENT — one pass; deprecated by battlePasses (schema 33)
+  "battlePasses": [ … ],                    // array or ABSENT — one entry per pass kind, with dates (schema 38)
   "baseStatsCatalog": { … },                // object or ABSENT — provenance of champions[].baseStats
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
@@ -1398,7 +1399,7 @@ records (every member's damage) are reachable and are not read, the same rule as
 ## Time-limited content — `soloEvents`, `tournaments`, `battlePass`
 
 New in **schema 33**. The events and tournaments the account is in right now, what it has earned and
-claimed in each, and the current Forge Pass. Same rules as Mode progress: each block is **absent when
+claimed in each, and its passes (one per kind since **schema 38**, with season dates). Same rules as Mode progress: each block is **absent when
 its read could not be validated**, and the two arrays are **`[]` when the read worked and nothing is
 active** — never the other way round. Claims are id sets. Only the account's own data: tournament
 leaderboards and cooperation-event leaderboards describe other players and are never read. Cost ~80 ms,
@@ -1428,9 +1429,20 @@ no memory scan. Full mapping: the engine's `docs/events-findings.md`.
     "points": 2054, "bracketIndex": 1, "claimedRewardIds": [1, 2, 3, 4],
     "rewards": [ { "id": 1, "points": 250, "prize": { … } } /* … 7 tiers … */ ] }
 ],
-"battlePass": { "passId": 1037, "kindId": 2, "status": 1, "points": 245,
-  "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 24] },
-              { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] }
+"battlePass": { "passId": 1037, "kindId": 2, "status": 1, "points": 365,
+  "startsAt": "2026-09-16T09:00:00Z", "endsAt": "2026-10-14T09:00:00Z",
+  "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 36] },
+              { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] },
+"battlePasses": [
+  { "passId": 1037, "kindId": 2, "status": 1, "points": 365,
+    "startsAt": "2026-09-16T09:00:00Z", "endsAt": "2026-10-14T09:00:00Z",
+    "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 36] },
+                { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] },
+  { "passId": 2004, "kindId": 3, "status": 2, "points": 2820,
+    "startsAt": "2026-05-19T11:30:00Z", "endsAt": "2026-07-20T11:30:00Z",
+    "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 25] },
+                { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] }
+]
 ```
 
 ### Where it comes from
@@ -1474,23 +1486,84 @@ not proven.
   Any other populated kind is named in `otherKinds` rather than dropped, so an empty-looking prize
   never is. Amounts are numbers (resources are stored as doubles).
 
-### `battlePass` — the Forge Pass
+### `battlePasses[]` — every pass kind, with its season (schema 38)
 
-The game calls it `BattlePass` internally; the wire keeps that name because `forge` already means the
-forge materials in `resources[]` (schema 22). It is **the pass with `status` 1 (active), else the newest
-one the account has** — the account keeps every pass it ever had (42 on the mapping account). `points`
-is `EarnedPoints`. `tracks` is the game's `CollectedLevelsByTypeId`: per reward track, the levels whose
-reward was collected. **Track ids: 1 = Free (certain), 2 = Gold, 3 = Platinum (inferred** — track 3
-first appears on pass 1028, when Platinum was introduced; the enum's value binding was not readable).
-An empty premium track does not say whether it was bought.
+The game calls every pass `BattlePass` internally. The wire keeps that name because `forge` already
+means the forge materials in `resources[]` (schema 22). The account keeps every pass it ever had (42 on
+the mapping account). Sometimes two kinds run at once, which a single object could not carry, hence the
+array:
 
-**Levels and rewards are static data and are not here** (`StaticBattlePassData`, RslCompanionMetadata),
-the same split as Mode progress. Thresholds are **cumulative**: pass 1037 has L1 0, L2 20, L3 30 … L50
-500, so 245 points is level 24 — and the account had collected exactly 24 free levels.
+- **At most one entry per `kindId`**, sorted by `kindId`: the pass of that kind with `status` 1
+  (running), else the newest one of that kind (`status` 2, ended).
+- **`[]`** = the read worked and the account has no pass with a recorded kind. **Absent** = the passes
+  could not be read. A failed read is never sent as `[]`.
+- **`kindId` 0 is never sent.** It is what the game recorded on the oldest Forge Passes (1000–1011,
+  ended in 2023), before kinds existed.
+
+| `kindId` | Pass (in-game name) | internal family | ids | levels |
+|---:|---|---|---|---:|
+| 2 | **Forge Pass** | `forge-pass` | 1000-series | 50 |
+| 3 | **Champion Pass** | `hero-pass` | 2000-series | 25 |
+| ? | Pioneer Pass | `novice-pass` | 4000-series | 25 |
+| ? | Apprentice Pass | `apprentice-pass` | 3000-series | 20 |
+
+2 and 3 are confirmed by joining the account's passes to the game's static pass families. **There is no
+"Hero Path"**: the `hero-pass` family is shown in game as the Champion Pass. The static pass has no kind
+field, so the Pioneer and Apprentice kinds will only be known from an account that has one; a consumer
+should key on `kindId` and treat an unknown one as a pass it has no label for.
+
+**Fields.** `points` is `EarnedPoints`. `tracks` is the game's `CollectedLevelsByTypeId`: per reward
+track, the levels whose reward was collected. **Track ids (the game's `BattlePassTypeId`):** 1 = Free is
+certain. 2 = the paid track (the Forge Pass's Gold, the Champion Pass's Elite) and 3 = Platinum are
+inferred. Track 3 first appears on pass 1028, the first pass with Platinum intro art, but the enum's
+numeric values are not read. A track key can be present with nothing behind it: Champion Passes carry an
+empty track 3 and have no Platinum rewards. An empty premium track means nothing was collected there, not
+that it was not bought.
+
+**`startsAt` / `endsAt`** (UTC, ISO 8601 with `Z`, the same format as `soloEvents[]`):
+
+- `startsAt` is the static pass's `Start`. `endsAt` is when points stop counting: `Start` +
+  `DurationDays`. **The game stores no end instant; those two fields are its whole definition of the
+  season.** Checked: on pass 1037 the sum (2026-10-14 09:00) is exactly the deadline the server put on
+  every one of the pass's challenge quests.
+- A pass timed **per player** (static `CategoryId` 2, the Apprentice Pass: 25 days from the player's own
+  activation) uses the account's `StartTime` and `UserDurationDays` instead. This branch has not been
+  seen on a live account.
+- Each is **omitted** when it could not be read (the static catalog is unreachable, or the pass is not
+  in it). `endsAt` is also omitted on a pass the game force-stopped, whose real end is not recorded.
+- **There is no `claimUntil` on passes.** Unlike events, the game defines no claim window after a pass
+  ends, so the field is never sent.
+
+### `battlePass` — deprecated, one pass
+
+Kept so consumers of schemas 33–37 keep working, with the same fields as a `battlePasses[]` entry
+(including the schema-38 dates). It is **the running Forge Pass (`kindId` 2, `status` 1) if there is
+one, else the newest pass of any kind.** Before schema 38 it was the first running pass of any kind,
+which is the same pass whenever a Forge Pass is running. **It will be removed in the first schema
+released on or after 2027-01-05.** Read `battlePasses[]`.
+
+### Levels and points are static data
+
+**Levels and rewards are not here**: they are static data, in RslCompanionMetadata
+`exports/battle_pass_index.json` keyed by `passId`. This is the same split as Mode progress. Thresholds
+are **cumulative**, and level 1 is free at 0:
+
+- **Forge Pass:** 50 levels, L2 = 20, then +10 a level, L50 = 500. Not a flat 10 a level: the first
+  step costs 20. 365 points is level 36, and the account had collected exactly 36 free levels.
+- **Champion Pass / Pioneer Pass:** 25 levels, irregular steps of 10–20, L25 = 410 (pass 2000: +17 a
+  level to 408).
+- **Apprentice Pass:** 20 levels, +20 a level, L20 = 380.
+
+**There is no daily points cap in the game's data.** Points are the rewards of the pass's own challenge
+quests, which the server sends per pass. On Forge Pass 1037: 4 daily challenges × 5 = **20 a day**, and
+5 weekly challenges × 12 = **60 a week**, over 4 weeks of challenges. That is at most 800 points against
+500 for level 50. These are observations of one pass, not a rule. They are not exported.
 
 ### Verified
 
-Live on 11.75.0 (2026-09-30), memory against memory: every solo event's points equal its per-day
+Passes (schema 38), live on 11.75.0 (2026-10-05): Forge Pass 1037 at 365 points with free levels 1–36
+collected, 2026-09-16 09:00 → 2026-10-14 09:00; Champion Pass 2004 ended at 2,820 points with 1–25
+collected, 2026-05-19 11:30 → 2026-07-20 11:30. Live on 11.75.0 (2026-09-30), memory against memory: every solo event's points equal its per-day
 progress (Gear Enhancement 4,527 + 431 + 13 = 4,971, with tiers 1–10 ≤ 4,775 claimed and 11 at 5,600
 not), board currency plus cell costs equal points, and the pass's level count matches its thresholds.
 **Not yet checked against the in-game screens.**
@@ -1562,6 +1635,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 38 | v1.43.0 | 2026-10-05 | **Additive: `battlePasses[]`, and `startsAt` / `endsAt` on every pass; `battlePass` is deprecated and changes selection** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). `battlePasses[]` carries every pass kind the account has, one entry per `kindId`: the running pass of that kind, else its newest. This matters when two run at once, e.g. the Forge Pass and the Champion Pass. `kindId` 2 = Forge Pass and 3 = Champion Pass (internally `hero-pass`; there is no "Hero Path") are confirmed. Kind 0, the 12 oldest Forge Passes, is never sent. `[]` = no pass, absent = unread. Each pass now has `startsAt` (static `Start`) and `endsAt` (`Start` + `DurationDays`; the game stores no end instant, and on pass 1037 this equals the server's challenge-quest deadline). Both are omitted when unread, and `endsAt` on a force-stopped pass. There is no `claimUntil` on passes: the game defines no claim window. **`battlePass` stays until the first schema released on or after 2027-01-05** and is now the running Forge Pass, else the newest pass of any kind (before: the first running pass of any kind). Track ids are unchanged: 1 = Free certain, 2/3 inferred. Level tables went to RslCompanionMetadata `battle_pass_index.json`, not the payload. Verified live (11.75.0). A consumer that ignores the new fields is exactly as correct as on schema 37, except while a Champion Pass runs without a Forge Pass, when `battlePass` now names the newest pass rather than the Champion Pass. That is the same pass unless an older Champion Pass is still running. |
 | 37 | v1.39.0 | 2026-10-03 | **Additive: `clanBosses.{demonLord,hydra,chimera}.difficulties[]`** — `{ difficultyId, keysSpent, damage }` per difficulty attacked: the Demon Lord's current boss, Hydra's and Chimera's current week. Read from the clan's boss record, this account's own row only. Verified live (11.75.0): the key balances fell by exactly the keys read. A consumer that ignores it is exactly as correct as on schema 36. |
 | 36 | v1.38.0 | 2026-10-03 | **Additive: `clanBosses.demonLord.bossStartedAt` / `nextResetAt`** — the clan's Demon Lord boss start and next reset, UTC, read off the clan record (`AllianceBossData`). The reset slides by minutes daily, so it is read, not computed. Absent when the clan record could not be read. A consumer that ignores them is exactly as correct as on schema 35. |
 | 35 | v1.37.0 | 2026-10-03 | **Additive: `clanBosses`** — Demon Lord, Hydra and Chimera: keys in hand (resources 300 / 1000 / 1050, whole keys; the Demon Lord's accrues continuously and is truncated), battles per day from the game's activity log (~37 days), the Hydra and Chimera reset times, and per Demon Lord difficulty the boss revision whose chest was last taken (difficulty key 0–5 = Easy…Ultra-Nightmare). Own state only. Verified live (11.75.0). A consumer that ignores it is exactly as correct as on schema 34. |

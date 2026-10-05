@@ -676,7 +676,10 @@ deliberately**: event and tournament tables are sent by the server per event and
 file, so the payload is the only source a consumer will ever have. The Forge Pass's level table *is*
 static data and stays out, the same split as Mode progress. **The pass block is `battlePass`, the
 game's internal name, and never `forge…`**, because that word already means the forge materials in
-`resources[]`. **Tournaments carry the account's own rank only.** Leaderboards are reachable and are
+`resources[]`. **Schema 38 adds `battlePasses[]`**, one entry per `kindId` (2 = Forge Pass, 3 = Champion
+Pass, which the game calls `hero-pass`), each with `startsAt` / `endsAt`. `battlePass` is deprecated and
+goes in the first schema released on or after 2027-01-05. The level tables are static data, in
+RslCompanionMetadata `battle_pass_index.json`. **Tournaments carry the account's own rank only.** Leaderboards are reachable and are
 not read, for the clan-roster reason. The prompt's trap is the partial-feed rule: a present `[]`
 means the events ended and must replace what is stored. Same standing: a summary, never the contract.
 [docs/raidtools-events-display.md](docs/raidtools-events-display.md) is its frontend step. It puts
