@@ -159,13 +159,40 @@ So:
 
 ## Prize contents
 
-Exactly as for events, because it is the same shape:
-- `resources[].id` is the payload's `resources[]` id space. Some ids are off that allowlist, so fall
-  back to "Resource #id".
-- `items[].id` is the game's inventory item space. Use the item names the events page already uses,
-  and fall back to "Item #id" rather than guessing.
-- `champions[].typeId` joins the champion catalog on type id. `artifacts[]` (slim) uses the
-  `artifact-enums.json` ids.
+**Every prize id on the mapping account resolves to the name and description the game shows when the
+item is tapped.** 112 items, 0 unresolved. Item 3 is "Tag Arena Refill", "Restores Tag Team Arena
+Tokens", exactly the in-game popup. Don't render "Item #id". Join like this:
+
+| Prize part | Name | Description | Icon |
+|---|---|---|---|
+| `items[].id` (inventory, "bmi") | `l10n:bmi/name?id=<id>#static` | `l10n:bmi/description?id=<id>#static` | catalog `key` → `assets.rslcompanion.com/account-resources/<key>.png` |
+| `resources[].id` | catalog `nameKey` (no uniform pattern: 3 → `l10n:prize/resource/tokens#name`) | — | same |
+| `champions[].typeId` | the champion catalog on type id | | |
+| `artifacts[]` (slim) | `artifact-enums.json` ids; the full record is in `item.artifacts` | | |
+
+Text comes from the shared localization dictionary (see "Titles"). The catalog is RslCompanionMetadata
+`data/account-resources/catalog.json`: `{ kind: "resource"|"item", id, key, name, nameKey, category }`
+for 185 resources and 407 items, and every `nameKey` in it resolves in the dictionary.
+**RaidTools does not have it yet.** The published `account-resources/index.json` carries `key` and
+`name` but no numeric `id`, so it cannot be joined to a payload. Serve `catalog.json` as a metadata
+type (e.g. `AccountResources`, uploaded on dev and prod like the other two), and resolve
+`(kind, id)` → `nameKey`/`key` on the server, next to the titles. `eventPrizeNames` (the mode-rewards
+walk the events page uses) should fall back to it as well. It is why event prizes still draw `#id`
+for anything the mode catalog never mentions.
+
+Observed on the mapping account, for a sanity check after wiring it up:
+
+| Title (typeId) | Prizes |
+|---|---|
+| Quest Reward (12), the **daily quests** | Classic Arena Tokens ×5 (resource 3), Tag Arena Refill ×1 (item 3) |
+| Raid Update Gift (33) | Classic Arena Refill ×1 (item 2), Full Energy ×1 (item 1) |
+| Free Gift. From Us, To You (60, 42) | Silver, Full Energy, Rank Charm (8001), Rarity Charm (8002), XP Brew ×7, Ancient Shard, 50 Multi-Battle attempts |
+| Cursed City Reward (112) | Classic Arena Refill, Live Arena Refill |
+| Grim Forest Reward (132) | 50 Multi-Battle attempts |
+| Overflow from full storage (7) | one artifact each, full record in `item.artifacts` |
+
+A Quest Reward does not say which quest paid it: `questPrototypeId` was empty on every one.
+
 - A non-empty `otherKinds` means "+ more", so a prize is never shown emptier than it is.
 
 ## Traps
@@ -194,6 +221,8 @@ Exactly as for events, because it is the same shape:
 - **Overflow artifacts:** after importing the sample above, the account's artifact and accessory counts
   are unchanged, and the Inbox tile shows item 26064 as a full artifact card (6★ Legendary Banner,
   HP 900 primary, four substats).
+- **Prize names:** item 3 reads "Tag Arena Refill" with "Restores Tag Team Arena Tokens", and no
+  Inbox prize renders as `#id`.
 - **Titles:** the sample's items read "Free Gift. From Us, To You" (60), "Overflow from full storage" (7)
   and "Grim Forest Reward" (132); an id missing from `inbox-types.json` reads "Reward".
 - **Expiry:** set a stored item's `expiresAt` to yesterday. The endpoint and the badge drop it, and the

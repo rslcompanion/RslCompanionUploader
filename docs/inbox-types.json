@@ -1,5 +1,5 @@
 {
-  "$comment": "InboxTypeId -> the source line the in-game Inbox shows on an item, for inbox.items[].typeId in export-schema.json (schema 40+). Static game metadata, not account data. The mapping is not data in the game: it is a C# switch compiled into GameAssembly, so this table was read out of the game's code (RslCompanionExtraction tools/inbox_titles.py: the function that loads every l10n:inbox key, and its jump table indexed by typeId - 4). sourceKey is the key into the game's localization dictionary (RslCompanionMetadata exports/localization_en.json, served by RaidTools); text is its English value copied here for convenience, and is absent where the client had not loaded that key. Verified 2026-10-07 on 11.75.0 against the open Inbox: every id seen on the mapping account (7, 12, 60, 112, 132; 102 items) showed exactly this text. Regenerate after a game update with the script; ids and keys can move.",
+  "$comment": "InboxTypeId -> the source line the in-game Inbox shows on an item, for inbox.items[].typeId in export-schema.json (schema 40+). Static game metadata, not account data. The mapping is not data in the game: it is a C# switch compiled into GameAssembly, so this table was read out of the game's code (RslCompanionExtraction tools/inbox_titles.py: the function that loads every l10n:inbox key, and its jump table indexed by typeId - 4). sourceKey is the key into the game's localization dictionary (RslCompanionMetadata exports/localization_en.json, served by RaidTools); text is its English value copied here for convenience, and is absent where the client had not loaded that key. Verified 2026-10-07 on 11.75.0 against the open Inbox: every id seen on the mapping account (7, 12, 33, 60, 112, 132) showed exactly this text. Regenerate after a game update with the script; ids and keys can move.",
   "generatedAt": "2026-10-07T00:00:00Z",
   "gameVersion": "11.75.0",
   "maxItems": {
@@ -113,7 +113,8 @@
         "typeId": 33,
         "sourceKey": "l10n:inbox/reward-msg-from-client-update#description",
         "text": "Raid Update Gift",
-        "lifetimeDays": 3
+        "lifetimeDays": 3,
+        "verifiedOnScreen": true
       },
       {
         "typeId": 40,
