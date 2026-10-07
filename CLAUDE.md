@@ -692,6 +692,12 @@ it rides on the event's `soloEvents[]` entry as `frontier`: outposts, rarity unl
 slots on the Basic and Explorer tracks, and per-outpost progress. Its traps: an unrevealed outpost has
 quest ids but `quests: []`, and quest prototype ids repeat across outposts. Same standing: a summary,
 never the contract.
+[docs/raidtools-titan-event.md](docs/raidtools-titan-event.md) is the prompt for schema 41's **Titan
+Event** (internally a "universal" event, `soloTypeId` 4). Its milestone table is server-sent
+(`UniversalEventRewards`, keyed by the in-game "Milestone N" tab) and now rides on `rewards[]` with
+`milestone`. **Titan Points are item 10600**, paid as tier prizes by the labelled events and tournaments,
+so "where to earn them" is already on the wire and needs no field of its own. The same schema decodes
+`prize.randomGemstones`. Same standing: a summary, never the contract.
 
 [docs/raidtools-inbox.md](docs/raidtools-inbox.md) is the prompt for schema 40's `inbox`: the
 account's in-game Inbox, every reward waiting to be collected, shown per account in RaidTools. The

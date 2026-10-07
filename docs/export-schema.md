@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 40** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 41** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1483,9 +1483,12 @@ not proven.
   (leaderboard) rewards are not exported.
 - **`prize` is a trimmed `UserPrize`**: `resources` (the `ResourceTypeId` space of `resources[]`, though
   not every id is on that allowlist), `items` (inventory item ids — potions, chickens, Basalt 19002…),
-  `champions` (type ids), `souls`, `artifacts` (the `artifacts[]` id spaces), `avatarIds`, `frameIds`.
-  Any other populated kind is named in `otherKinds` rather than dropped, so an empty-looking prize
-  never is. Amounts are numbers (resources are stored as doubles).
+  `champions` (type ids), `souls`, `artifacts` (the `artifacts[]` id spaces), `avatarIds`, `frameIds`,
+  and since schema 41 `randomGemstones`: `count` gemstones drawn at random when the prize is taken, from
+  `rarityIds` (the game's `ItemRarity`, the same 1–6 as artifacts' `rarityId`), optionally limited to
+  `onlyShapeIds` or excluding `excludedShapeIds` (the socket shapes in `relic-enums.json`). Before 41 it
+  was only named in `otherKinds`. Any other populated kind is named in `otherKinds` rather than dropped,
+  so an empty-looking prize never is. Amounts are numbers (resources are stored as doubles).
 
 ### `battlePasses[]` — every pass kind, with its season (schema 38)
 
@@ -1610,9 +1613,54 @@ server for that event only, so it rides on the entry as `frontier`, beside the a
 - `purchaseStatus` is raw: 0 = Explorer Pass not bought; other values have not been seen.
 - `TopRewards`, the event's five headline prizes, have no points and are not exported.
 
+### Titan Event — milestones (schema 41)
+
+A **Titan Event** (internally a "universal" event) is a `soloEvents[]` entry with `soloTypeId` **4**. It
+runs for weeks (event 4440 "Ingenious Titan Event": 2026-10-05 → 10-22, claims until 10-22 11:30), and
+its points are **Titan Points**, which the account does not earn in the Titan Event itself. They are
+prizes in other events and tournaments, the "specially labeled" ones. Since schema 41 its `rewards`
+carries the milestone table, which before read `[]`. The table is sent by the server per event, like
+every other event's, and the next Titan Event will have different prizes, thresholds and dates in the
+same shape.
+
+```jsonc
+{ "eventId": 4440, "questPrototypeId": 364440, "soloTypeId": 4, "title": "Ingenious Titan Event",
+  "startsAt": "2026-10-05T09:00:00Z", "endsAt": "2026-10-22T09:00:00Z", "claimUntil": "2026-10-22T11:30:00Z",
+  "points": 50, "claimedRewardIds": [],
+  "rewards": [
+    { "id": 1, "points": 10, "milestone": 1, "prize": { "resources": [{ "id": 2, "amount": 100000 }] } },
+    { "id": 2, "points": 20, "milestone": 1, "prize": { "items": [{ "id": 10001, "amount": 1 }] } },
+    /* … */
+    { "id": 11, "points": 120, "milestone": 2, "prize": { "items": [{ "id": 8001, "amount": 5 }] } },
+    { "id": 31, "points": 640, "milestone": 4, "prize": { "randomGemstones": [{ "count": 1, "rarityIds": [4] }] } },
+    { "id": 50, "points": 1500, "milestone": 5, "prize": { "champions": [{ "typeId": 10740, "count": 1 }] } } ] }
+```
+
+- **`milestone` is the reward tab**, "Milestone 1" … "Milestone 5" in game (`l10n:universal-event/reward-tab`).
+  On 4440 each tab holds 10 rewards: 1 → 10–100 points, 2 → 120–300, 3 → 330–600, 4 → 640–1,000,
+  5 → 1,050–1,500. It is present on Titan Event rewards only.
+- **`points` is a cumulative threshold**, as on a points-tier event, and the account's `points` is its
+  Titan Points total (the sum of its per-day progress; the game leaves `TotalPoints` unset). A reward is
+  claimable when `points` ≥ its threshold and its `id` is not in `claimedRewardIds`.
+- **Reward ids run across the tabs** (1–50 on 4440), so `claimedRewardIds` keys them as on any solo
+  event. That the game records Titan claims in the same list is assumed from the shared quest shape;
+  no claim has been observed yet.
+- **Where Titan Points come from is already on the payload.** Titan Points are inventory item **10600**
+  (`l10n:bmi/name?id=10600` = "Titan Points"), and a labelled event or tournament pays them as an
+  ordinary tier prize: `prize.items` with `id` 10600. Gear Hunters Event 4444 paid 10 + 20 + 50 = 80 over
+  three of its tiers, which is the "+ 80 TP" in its internal label. So, for every other entry in
+  `soloEvents[]` and `tournaments[]`, the Titan Points on offer are the sum of item 10600 over its
+  `rewards`, and the ones still to come are that sum over unclaimed tiers.
+- `TopRewards`, the five headline prizes on the event's banner, are not exported. They repeat
+  milestone prizes and carry no threshold.
+
 ### Verified
 
-Frontier (schema 39), live on 11.75.0 (2026-10-05): event 4447, 4 Frontier Points = 4 completed quests
+Titan Event (schema 41), live on 11.75.0 (2026-10-07): event 4440, 50 milestones in 5 tabs read in full,
+every prize decoded (`otherKinds` empty), 50 Titan Points, nothing claimed. Item 10600 summed over the
+open labelled events matches each one's internal "+ N TP" label: Gear Hunters 80, Gear Enhancement 60,
+Spider Turn Attack 50, Ice Golem Turn Attack 40. The same run decoded the Frontier Event's three
+random-gemstone slots (outposts 28 / 47 / 48: Epic, Legendary, Mythical). Frontier (schema 39), live on 11.75.0 (2026-10-05): event 4447, 4 Frontier Points = 4 completed quests
 at 1 point each; Outpost 1 completed with slots 0–3 claimed; Outposts 2 and 9 started, one quest at 4/10;
 unlock thresholds 15 / 25 / 40 / 60. Passes (schema 38), live on 11.75.0 (2026-10-05): Forge Pass 1037 at 365 points with free levels 1–36
 collected, 2026-09-16 09:00 → 2026-10-14 09:00; Champion Pass 2004 ended at 2,820 points with 1–25
@@ -1744,6 +1792,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 41 | v1.45.0 | 2026-10-07 | **Additive: the Titan Event's milestones, and `randomGemstones` prizes** (see [Titan Event](#titan-event--milestones-schema-41)). A Titan Event (internally a "universal" event, `soloTypeId` 4) sent `rewards: []`. Its milestone table is now in `rewards`, every reward with its Titan Point threshold, its prize and the new `milestone` (the in-game "Milestone 1–5" tab). Titan Points are item 10600, so the Titan Points a labelled event or tournament pays are already in its `rewards`. Separately, `eventPrize.randomGemstones` (`count`, `rarityIds`, optional `onlyShapeIds` / `excludedShapeIds`) decodes `RandomRelicStonesPrizes`, which before was only named in `otherKinds`. It applies to every prize, Frontier outposts and the Inbox included. Read live off event 4440 (11.75.0, 50 milestones in 5 tabs). A consumer that ignores both is exactly as correct as on schema 40. |
 | 40 | v1.44.0 | 2026-10-07 | **Additive: `inbox`** — the in-game Inbox (see [`inbox`](#inbox--the-in-game-inbox-schema-40)): every reward waiting to be collected, each with `id`, `typeId` (the game's `InboxTypeId`; titles via the new [`inbox-types.json`](inbox-types.json)), `read`, `receivedAt` / `expiresAt` (UTC), `prize` (the event-reward shape) and, for an overflowed artifact, the full `artifacts[]` record with stats — which is not also in the vault. The whole Inbox: `items: []` = empty, absent = unread. No sender is recorded. Verified live (11.75.0, 102 items). A consumer that ignores it is exactly as correct as on schema 39. |
 | 39 | v1.43.0 | 2026-10-05 | **Additive: `soloEvents[].frontier` — the Frontier Event map and progress; corrective: a Frontier Event's `points`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). A Frontier Event (internally `ConquestEvent`, `soloTypeId` 8) now carries `frontier`: every outpost with its rarity, type, neighbours, optional unlock time, 4 quest ids and 4 reward slots (track 1 Basic, 2 Explorer), plus the account's state per outpost (started, completed quests, claimed slots) and its revealed quests (condition, counts, points), and `unlockPoints`, the Frontier Points each rarity needs (4447: 15 / 25 / 40 / 60). Its `points` was 0 on every Frontier Event and is now the account's Frontier Points. Its `rewards` stays `[]`. Absent on other events, and when unread. Verified live (11.75.0, event 4447). A consumer that ignores `frontier` is exactly as correct as on schema 38, except that it now sees a Frontier Event's real points. |
 | 38 | v1.43.0 | 2026-10-05 | **Additive: `battlePasses[]`, and `startsAt` / `endsAt` on every pass; `battlePass` is deprecated and changes selection** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). `battlePasses[]` carries every pass kind the account has, one entry per `kindId`: the running pass of that kind, else its newest. This matters when two run at once, e.g. the Forge Pass and the Champion Pass. `kindId` 2 = Forge Pass and 3 = Champion Pass (internally `hero-pass`; there is no "Hero Path") are confirmed. Kind 0, the 12 oldest Forge Passes, is never sent. `[]` = no pass, absent = unread. Each pass now has `startsAt` (static `Start`) and `endsAt` (`Start` + `DurationDays`; the game stores no end instant, and on pass 1037 this equals the server's challenge-quest deadline). Both are omitted when unread, and `endsAt` on a force-stopped pass. There is no `claimUntil` on passes: the game defines no claim window. **`battlePass` stays until the first schema released on or after 2027-01-05** and is now the running Forge Pass, else the newest pass of any kind (before: the first running pass of any kind). Track ids are unchanged: 1 = Free certain, 2/3 inferred. Level tables went to RslCompanionMetadata `battle_pass_index.json`, not the payload. Verified live (11.75.0). A consumer that ignores the new fields is exactly as correct as on schema 37, except while a Champion Pass runs without a Forge Pass, when `battlePass` now names the newest pass rather than the Champion Pass. That is the same pass unless an older Champion Pass is still running. |
