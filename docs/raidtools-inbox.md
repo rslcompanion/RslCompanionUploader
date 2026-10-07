@@ -5,8 +5,9 @@ Claude Code session opened on that repo.
 
 It is a *summary*. [`export-schema.md`](export-schema.md) / [`.json`](export-schema.json) are the
 contract for the payload side (section **"`inbox`"**, Changelog row 40); where this file disagrees with
-them, they win, and this one is stale and should be fixed. Type names come from
-[`inbox-types.json`](inbox-types.json).
+them, they win, and this one is stale and should be fixed. Titles come from
+[`inbox-types.json`](inbox-types.json) (`typeId` → localization key) and the shared localization
+dictionary, RslCompanionMetadata `exports/localization_en.json` (key → text).
 
 ---
 
@@ -45,7 +46,7 @@ A real schema-40 payload, trimmed (102 items on the mapping account):
 | Field | Meaning |
 |---|---|
 | `id` | unique per account, increasing in arrival order; stable while the item waits |
-| `typeId` | the game's `InboxTypeId`, i.e. where the reward came from. **Raw, and only partly named**: see "Titles" |
+| `typeId` | the game's `InboxTypeId`, i.e. where the reward came from. Raw: see "Titles" |
 | `read` | the player has opened it. *Not* "collected": a collected item is not in the list at all |
 | `receivedAt` / `expiresAt` | UTC (verified). The game deletes an uncollected item at `expiresAt` |
 | `prize` | **the same `eventPrize` shape as event rewards.** `EventPrize` and `toPrize`/`eventPrizeChips` already handle it |
@@ -98,6 +99,7 @@ shape exactly.
 4. **`RaidTools.Api/Controllers/RaidApiControllers.cs`**: `GET …/inbox?accountId=&syncMethod=`,
    modelled on `GetEvents`. Return `{ timestamp, items }`:
    - drop items whose `expiresAt` < now (UTC), and keep items with no `expiresAt`;
+   - add each item's `title` server-side (see "Titles"), so every client gets the same text;
    - sort by `expiresAt` ascending, because what expires first is what the player must act on;
    - return `null` items (not `[]`) when the snapshot has no inbox (pre-40, or a failed read), so the
      page can tell "unknown" from "empty".
@@ -127,23 +129,33 @@ shape exactly.
 
 ## Titles
 
-`typeId` is what the game titles an item by ("Overflow from full Artifact Storage", "Gift from Plarium",
-"Clan Quest Reward" …). **Only part of that mapping is known**, and `inbox-types.json` says exactly which
-part:
+`typeId` is what the game titles an item by. Two files turn it into text, and the split is
+deliberate:
 
-- `bindings` lists the ids it is safe to name. Today that is **7 = Overflow**. Its line depends on what
-  overflowed (`sourceKeyByPrize`: artifacts → "Overflow from full Artifact Storage", champions,
-  relics, gemstones).
-- `members` (the enum's 82 names) and `sourceLines` (the 83 English texts) are both real, but **they
-  are not paired with ids.** The enum's values are explicit (4…141 with gaps), so pairing by position
-  is a guess. Pairing by spelling fails too (`reward-msg-from-admin` is "Gift from Plarium"). **Never
-  build a lookup table by zipping them.** This repo has shipped one wrong table that way already (the
-  artifact sets).
-- **An unbound id renders from its prize**, with a neutral title such as "Reward". The prize is what
-  the player cares about anyway. Load the file at runtime or copy `bindings` into a served catalog;
-  either way, a new binding must arrive without a frontend change.
-- `observedUnbound` records what the unnamed ids carried on the mapping account (12, 60, 112, 132). It
-  is evidence for whoever binds them next, not a source of labels.
+1. **[`inbox-types.json`](inbox-types.json): `typeId` → `sourceKey`.** The game keeps this mapping
+   in code (a switch), not in data, so it was read out of the client's compiled code and checked
+   against the open Inbox (every id on the mapping account matched). 77 ids have a key; the other
+   ids in 4–141 have no case in the client, so it cannot show such an item. Each entry also carries
+   `text` (English) for convenience, plus `lifetimeDays`.
+2. **The localization dictionary: `sourceKey` → text.** RslCompanionMetadata
+   `exports/localization_en.json` is the client's whole text table: 31,296 keys covering Inbox
+   sources, skills, champion types, quests, inventory items (`l10n:bmi/…`), and more. **This is the
+   shared dictionary**: any later id table should carry keys and resolve them here, not copy text.
+
+So:
+
+- **Ingest the dictionary as a metadata catalog** (`MetadataType` `Localization`, uploaded like
+  `ArenaLeagueIndex`; dev and prod each need it uploaded). It is 6.3 MB, so serve it by prefix, not
+  whole: `GET /api/localization?prefix=l10n:inbox/` → `{ key: text }`. Cache by the catalog's
+  `generatedAt`.
+- **Ingest `inbox-types.json` too** (or fold it into a served catalog). A title must come from data,
+  so a new type id arrives without a frontend change.
+- **Title = `localization[types[typeId].sourceKey]`**, falling back to `types[typeId].text`, then to a
+  neutral "Reward". Never zip the enum's member names onto ids by position: its values are explicit,
+  and the artifact set table went wrong for years exactly that way.
+- **Type 7 (Overflow)** can show a per-prize variant (`overflowVariants`), but the client's test for it
+  is not decoded, and all 62 artifact overflows on the mapping account showed the generic "Overflow
+  from full storage". Use the generic line.
 
 ## Prize contents
 
@@ -160,7 +172,7 @@ Exactly as for events, because it is the same shape:
 
 - **`read` is not "collected".** Don't render read items as done. Every item in the list is still
   waiting.
-- **Don't key anything on `typeId` names you inferred.** See "Titles".
+- **Join on `sourceKey`, never on text.** Text changes with wording and language; the key does not.
 - **The same Inbox can hold dozens of near-identical items** (62 single-artifact overflows on the
   mapping account). Group by `typeId` + prize kind in the tile, with a count, before listing them all.
 - **`expiresAt` varies by type.** Most types last 100 days, energy gifts one day. Never compute it from
@@ -182,5 +194,7 @@ Exactly as for events, because it is the same shape:
 - **Overflow artifacts:** after importing the sample above, the account's artifact and accessory counts
   are unchanged, and the Inbox tile shows item 26064 as a full artifact card (6★ Legendary Banner,
   HP 900 primary, four substats).
+- **Titles:** the sample's items read "Free Gift. From Us, To You" (60), "Overflow from full storage" (7)
+  and "Grim Forest Reward" (132); an id missing from `inbox-types.json` reads "Reward".
 - **Expiry:** set a stored item's `expiresAt` to yesterday. The endpoint and the badge drop it, and the
   stored document is untouched.

@@ -698,10 +698,12 @@ account's in-game Inbox, every reward waiting to be collected, shown per account
 prize is the events' `eventPrize` shape, and an overflowed artifact also arrives as a full
 `artifacts[]` record. **That record is not in the vault** (0 of 62 were), so a consumer must never add
 it to the artifact counts. The whole Inbox ships each time: `items: []` is empty, absent is unread.
-**`typeId` names come from [docs/inbox-types.json](docs/inbox-types.json), and its binding is partial
-on purpose.** The game's `InboxTypeId` has explicit values (4…141), so its 82 member names and 83
-source lines are real but not paired with ids. Only an id the data proves is bound (today 7 =
-Overflow). Don't fill the rest in by position or spelling. No inbox item records a sender. Raid Mail
+**`typeId` → title goes through two files.** [docs/inbox-types.json](docs/inbox-types.json) maps it
+to a localization key. The game keeps that mapping as a switch in code, not data, so it was read out of
+GameAssembly (`extraction/tools/inbox_titles.py`) and checked against the open Inbox. The key resolves in
+RslCompanionMetadata `exports/localization_en.json`, the client's whole text table (~31k keys). That
+dictionary is the shared one: a later id table should carry keys, not copied text. Never pair
+`InboxTypeId` member names with ids by position (explicit values). No inbox item records a sender. Raid Mail
 (`PersonalMessages`) is not exported until its filled shape is seen. Same standing: a summary, never
 the contract.
 

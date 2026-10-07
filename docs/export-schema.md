@@ -1650,10 +1650,12 @@ One list walk, no scan (~30 ms).
   A present `inbox` replaces what a consumer stored, and `items: []` is an empty Inbox. **Absent means
   unread** — keep the stored block, never blank it.
 - **`typeId` is the game's `InboxTypeId`**, the source the Inbox names on each item ("Overflow from full
-  Artifact Storage", "Gift from Plarium", "Clan Quest Reward" …). It is raw. Names are in
-  [`inbox-types.json`](inbox-types.json), and **the binding there is partial**: the enum's values are
-  explicit (4…141, 82 configured on 11.75.0), so declaration order says nothing, and only ids the data
-  itself identifies are bound. Render an unbound id from its prize, never from a guessed name.
+  storage", "Free Gift. From Us, To You", "Cursed City Reward" …). It is raw.
+  [`inbox-types.json`](inbox-types.json) maps every id to its **`sourceKey`**, the key into the game's
+  localization dictionary (RslCompanionMetadata `exports/localization_en.json`), with the English text
+  beside it. The mapping is a switch in the game's code, read out of it (77 of 138 ids carry a title),
+  and was checked against the open Inbox for every id on the mapping account. An id with no entry gets a
+  neutral title.
 - **`prize` is the event-reward shape** (`eventPrize`): the same decoder reads both, so anything that
   draws an event reward draws an Inbox item. Item ids are the inventory id space (`items`), resource ids
   the `resources[]` one.
@@ -1672,8 +1674,8 @@ One list walk, no scan (~30 ms).
   `IsReplied`, `IsRewardTaken`) was empty on the mapping account. It ships when its filled shape has been
   seen. `questPrototypeId`, `parentId` and `chestOrRandom` are read but have not been seen populated.
 
-Verified live on 11.75.0 (2026-10-07): 102 items, `typeId` 7 ×62, 12 ×2, 60 ×13, 112 ×24, 132 ×1. Not yet
-checked item by item against the Inbox screen.
+Verified live on 11.75.0 (2026-10-07): 102 items, `typeId` 7 ×62, 12 ×2, 60 ×13, 112 ×24, 132 ×1. With the
+Inbox open, the game's own item views showed the same 102 ids with the titles `inbox-types.json` gives.
 
 ---
 
@@ -1742,7 +1744,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 40 | v1.44.0 | 2026-10-07 | **Additive: `inbox`** — the in-game Inbox (see [`inbox`](#inbox--the-in-game-inbox-schema-40)): every reward waiting to be collected, each with `id`, `typeId` (the game's `InboxTypeId`; names in the new [`inbox-types.json`](inbox-types.json), partially bound), `read`, `receivedAt` / `expiresAt` (UTC), `prize` (the event-reward shape) and, for an overflowed artifact, the full `artifacts[]` record with stats — which is not also in the vault. The whole Inbox: `items: []` = empty, absent = unread. No sender is recorded. Verified live (11.75.0, 102 items). A consumer that ignores it is exactly as correct as on schema 39. |
+| 40 | v1.44.0 | 2026-10-07 | **Additive: `inbox`** — the in-game Inbox (see [`inbox`](#inbox--the-in-game-inbox-schema-40)): every reward waiting to be collected, each with `id`, `typeId` (the game's `InboxTypeId`; titles via the new [`inbox-types.json`](inbox-types.json)), `read`, `receivedAt` / `expiresAt` (UTC), `prize` (the event-reward shape) and, for an overflowed artifact, the full `artifacts[]` record with stats — which is not also in the vault. The whole Inbox: `items: []` = empty, absent = unread. No sender is recorded. Verified live (11.75.0, 102 items). A consumer that ignores it is exactly as correct as on schema 39. |
 | 39 | v1.43.0 | 2026-10-05 | **Additive: `soloEvents[].frontier` — the Frontier Event map and progress; corrective: a Frontier Event's `points`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). A Frontier Event (internally `ConquestEvent`, `soloTypeId` 8) now carries `frontier`: every outpost with its rarity, type, neighbours, optional unlock time, 4 quest ids and 4 reward slots (track 1 Basic, 2 Explorer), plus the account's state per outpost (started, completed quests, claimed slots) and its revealed quests (condition, counts, points), and `unlockPoints`, the Frontier Points each rarity needs (4447: 15 / 25 / 40 / 60). Its `points` was 0 on every Frontier Event and is now the account's Frontier Points. Its `rewards` stays `[]`. Absent on other events, and when unread. Verified live (11.75.0, event 4447). A consumer that ignores `frontier` is exactly as correct as on schema 38, except that it now sees a Frontier Event's real points. |
 | 38 | v1.43.0 | 2026-10-05 | **Additive: `battlePasses[]`, and `startsAt` / `endsAt` on every pass; `battlePass` is deprecated and changes selection** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). `battlePasses[]` carries every pass kind the account has, one entry per `kindId`: the running pass of that kind, else its newest. This matters when two run at once, e.g. the Forge Pass and the Champion Pass. `kindId` 2 = Forge Pass and 3 = Champion Pass (internally `hero-pass`; there is no "Hero Path") are confirmed. Kind 0, the 12 oldest Forge Passes, is never sent. `[]` = no pass, absent = unread. Each pass now has `startsAt` (static `Start`) and `endsAt` (`Start` + `DurationDays`; the game stores no end instant, and on pass 1037 this equals the server's challenge-quest deadline). Both are omitted when unread, and `endsAt` on a force-stopped pass. There is no `claimUntil` on passes: the game defines no claim window. **`battlePass` stays until the first schema released on or after 2027-01-05** and is now the running Forge Pass, else the newest pass of any kind (before: the first running pass of any kind). Track ids are unchanged: 1 = Free certain, 2/3 inferred. Level tables went to RslCompanionMetadata `battle_pass_index.json`, not the payload. Verified live (11.75.0). A consumer that ignores the new fields is exactly as correct as on schema 37, except while a Champion Pass runs without a Forge Pass, when `battlePass` now names the newest pass rather than the Champion Pass. That is the same pass unless an older Champion Pass is still running. |
 | 37 | v1.39.0 | 2026-10-03 | **Additive: `clanBosses.{demonLord,hydra,chimera}.difficulties[]`** — `{ difficultyId, keysSpent, damage }` per difficulty attacked: the Demon Lord's current boss, Hydra's and Chimera's current week. Read from the clan's boss record, this account's own row only. Verified live (11.75.0): the key balances fell by exactly the keys read. A consumer that ignores it is exactly as correct as on schema 36. |
