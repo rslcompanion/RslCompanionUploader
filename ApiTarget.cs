@@ -72,7 +72,7 @@ public sealed record ApiTarget(
                             IsProduction: config.ApiBaseUrl == Production.ApiBaseUrl);
 
     /// <summary>
-    /// Where the in-app Sign In button goes: the server Help ▸ Server… picked, if it is still on the
+    /// Where the in-app Sign In button goes: the server Actions ▸ Server… picked, if it is still on the
     /// allow-list, else the built-in one. A stored value that no longer resolves (a Debug build's
     /// localhost read by a Release build) falls back silently. It named nothing that could be used
     /// anyway, and the picker is where it gets changed.
@@ -82,7 +82,7 @@ public sealed record ApiTarget(
 
     /// <summary>
     /// The feature key RaidTools grants per group for the Extractor on a non-prod server. On dev it is
-    /// what the server enforces for sign-in and upload; on prod it is what shows Help ▸ Server….
+    /// what the server enforces for sign-in and upload; on prod it is what shows Actions ▸ Server….
     /// </summary>
     public const string DevAccessFeature = "extractor-dev-server";
 

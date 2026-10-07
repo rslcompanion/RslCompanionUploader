@@ -48,7 +48,7 @@ match rslcompanion.com. [Forms/MainForm.cs](Forms/MainForm.cs) is a thin native 
 and `AppShell` docked fill, nothing else. `MainForm` stays the backend — it runs the
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL,
-Help menu).
+Actions menu).
 The page posts back ten actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
 `installUpdate`, `logDetail`, `copyLog`, `feedback`, `menu`. There is no uncovered-build bridge action
 or banner: covering an uncovered build is triggered automatically from `MainForm`, not from anything
@@ -64,6 +64,13 @@ because several items open modal dialogs. **To add a menu item, add a `ToolStrip
 `BuildMenu`; the page needs no change.** The strip becomes visible again only when WebView2 fails to
 start (`AppShell.WebViewUnavailable`), because that also takes the page's menu. "Open
 rslcompanion.com" was dropped with the move: the page's own "Open RSL Companion" button does it.
+
+**It is labelled "Actions", not "Help" (1.46), and drawn as a dropdown trigger** (label + chevron,
+"Uploader actions" header) rather than a plain button: most of its rows *do* something (check for
+updates, set up this Raid version, session security, server), and "Help" hid them. Every user-facing
+path says `Actions → …` / `Actions ▸ …`, including the native strip's fallback (`&Actions`); a message
+that names a menu path must name this one. Internal names (`#help`, `PushHelpMenu`, `_helpMenu`) were
+left as they were.
 
 **The installer brings the WebView2 runtime when a machine lacks it (1.41).** CI downloads
 Microsoft's Evergreen bootstrapper into `installer/redist/` and refuses it unless Microsoft signed it.
@@ -110,9 +117,9 @@ closed the app under a user who might be mid-export, and the restart is free to 
 **Automatic checks are opt-in, asked once, and revocable.** `AskAutoUpdateIfUnanswered` puts the
 question on the first run that finds `autoUpdateChecksChosen` false — same shape as the stay-signed-in
 question, and for the same reason: off is the default, so silence would decide by omission. Saying yes
-starts `PollUpdatesAsync` — once now, then hourly — and Help ▸ Check for updates automatically toggles
+starts `PollUpdatesAsync` — once now, then hourly — and Actions ▸ Check for updates automatically toggles
 it later (toggling counts as answering, so nobody is asked about something they already set). Saying
-no leaves Help ▸ Check for updates working, so it costs discovery, not the ability to update.
+no leaves Actions ▸ Check for updates working, so it costs discovery, not the ability to update.
 **The check does not require a session.** It used to run from `EnterSignedInAsync`, which meant anyone
 who never signed in was never told a release existed — including the release covering the Raid build
 about to block them.
@@ -134,7 +141,7 @@ once is a moment and the message says to try again; failing twice in a row is us
 server has moved on from, so `ExportAccountAsync` counts consecutive rejections (`_uploadRejections`,
 reset by the first accepted upload) and the second one runs a non-silent `CheckForUpdateAsync`. That
 either lights the banner or logs "you're on the latest version", which rules the theory out instead of
-leaving the user to guess. Both rejection messages in `RslCompanionApiClient` name Help → Check for
+leaving the user to guess. Both rejection messages in `RslCompanionApiClient` name Actions → Check for
 updates for the same reason — including the 404 one, which otherwise reads as purely server-side.
 
 The app opens its main window **before authenticating** (like Postman). [Program.cs](Program.cs) now
@@ -252,7 +259,7 @@ already found the build uncovered, and GitHub rate-limits by IP, so treating "co
 "don't calibrate" would make reading the local game process depend on a service it has nothing to do
 with. A deferral logs one line per build (`_calibrationDeferred`, deliberately not
 `_calibrationAttempted` — a deferral is not an attempt and must not consume the one attempt the build
-gets) pointing at the banner and at Help → Set up this Raid version, which passes `force` and
+gets) pointing at the banner and at Actions → Set up this Raid version, which passes `force` and
 overrides all of this. The cheap certify lookup is never gated: it is a GET, and its
 `NeedsNewerUploader` answer is itself a reason to update.
 
@@ -430,9 +437,9 @@ prod so a prod file is byte-for-byte what 1.31 wrote) all read it off the sessio
 - **Absent means the built-in API**, because every site build before 2026-09-30 sends none, and every
   release from 1.8.0 to 1.31.0 ignores the parameter (so the site could ship it first).
 - **A non-prod session is labelled everywhere it could be mistaken for prod**: the page's DEV badge,
-  the title bar (taskbar, Alt+Tab), a log line, Help ▸ About.
+  the title bar (taskbar, Alt+Tab), a log line, Actions ▸ About.
 
-**Help ▸ Server… is visibility, not permission (1.34).** It stores `serverApiBaseUrl` in
+**Actions ▸ Server… is visibility, not permission (1.34).** It stores `serverApiBaseUrl` in
 `settings.json`, re-resolved through the allow-list on every read (`ApiTarget.Preferred`), and it
 decides only which site the in-app Sign In opens. Website launches still name their own server. It is
 shown when the session's server reports the `extractor-dev-server` feature on
@@ -454,7 +461,7 @@ owns restore/persist/forget; [Auth/CredentialStore.cs](Auth/CredentialStore.cs) 
 
 **Persistence is opt-in, and the opt-in is total.** [Auth/SessionProtection.cs](Auth/SessionProtection.cs)
 is the single stored value (`sessionProtection` in `settings.json`), chosen on the sign-in window and
-changeable later from Help ▸ Session security without signing out:
+changeable later from Actions ▸ Session security without signing out:
 
 | Level | What is stored | What it stops |
 | --- | --- | --- |
@@ -470,7 +477,7 @@ when consent was given is a file whose presence answers "did I agree to this?".
 the website signs the app in with no sign-in screen, so there is no checkbox to read — and treating
 the `None` default as an answer would mean silently never remembering anyone who arrives that way.
 `MainForm.AskProtectionIfUnansweredAsync` asks **once ever** on that path, after the UI is up. The
-sign-in panel and Help ▸ Session security also set the flag; nothing asks twice.
+sign-in panel and Actions ▸ Session security also set the flag; nothing asks twice.
 
 Hello does not hand out key material, it signs, so the blob carries a random challenge and the AES key
 is SHA-256 of the Hello signature over it ([Auth/HelloProtector.cs](Auth/HelloProtector.cs)). This
@@ -804,7 +811,7 @@ The full name (`1.2.0-dev.1`) is the informational version, which is what the ti
 show and what `ReleaseVersion.Current` reads.
 
 **The dev channel is decided per install, at check time** (`MainForm.UpdateChannelIncludesPrereleases`).
-It is on when the session's server is not prod, or Help ▸ Server picks dev while signed out, or the
+It is on when the session's server is not prod, or Actions ▸ Server picks dev while signed out, or the
 running build is itself a pre-release. It reads `/releases` and takes the newest non-draft release
 by `ReleaseVersion`, which orders semver-style: `1.2.0-dev.1 < 1.2.0-dev.2 < 1.2.0 < 1.3.0-dev.1`.
 So a dev install is offered the next dev build, then the production release it led up to, and on

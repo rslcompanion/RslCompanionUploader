@@ -21,7 +21,7 @@ public sealed class UserSettings
 
     /// <summary>
     /// How the signed-in session is kept between launches — the user's own choice, made on the
-    /// sign-in window and changeable afterwards from Help ▸ Session security.
+    /// sign-in window and changeable afterwards from Actions ▸ Session security.
     ///
     /// <para>It defaults to <see cref="Auth.SessionProtection.None"/>, and that default is load-bearing:
     /// the two paths that have no UI to ask — the website's protocol launch, and the silent restore
@@ -47,7 +47,7 @@ public sealed class UserSettings
     /// Whether the app looks for a new version on its own — once at startup, then hourly.
     ///
     /// <para>Off by default, and the default is not the answer: see <see cref="AutoUpdateChecksChosen"/>.
-    /// Turning it off leaves Help ▸ Check for updates working, so declining costs discovery, not the
+    /// Turning it off leaves Actions ▸ Check for updates working, so declining costs discovery, not the
     /// ability to update.</para>
     /// </summary>
     [JsonPropertyName("autoUpdateChecks")]
@@ -76,7 +76,7 @@ public sealed class UserSettings
     public bool ActivityLogDetail { get; set; }
 
     /// <summary>
-    /// The server Help ▸ Server… picked, as its API origin, or null for the built-in one. It decides
+    /// The server Actions ▸ Server… picked, as its API origin, or null for the built-in one. It decides
     /// only which site the in-app Sign In button opens. A launch from a website still names its own
     /// server, and the value is re-checked against <see cref="ApiTarget.Allowed"/> on every read
     /// (<see cref="ApiTarget.Preferred"/>), so an edited file cannot name anything else.

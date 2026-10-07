@@ -121,7 +121,7 @@ public sealed class SignInPanel : Panel
     public event Action? Cancelled;
 
     /// <summary>
-    /// The server whose site the browser is sent to (Help ▸ Server…, else the built-in one). The code
+    /// The server whose site the browser is sent to (Actions ▸ Server…, else the built-in one). The code
     /// that comes back still names its own server and is redeemed there, so this decides only where
     /// the user is asked to sign in.
     /// </summary>
@@ -254,7 +254,7 @@ public sealed class SignInPanel : Panel
     ///
     /// <para>Ticking it means <see cref="SessionProtection.WindowsAccount"/> (DPAPI) — the sensible
     /// default, with no prompt at startup. The Windows Hello level lives where someone would go
-    /// looking for it, Help ▸ Session security, and is preserved rather than downgraded if it was
+    /// looking for it, Actions ▸ Session security, and is preserved rather than downgraded if it was
     /// already chosen (see <see cref="Protection"/>).</para>
     /// </summary>
     private Control BuildStaySignedIn()
@@ -273,7 +273,7 @@ public sealed class SignInPanel : Panel
         row.Controls.Add(_staySignedIn);
         row.Controls.Add(HelpGlyph.Create(_tips,
             SessionProtection.WindowsAccount.Detail()
-            + "\n\nTo require Windows Hello instead, use Help ▸ Session security once you're signed in."));
+            + "\n\nTo require Windows Hello instead, use Actions ▸ Session security once you're signed in."));
         return row;
     }
 

@@ -4,7 +4,7 @@ using Xunit;
 namespace RslCompanionUploader.Tests;
 
 /// <summary>
-/// Help ▸ Server…'s stored choice, and reading a server's refusal (403) message.
+/// Actions ▸ Server…'s stored choice, and reading a server's refusal (403) message.
 /// </summary>
 public class ServerPickerTests
 {

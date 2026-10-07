@@ -4,7 +4,7 @@ using System.Reflection;
 namespace RslCompanionUploader.Forms;
 
 /// <summary>
-/// "Help → About" dialog. Its main job is answering "which build do I actually have installed?" —
+/// "Actions → About" dialog. Its main job is answering "which build do I actually have installed?" —
 /// support requests are usually about a stale version, so the version string is the headline and is
 /// selectable/copyable, alongside the facts that change behaviour (extraction engine present or not,
 /// install folder, API origin).

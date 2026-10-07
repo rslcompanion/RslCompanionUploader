@@ -41,7 +41,7 @@ public sealed class SavedCredentials
 /// </list>
 ///
 /// <para>What is stored is the <b>refresh token</b>, never a password and never the ID token: it is
-/// revocable server-side (Help ▸ sign out everywhere), and it is the only thing a silent restart
+/// revocable server-side (Actions ▸ sign out everywhere), and it is the only thing a silent restart
 /// actually needs.</para>
 /// </summary>
 public static class CredentialStore

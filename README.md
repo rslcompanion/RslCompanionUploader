@@ -45,7 +45,7 @@ exports the live Raid: Shadow Legends account to RSL Companion.
    different account, the app still syncs the one in Raid, which is the only one it can read, and
    says so in a notice.
 
-   **Help ▸ Server…** (1.34+) picks which site the in-app **Sign In** opens. It is shown only to
+   **Actions ▸ Server…** (1.34+) picks which site the in-app **Sign In** opens. It is shown only to
    people RaidTools grants the `extractor-dev-server` feature (Admin ▸ Groups), to admins, and to
    anyone already on a non-prod server, so there is always a way back to prod. Switching signs out of
    the current server first, because a session belongs to one server. That is visibility only: each
@@ -157,6 +157,6 @@ signed binary.
 **Dev builds.** Tag with a label, e.g. `v1.40.0-dev.1`, and the workflow publishes a GitHub
 *pre-release* that is never marked latest. Production installs check `/releases/latest`, and the
 get.rslcompanion.com link resolves through the same "latest", so neither ever sees it. An install
-whose session is on a dev server (or that Help ▸ Server points at dev, or that is already running a
+whose session is on a dev server (or that Actions ▸ Server points at dev, or that is already running a
 pre-release) checks the full release list instead. It is offered the newest dev build, and then the
 production release that follows it.

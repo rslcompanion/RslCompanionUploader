@@ -512,12 +512,16 @@ public sealed class AppShell : Panel
                           color:var(--fg); cursor:pointer; }
   #accountMenu .am-item:hover { background:var(--panel); }
 
-  /* Help button + dropdown: the app menu that used to be a native MenuStrip above the page. It takes
+  /* Actions dropdown: the app menu that used to be a native MenuStrip above the page. Drawn as a
+     dropdown trigger (label + chevron), not a plain button, so it reads as 'more in here'. It takes
      the top bar's free space (margin-left:auto) so Sign In / the avatar sit beside it at the right. */
-  #help { flex:none; margin-left:auto; height:32px; padding:0 12px; border-radius:16px;
-          border:1px solid var(--line); background:none; color:var(--sub); font-family:inherit;
-          font-size:12px; font-weight:600; cursor:pointer; }
-  #help:hover, #help.open { color:var(--fg); background:var(--panel); }
+  #help { flex:none; margin-left:auto; height:32px; display:none; align-items:center; gap:8px;
+          padding:0 10px 0 12px; border-radius:8px; border:1px solid var(--line); background:var(--panel);
+          color:var(--fg); font-family:inherit; font-size:13px; font-weight:600; cursor:pointer; }
+  #help:hover { border-color:var(--sub); }
+  #help.open { border-color:var(--accent); box-shadow:0 0 0 3px var(--accentbg); }
+  #help .chev { width:10px; height:10px; flex:none; color:var(--sub); transition:transform .15s ease; }
+  #help.open .chev { transform:rotate(180deg); color:var(--accent); }
   #help ~ #signin, #help ~ #account { margin-left:0; }
   #helpMenu { display:none; position:absolute; top:calc(100% + 6px); right:12px; z-index:30; min-width:240px;
               background:var(--card); border:1px solid var(--line); border-radius:12px;
@@ -530,6 +534,8 @@ public sealed class AppShell : Panel
   #helpMenu .hm-item:disabled { color:var(--mut); cursor:default; }
   #helpMenu .hm-check { width:14px; flex:none; text-align:center; color:var(--accent); font-weight:700; }
   #helpMenu .hm-sep { height:1px; background:var(--line); margin:4px 0; }
+  #helpMenu .hm-head { padding:8px 16px 4px; font-size:11px; font-weight:700; letter-spacing:.06em;
+                       text-transform:uppercase; color:var(--mut); }
 
   .banner { flex:none; display:none; padding:9px 16px; font-size:12px; font-weight:600; cursor:pointer;
             border-bottom:1px solid var(--line); }
@@ -680,7 +686,7 @@ public sealed class AppShell : Panel
     <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span></div>
     <div id='env'><span class='label'></span><span class='host'></span></div>
     <div id='pill'><span class='dot'></span><span class='txt'></span></div>
-    <button id='help' type='button' aria-haspopup='menu'>Help</button>
+    <button id='help' type='button' aria-haspopup='menu' aria-expanded='false' aria-controls='helpMenu'><span>Actions</span><svg class='chev' viewBox='0 0 10 10' aria-hidden='true'><path d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg></button>
     <div id='helpMenu' role='menu'></div>
     <button id='signin' type='button'>Sign In</button>
     <button id='account' type='button' aria-label='Account'><span id='accountAvatar'></span></button>
@@ -790,6 +796,8 @@ public sealed class AppShell : Panel
     var m = $('helpMenu'), items = state.helpMenu || [];
     var anyCheck = items.some(function(i){ return i.checked !== null && i.checked !== undefined; });
     m.textContent = '';
+    var head = document.createElement('div'); head.className = 'hm-head'; head.textContent = 'Uploader actions';
+    m.appendChild(head);
     items.forEach(function(i, idx){
       if (i.sep) {
         if (idx > 0 && idx < items.length - 1 && !items[idx - 1].sep) {
@@ -809,7 +817,7 @@ public sealed class AppShell : Panel
       b.onclick = function(){ closeHelpMenu(); window.chrome.webview.postMessage({ type:'menu', id:i.id }); };
       m.appendChild(b);
     });
-    $('help').style.display = items.length ? 'inline-block' : 'none';
+    $('help').style.display = items.length ? 'inline-flex' : 'none';
   }
 
   function renderTopbar() {
@@ -1074,12 +1082,19 @@ public sealed class AppShell : Panel
     if (btn.id === 'btnData') window.chrome.webview.postMessage({ type:'export' });
   });
 
-  function closeHelpMenu(){ $('helpMenu').classList.remove('open'); $('help').classList.remove('open'); }
+  function closeHelpMenu(){
+    $('helpMenu').classList.remove('open'); $('help').classList.remove('open');
+    $('help').setAttribute('aria-expanded', 'false');
+  }
   $('help').onclick = function(e){
     e.stopPropagation();
     closeAccountMenu();
-    var open = $('helpMenu').classList.toggle('open');
-    $('help').classList.toggle('open', open);
+    var btn = $('help'), menu = $('helpMenu');
+    // Open under the trigger, right edges aligned, rather than at the bar's far edge.
+    menu.style.right = Math.max(12, $('topbar').getBoundingClientRect().right - btn.getBoundingClientRect().right) + 'px';
+    var open = menu.classList.toggle('open');
+    btn.classList.toggle('open', open);
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   };
   document.addEventListener('click', function(e){
     if (!$('helpMenu').contains(e.target) && e.target !== $('help')) closeHelpMenu();

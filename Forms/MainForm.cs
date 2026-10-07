@@ -52,11 +52,11 @@ public sealed class MainForm : Form
     /// </summary>
     private readonly SemaphoreSlim _sessionGate = new(1, 1);
 
-    /// <summary>Help ▸ Session security. Enabled only while signed in — it re-saves the live session.</summary>
+    /// <summary>Actions ▸ Session security. Enabled only while signed in — it re-saves the live session.</summary>
     private ToolStripMenuItem? _sessionSecurityItem;
 
     /// <summary>
-    /// Help ▸ Server…, which picks the server the in-app Sign In goes to. Shown only to someone
+    /// Actions ▸ Server…, which picks the server the in-app Sign In goes to. Shown only to someone
     /// RaidTools grants <see cref="ApiTarget.DevAccessFeature"/> to, or an admin, or anyone already
     /// on a non-prod server (so there is always a way back). See <see cref="RefreshServerPickerAsync"/>.
     /// </summary>
@@ -159,7 +159,7 @@ public sealed class MainForm : Form
         _sessions = sessions;
         _launch = launch;
 
-        // The running version is in the title bar as well as Help → About: "which build am I on?"
+        // The running version is in the title bar as well as Actions → About: "which build am I on?"
         // is the first question in almost every support thread. "RSL Companion" itself is left out —
         // the WebView2 page's own top bar already shows that brand right underneath.
         Text = $"Uploader  v{AboutForm.DisplayVersion}";
@@ -561,7 +561,7 @@ public sealed class MainForm : Form
     ///
     /// <para>Asked <b>once ever</b>, and only when it has never been answered — the default is "don't
     /// save", so staying silent would quietly mean never remembering anyone who signs in from the
-    /// site. Answering it here (or on the sign-in panel, or in Help ▸ Session security) settles it
+    /// site. Answering it here (or on the sign-in panel, or in Actions ▸ Session security) settles it
     /// for good; there is no version of this that nags.</para>
     /// </summary>
     private async Task AskProtectionIfUnansweredAsync(AuthSession session)
@@ -579,7 +579,7 @@ public sealed class MainForm : Form
         {
             Caption = "RSL Companion",
             Heading = $"Stay signed in as {session.Email ?? session.DisplayName ?? session.Uid}?",
-            Text = "You can change this at any time from Help ▸ Session security, which also offers "
+            Text = "You can change this at any time from Actions ▸ Session security, which also offers "
                    + "locking the saved session with Windows Hello.",
             Icon = TaskDialogIcon.ShieldBlueBar,
             AllowCancel = false, // there is no third answer; both buttons are a real choice
@@ -881,7 +881,7 @@ public sealed class MainForm : Form
             if (_calibrationDeferred.Add(buildKey))
                 Log("A newer version of RSL Companion is available, and it may already know this Raid "
                   + "version — installing it from the banner at the top is quicker than the setup this "
-                  + "PC would otherwise run. To set it up here anyway, use Help → Set up this Raid version.");
+                  + "PC would otherwise run. To set it up here anyway, use Actions → Set up this Raid version.");
             return;
         }
 
@@ -929,7 +929,7 @@ public sealed class MainForm : Form
             {
                 Log($"Couldn't finish setting up this Raid version: {result.Error}. If Raid was still "
                   + "loading, wait until your heroes are visible, then try again from "
-                  + "Help → Set up this Raid version.");
+                  + "Actions → Set up this Raid version.");
             }
         }
         catch (OperationCanceledException)
@@ -1100,7 +1100,7 @@ public sealed class MainForm : Form
 
                 case BuildCertification.Outcome.NeedsNewerUploader:
                     Log($"Raid {label} is supported, but {applied.Message} " +
-                        "Use Help → Check for updates, then try again.");
+                        "Use Actions → Check for updates, then try again.");
                     return false;
 
                 default:
@@ -1280,7 +1280,7 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Decides whether Help ▸ Server… is shown, from what the session's own server says.
+    /// Decides whether Actions ▸ Server… is shown, from what the session's own server says.
     ///
     /// <para><b>This is visibility, not permission.</b> Each server enforces its own rule on sign-in
     /// and on every upload (RaidTools' <c>ExtractorAccessService</c>), so a user who got the item
@@ -1302,7 +1302,7 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// Help ▸ Server…: picks the server the in-app Sign In goes to. Switching signs out of the
+    /// Actions ▸ Server…: picks the server the in-app Sign In goes to. Switching signs out of the
     /// current one, because a session belongs to one server for life — the tokens mean nothing on
     /// the other. Picking the server you are already on does nothing.
     /// </summary>
@@ -1416,7 +1416,7 @@ public sealed class MainForm : Form
 
     private MenuStrip BuildMenu()
     {
-        var help = new ToolStripMenuItem("&Help");
+        var help = new ToolStripMenuItem("&Actions");
         if (!PackagedAppInfo.IsPackaged)
         {
             help.DropDownItems.Add(new ToolStripMenuItem("Check for &updates…", null,
@@ -1612,7 +1612,7 @@ public sealed class MainForm : Form
     /// <summary>Stops the update poll when it is switched off. Null whenever the poll isn't running.</summary>
     private CancellationTokenSource? _updatePollCts;
 
-    /// <summary>Help ▸ Check for updates automatically. Checked state mirrors the saved preference.</summary>
+    /// <summary>Actions ▸ Check for updates automatically. Checked state mirrors the saved preference.</summary>
     private ToolStripMenuItem? _autoUpdateItem;
 
     /// <summary>
@@ -1682,7 +1682,7 @@ public sealed class MainForm : Form
     ///
     /// <para>Off is the default and staying silent is not an answer, so this is what turns the
     /// default into a decision — the same shape as the stay-signed-in question. Both answers are
-    /// real: declining leaves Help ▸ Check for updates working, so it costs discovery, not the
+    /// real: declining leaves Actions ▸ Check for updates working, so it costs discovery, not the
     /// ability to update. Either way it is settled for good and never asked again; the menu item is
     /// how anyone changes their mind.</para>
     /// </summary>
@@ -1697,13 +1697,13 @@ public sealed class MainForm : Form
             + "downloads or installs until you click it.");
         var manual = new TaskDialogCommandLinkButton(
             "Only when I ask",
-            "No background checks. Use Help ▸ Check for updates whenever you want one.");
+            "No background checks. Use Actions ▸ Check for updates whenever you want one.");
 
         var page = new TaskDialogPage
         {
             Caption = "RSL Companion",
             Heading = "Check for updates automatically?",
-            Text = "You can change this at any time from Help ▸ Check for updates automatically.",
+            Text = "You can change this at any time from Actions ▸ Check for updates automatically.",
             Icon = TaskDialogIcon.Information,
             AllowCancel = false, // there is no third answer; both buttons are a real choice
             Buttons = { auto, manual },
@@ -1733,7 +1733,7 @@ public sealed class MainForm : Form
         }
         else
         {
-            if (announce) Log("Automatic update checks are off. Use Help ▸ Check for updates when you want one.");
+            if (announce) Log("Automatic update checks are off. Use Actions ▸ Check for updates when you want one.");
             StopUpdatePolling();
         }
     }
@@ -1741,7 +1741,7 @@ public sealed class MainForm : Form
     /// <summary>
     /// Whether update checks include pre-releases (<c>v1.2.0-dev.1</c>). Production users never do:
     /// the dev channel is for someone working against a dev server — this session's, or the one
-    /// picked in Help ▸ Server while signed out — or already running a pre-release build, which must
+    /// picked in Actions ▸ Server while signed out — or already running a pre-release build, which must
     /// go on being offered the next dev build and then the production release it led up to.
     /// </summary>
     private bool UpdateChannelIncludesPrereleases =>
@@ -2073,7 +2073,7 @@ public sealed class MainForm : Form
             if (GameUserId(profile.AccountId) is not int || string.IsNullOrWhiteSpace(profile.Account.Name))
             {
                 Log("Something looks wrong with the data read from Raid, so it wasn't sent to RSL "
-                  + "Companion. If Raid just updated, try Help → Set up this Raid version, then "
+                  + "Companion. If Raid just updated, try Actions → Set up this Raid version, then "
                   + "Update user data again.");
                 return;
             }
