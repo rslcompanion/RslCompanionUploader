@@ -1,0 +1,815 @@
+{
+  "$comment": "InboxTypeId -> the Inbox's source line, for inbox.items[].typeId in export-schema.json (schema 40+). Static game metadata, not account data. Read live off game build 11.75.0 on 2026-10-07 (RslCompanionExtraction tools/EventProbe --inbox and --classes InboxTypeId; BlessingProbe --l10ndict l10n:inbox). READ 'bindings' BEFORE USING ANYTHING ELSE HERE: the enum's member NAMES and the source-line TEXTS are both settled from the game, but which id is which member is NOT, except where a binding says so. The enum carries explicit values (4..141, with gaps), so declaration order is not a substitute - the artifact set table was wrong for years for exactly that reason. Do not pair members with ids by position.",
+  "generatedAt": "2026-10-07T00:00:00Z",
+  "gameVersion": "11.75.0",
+  "maxItems": {
+    "$comment": "StaticInboxData.MaxInboxItemsCount: the Inbox's capacity. Display it as items/maxItems.",
+    "value": 400
+  },
+  "bindings": {
+    "$comment": "The only ids it is safe to name. Each entry states its evidence. An id not listed here is UNBOUND: render the item from its prize with a neutral label (e.g. 'Reward'), never from a guessed member.",
+    "values": [
+      {
+        "typeId": 7,
+        "member": "Overflow",
+        "text": "Overflow from full Artifact Storage",
+        "sourceKeyByPrize": {
+          "artifacts": "l10n:inbox/reward-msg-overflow/artifact#description",
+          "champions": "l10n:inbox/reward-msg-overflow/hero#description",
+          "relics": "l10n:inbox/reward-msg-overflow/relics#description",
+          "gemstones": "l10n:inbox/reward-msg-overflow/relicStones#description",
+          "other": "l10n:inbox/reward-msg-overflow#description"
+        },
+        "evidence": "From the payload, not the screen: all 62 type-7 items on the mapping account carry exactly one artifact and nothing else, arrive in bursts of 2-11 within seconds while farming, and none of the 62 is in the account's vault. That is the overflow signature and fits no other member. The game picks the source line by what overflowed (artifact / champion / relic / gemstone), hence sourceKeyByPrize; only the artifact case has been observed.",
+        "confidence": "strong, not screen-checked"
+      }
+    ]
+  },
+  "observedUnbound": {
+    "$comment": "Ids seen on a live account whose member is not established. What they carried is recorded so a later binding can be checked against it. Do not name them from this.",
+    "values": [
+      {
+        "typeId": 12,
+        "seen": 2,
+        "carried": "5 of resource 3; one of item 3",
+        "note": "Valid for 1 day although the lifetime table says 7: the game shortens energy-refill items (StaticInboxData.RefillItemInboxLifetimeDays)."
+      },
+      {
+        "typeId": 60,
+        "seen": 13,
+        "carried": "silver (resource 2) 25,000 or 150,000; items 1, 1002, 5505, 8001, 8002, 10002",
+        "note": "Arrive in groups of 4-5 sharing one timestamp, roughly daily."
+      },
+      {
+        "typeId": 112,
+        "seen": 24,
+        "carried": "one of item 2 or item 5",
+        "note": "Roughly every 2-7 days since 2026-06-29."
+      },
+      {
+        "typeId": 132,
+        "seen": 1,
+        "carried": "one of item 3001",
+        "note": "Delivered 2026-10-07 11:47:35Z, during the mapping session."
+      }
+    ]
+  },
+  "members": {
+    "$comment": "Every member of the game's InboxTypeId enum, in declaration order, values NOT bound. 82 members, and the lifetime table below configures 82 ids.",
+    "source": "IL2CPP enum InboxTypeId (Il2CppRuntime.ListFields on the klass)",
+    "names": [
+      "BankPackages",
+      "DailyReward",
+      "Overflow",
+      "ArenaWeeklyReward",
+      "MilestoneLevelPrize",
+      "Quest",
+      "SessionChest",
+      "StageStarsReward",
+      "LoyaltyProgram",
+      "LoadingReward",
+      "AllianceActivityChest",
+      "ArenaReward",
+      "Challenge",
+      "AllianceCvcTournamentReward",
+      "GlobalEvent",
+      "Tournament",
+      "ReferralProgram",
+      "ClientUpdate",
+      "Compensation",
+      "GooglePlayPoints",
+      "RegularGift",
+      "BattlePass",
+      "BattlePassCompensation",
+      "Arena3X3Shop",
+      "GiftLinks",
+      "ChinaCompensation",
+      "DynamicPriceBankPackages",
+      "GiftOffer",
+      "IdomooIntegrationPrize",
+      "PromoCodePrize",
+      "ConditionalPromoCodePrize",
+      "AllianceQuest",
+      "ReactivationUsersPrize",
+      "ReactivationQuestsProgressPrize",
+      "ReactivationProgramMentorSupport",
+      "ReactivationQuest",
+      "ThreeLineEventCompensation",
+      "InfluencerLink",
+      "BingoEventCompensation",
+      "PersonalMessage",
+      "LiveArena",
+      "RaidShowExtraRewardOnSignIn",
+      "RaidShowQuizRewardOnSignIn",
+      "RaidShowQuizReward",
+      "RaidShowShareReward",
+      "LimitedHeroSummon",
+      "DailyShareReward",
+      "RevivalPath",
+      "RevivalPathCompensation",
+      "HydraCompetition",
+      "HeroPass",
+      "HeroPassCompensation",
+      "CursedCity",
+      "MiniGames",
+      "DailyActivity",
+      "PurchaseBonuses",
+      "TripleOfferSpecialReward",
+      "LimitedSoulSummon",
+      "YoutubePremiumExperience",
+      "Siege",
+      "HydraCompetitionMilestone",
+      "SpecialProgramGift",
+      "ApprenticePass",
+      "ApprenticePassCompensation",
+      "ChimeraCompetition",
+      "ChimeraCompetitionMilestone",
+      "Relics",
+      "ComboOfferFreeBonusOffer",
+      "ThreeLineEventKeyCompensation",
+      "AdminCommand",
+      "AdventCalendar",
+      "CooperationEvent",
+      "FoggyForest",
+      "SubscriptionReward",
+      "PlariumTickets",
+      "ReactivationReferralProgram",
+      "LiveArenaWinStreak",
+      "NoviceChampionPass",
+      "NoviceChampionPassCompensation",
+      "ChampionJourneyMilestoneReward",
+      "ChampionJourneyLeaderboardReward",
+      "ConquestEvent"
+    ]
+  },
+  "sourceLines": {
+    "$comment": "Every '#description' string under l10n:inbox (English): the source line the Inbox shows on an item. Settled text; which typeId each belongs to is known only through 'bindings'. Key slugs do not match member names (reward-msg-from-admin is 'Gift from Plarium'), so they cannot be paired by spelling either.",
+    "values": [
+      {
+        "key": "l10n:inbox/alliance-quest-reward#description",
+        "text": "Clan Quest Reward"
+      },
+      {
+        "key": "l10n:inbox/bingo-unused-compensation#description",
+        "text": "Unused Event Item Exchange"
+      },
+      {
+        "key": "l10n:inbox/champion-journey#description",
+        "text": "Proving Grounds Reward"
+      },
+      {
+        "key": "l10n:inbox/chimera-competition#description",
+        "text": "Chimera Clash Reward"
+      },
+      {
+        "key": "l10n:inbox/collect-alert#description",
+        "text": "You cannot collect this Champion. No available space in your Collection."
+      },
+      {
+        "key": "l10n:inbox/conquest-event#description",
+        "text": "Frontier Event Reward"
+      },
+      {
+        "key": "l10n:inbox/cooperation-event#description",
+        "text": "Coalition Event Reward"
+      },
+      {
+        "key": "l10n:inbox/cursed-city#description",
+        "text": "Cursed City Reward"
+      },
+      {
+        "key": "l10n:inbox/cvc-tournament-reward#description",
+        "text": "CvC Tournament Reward"
+      },
+      {
+        "key": "l10n:inbox/foggy-forest#description",
+        "text": "Grim Forest Reward"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/big-loyalty#description",
+        "text": "Get awesome rewards just by logging in each day, including a free Epic or even Legendary Champion every 30 days for 9 months!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/campaign#description",
+        "text": "Discover the world of Teleria! Complete Campaign Stages to earn resources and rewards like Champions, Artifacts, and Shards!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/free-shards#description",
+        "text": "Collect a free <color=#41D559>Mystery</color> Shard every day, and a free <color=#4FAEFD>Ancient</color> Shard every week from the Shop!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/fusion#description",
+        "text": "Fuse Champions together to summon powerful <color=#E85CFC>Epic</color>, <color=#F3BC02>Legendary</color>, or <color=#FF5544>Mythical</color> warriors!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/hero-loyalty-retention#description",
+        "text": "Continue playing for 7 more days to earn <color=#fb78f9>Jizoh</color>, an Epic Defense Champion!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/novice-tournament-active#description",
+        "text": "Take part in the Novice Tournament, crush the competition, and earn valuable rewards!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/novice-tournament-ended#description",
+        "text": "Take part in various Tournaments, crush the competition, and earn valuable rewards!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/quests#description",
+        "text": "If you're looking for what to tackle next in Raid, take on Progress Missions! Complete these challenges to earn three incredible Legendary Champions!"
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/summon-boost#description",
+        "text": "Make the most of an increased chance to summon <color=#FB78F9>Epic</color> and <color=#F3BC02>Legendary</color> Champions from <color=#F3BC02>Sacred</color> Shards in your first 24 hours! Active from {0} to {1}."
+      },
+      {
+        "key": "l10n:inbox/guide-for-beginners-overlay/summon-boost-inactive#description",
+        "text": "Make the most of an increased chance to summon <color=#FB78F9>Epic</color> and <color=#F3BC02>Legendary</color> Champions from <color=#F3BC02>Sacred</color> Shards in your first 24 hours!"
+      },
+      {
+        "key": "l10n:inbox/hydra-competition#description",
+        "text": "Hydra Clash Reward"
+      },
+      {
+        "key": "l10n:inbox/idomoo-integration-prize#description",
+        "text": "Reward for sharing Raid Chronicle"
+      },
+      {
+        "key": "l10n:inbox/live-arena-reward#description",
+        "text": "Live Arena Reward"
+      },
+      {
+        "key": "l10n:inbox/live-arena-win-streak#description",
+        "text": "Win Streak Reward"
+      },
+      {
+        "key": "l10n:inbox/loyalty-share-reward#description",
+        "text": "Reward for sharing a post"
+      },
+      {
+        "key": "l10n:inbox/personal-message#description",
+        "text": "Raid Mail Reward"
+      },
+      {
+        "key": "l10n:inbox/plarium-tickets#description",
+        "text": "Treasure Tickets Reward"
+      },
+      {
+        "key": "l10n:inbox/promo-codes-reward#description",
+        "text": "Promo Code Reward"
+      },
+      {
+        "key": "l10n:inbox/purchase-bonuses-reward#description",
+        "text": "Purchase Reward"
+      },
+      {
+        "key": "l10n:inbox/raid-show-reward#description",
+        "text": "RAID: Call of the Arbiter Reward"
+      },
+      {
+        "key": "l10n:inbox/reactivation-program/reactivation-quests-reward#description",
+        "text": "Recall Quest Reward"
+      },
+      {
+        "key": "l10n:inbox/reactivation-referral-program#description",
+        "text": "Telerian Homecoming Reward"
+      },
+      {
+        "key": "l10n:inbox/revival-path-compensation#description",
+        "text": "Revival Path Reward"
+      },
+      {
+        "key": "l10n:inbox/revival-path-reward#description",
+        "text": "Revival Path Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-calendar-reward#description",
+        "text": "Reward Calendar"
+      },
+      {
+        "key": "l10n:inbox/reward-from-special-program-gift#description",
+        "text": "Raid Supreme Club"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-daily#description",
+        "text": "New Player Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-admin#description",
+        "text": "Gift from Plarium"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-apprentice-pass#description",
+        "text": "Apprentice Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-apprentice-pass-compensation#description",
+        "text": "Apprentice Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-arena#description",
+        "text": "Reward for Classic Arena Tier placement"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-bank-package#description",
+        "text": "Shop Purchase"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-battle-pass#description",
+        "text": "Battle Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-bp-compensation#description",
+        "text": "Battle Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-challenge#description",
+        "text": "Challenge Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-client-update#description",
+        "text": "Raid Update Gift"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-compensation#description",
+        "text": "Compensation gift for game issues"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-discount#description",
+        "text": "Promotional Gift"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-forge-pass#description",
+        "text": "Forge Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-forge-pass-compensation#description",
+        "text": "Forge Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-friend#description",
+        "text": "Gift from Friend"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-gift#description",
+        "text": "Free Gift. From Us, To You"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-gift-link#description",
+        "text": "Booster Pack"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-global-event#description",
+        "text": "Event Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-global-events#description",
+        "text": "Event Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-google-play-points#description",
+        "text": "Play Points Purchase"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-hero-pass#description",
+        "text": "Champion Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-hero-pass-compensation#description",
+        "text": "Champion Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-hourly-gifts#description",
+        "text": "Daily Playtime Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-loading#description",
+        "text": "Account Restoration Items (Reason: Account Rollback)"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-loyalty#description",
+        "text": "Daily Login Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-milestone#description",
+        "text": "Progression Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-novice-pass#description",
+        "text": "Pioneer Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-novice-pass-compensation#description",
+        "text": "Pioneer Pass Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-progress#description",
+        "text": "Progress Pack Delivery"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-quest#description",
+        "text": "Quest Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-referral-program#description",
+        "text": "Referral Program Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-retention#description",
+        "text": "Daily Pack Delivery"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-stars#description",
+        "text": "Campaign Challenge Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-tournaments#description",
+        "text": "Tournament Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-from-triple-offer-special-reward#description",
+        "text": "Purchase Bonus"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-limited-auto-soul-summon#description",
+        "text": "Soul Summon Pool Event Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-limited-auto-summon#description",
+        "text": "Summon Pool Event Reward"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-overflow#description",
+        "text": "Overflow from full storage"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-overflow/artifact#description",
+        "text": "Overflow from full Artifact Storage"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-overflow/hero#description",
+        "text": "Overflow from full Champion Collection"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-overflow/relicStones#description",
+        "text": "Overflow from full Gemstone Storage"
+      },
+      {
+        "key": "l10n:inbox/reward-msg-overflow/relics#description",
+        "text": "Overflow from full Relic Storage"
+      },
+      {
+        "key": "l10n:inbox/siege#description",
+        "text": "Siege Reward"
+      },
+      {
+        "key": "l10n:inbox/subscription-reward#description",
+        "text": "Diamond Raid Card Reward"
+      },
+      {
+        "key": "l10n:inbox/survivor-mini-game#description",
+        "text": "Mini Game Victory Reward"
+      },
+      {
+        "key": "l10n:inbox/threeline-unused-compensation#description",
+        "text": "Unused Event Item Exchange"
+      },
+      {
+        "key": "l10n:inbox/threeline-unused-key-compensation#description",
+        "text": "Unused Path Key Exchange"
+      }
+    ]
+  },
+  "lifetimeDays": {
+    "$comment": "StaticInboxData.ItemLifeTimeDaysByTypeId: how long each type waits before the game deletes it, and the authoritative list of type ids the game configures. expiresAt on the payload already applies this (and the energy-refill override); it is here for completeness, not for computing.",
+    "values": [
+      {
+        "typeId": 4,
+        "days": 100
+      },
+      {
+        "typeId": 6,
+        "days": 100
+      },
+      {
+        "typeId": 7,
+        "days": 100
+      },
+      {
+        "typeId": 8,
+        "days": 100
+      },
+      {
+        "typeId": 11,
+        "days": 7
+      },
+      {
+        "typeId": 12,
+        "days": 7
+      },
+      {
+        "typeId": 13,
+        "days": 100
+      },
+      {
+        "typeId": 14,
+        "days": 7
+      },
+      {
+        "typeId": 15,
+        "days": 100
+      },
+      {
+        "typeId": 16,
+        "days": 7
+      },
+      {
+        "typeId": 17,
+        "days": 7
+      },
+      {
+        "typeId": 18,
+        "days": 7
+      },
+      {
+        "typeId": 19,
+        "days": 7
+      },
+      {
+        "typeId": 20,
+        "days": 7
+      },
+      {
+        "typeId": 30,
+        "days": 7
+      },
+      {
+        "typeId": 31,
+        "days": 7
+      },
+      {
+        "typeId": 32,
+        "days": 100
+      },
+      {
+        "typeId": 33,
+        "days": 3
+      },
+      {
+        "typeId": 40,
+        "days": 3
+      },
+      {
+        "typeId": 41,
+        "days": 100
+      },
+      {
+        "typeId": 42,
+        "days": 7
+      },
+      {
+        "typeId": 43,
+        "days": 100
+      },
+      {
+        "typeId": 44,
+        "days": 100
+      },
+      {
+        "typeId": 45,
+        "days": 7
+      },
+      {
+        "typeId": 46,
+        "days": 7
+      },
+      {
+        "typeId": 50,
+        "days": 7
+      },
+      {
+        "typeId": 51,
+        "days": 7
+      },
+      {
+        "typeId": 60,
+        "days": 100
+      },
+      {
+        "typeId": 70,
+        "days": 2
+      },
+      {
+        "typeId": 71,
+        "days": 7
+      },
+      {
+        "typeId": 72,
+        "days": 7
+      },
+      {
+        "typeId": 80,
+        "days": 2
+      },
+      {
+        "typeId": 90,
+        "days": 7
+      },
+      {
+        "typeId": 91,
+        "days": 7
+      },
+      {
+        "typeId": 92,
+        "days": 7
+      },
+      {
+        "typeId": 93,
+        "days": 99
+      },
+      {
+        "typeId": 94,
+        "days": 100
+      },
+      {
+        "typeId": 95,
+        "days": 100
+      },
+      {
+        "typeId": 96,
+        "days": 100
+      },
+      {
+        "typeId": 97,
+        "days": 7
+      },
+      {
+        "typeId": 98,
+        "days": 100
+      },
+      {
+        "typeId": 99,
+        "days": 7
+      },
+      {
+        "typeId": 100,
+        "days": 7
+      },
+      {
+        "typeId": 101,
+        "days": 7
+      },
+      {
+        "typeId": 102,
+        "days": 7
+      },
+      {
+        "typeId": 103,
+        "days": 100
+      },
+      {
+        "typeId": 106,
+        "days": 2
+      },
+      {
+        "typeId": 107,
+        "days": 100
+      },
+      {
+        "typeId": 108,
+        "days": 7
+      },
+      {
+        "typeId": 109,
+        "days": 100
+      },
+      {
+        "typeId": 110,
+        "days": 100
+      },
+      {
+        "typeId": 111,
+        "days": 100
+      },
+      {
+        "typeId": 112,
+        "days": 100
+      },
+      {
+        "typeId": 113,
+        "days": 100
+      },
+      {
+        "typeId": 114,
+        "days": 100
+      },
+      {
+        "typeId": 115,
+        "days": 100
+      },
+      {
+        "typeId": 116,
+        "days": 100
+      },
+      {
+        "typeId": 117,
+        "days": 100
+      },
+      {
+        "typeId": 118,
+        "days": 7
+      },
+      {
+        "typeId": 119,
+        "days": 7
+      },
+      {
+        "typeId": 120,
+        "days": 100
+      },
+      {
+        "typeId": 121,
+        "days": 100
+      },
+      {
+        "typeId": 122,
+        "days": 100
+      },
+      {
+        "typeId": 123,
+        "days": 100
+      },
+      {
+        "typeId": 124,
+        "days": 100
+      },
+      {
+        "typeId": 125,
+        "days": 100
+      },
+      {
+        "typeId": 126,
+        "days": 100
+      },
+      {
+        "typeId": 127,
+        "days": 100
+      },
+      {
+        "typeId": 128,
+        "days": 100
+      },
+      {
+        "typeId": 129,
+        "days": 7
+      },
+      {
+        "typeId": 130,
+        "days": 7
+      },
+      {
+        "typeId": 131,
+        "days": 7
+      },
+      {
+        "typeId": 132,
+        "days": 100
+      },
+      {
+        "typeId": 133,
+        "days": 30
+      },
+      {
+        "typeId": 134,
+        "days": 100
+      },
+      {
+        "typeId": 135,
+        "days": 21
+      },
+      {
+        "typeId": 136,
+        "days": 100
+      },
+      {
+        "typeId": 137,
+        "days": 100
+      },
+      {
+        "typeId": 138,
+        "days": 100
+      },
+      {
+        "typeId": 139,
+        "days": 100
+      },
+      {
+        "typeId": 140,
+        "days": 100
+      },
+      {
+        "typeId": 141,
+        "days": 7
+      }
+    ]
+  }
+}

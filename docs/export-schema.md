@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 39** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 40** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -66,6 +66,7 @@ there is no partial/patch mode.
   "tournaments": [ … ],                     // array or ABSENT — active tournaments (schema 33)
   "battlePass":  { … },                     // object or ABSENT — one pass; deprecated by battlePasses (schema 33)
   "battlePasses": [ … ],                    // array or ABSENT — one entry per pass kind, with dates (schema 38)
+  "inbox":       { "items": [ … ] },         // object or ABSENT — the in-game Inbox (schema 40)
   "baseStatsCatalog": { … },                // object or ABSENT — provenance of champions[].baseStats
   "uploaderVersion": "1.5.9",               // string — added by the app, not the engine
   "gameVersion":     "11.67.0"              // string|null — live Raid build; null if unreadable
@@ -1622,6 +1623,60 @@ not), board currency plus cell costs equal points, and the pass's level count ma
 
 ---
 
+## `inbox` — the in-game Inbox (schema 40)
+
+Every reward waiting in the account's Inbox, read off `UserGameData → UpdatableUserInboxData.Items`.
+One list walk, no scan (~30 ms).
+
+```jsonc
+"inbox": {
+  "items": [
+    { "id": 26006, "typeId": 60, "read": true,
+      "receivedAt": "2026-10-05T04:07:38Z", "expiresAt": "2027-01-13T04:07:38Z",
+      "prize": { "resources": [ { "id": 2, "amount": 25000 } ] } },
+    { "id": 26064, "typeId": 7, "read": true,
+      "receivedAt": "2026-10-06T20:50:22Z", "expiresAt": "2027-01-14T20:50:22Z",
+      "prize": { "artifacts": [ { "kindId": 9, "rankId": 6, "rarityId": 5, "setKindId": 0 } ] },
+      "artifacts": [ { "artifactId": 166281, "kindId": 9, "rankId": 6, "rarityId": 5, "level": 0,
+                       "primaryBonus": { "statKindId": 1, "value": 900, "isAbsolute": true, … },
+                       "secondaryBonuses": [ … 4 ], "equippedByHeroId": null, … } ] },
+    { "id": 26072, "typeId": 132, "read": false,
+      "receivedAt": "2026-10-07T11:47:35Z", "expiresAt": "2027-01-15T11:47:35Z",
+      "prize": { "items": [ { "id": 3001, "amount": 1 } ] } }
+  ] }
+```
+
+- **It is the whole Inbox.** Collecting an item removes it from the game's list, and so does expiry.
+  A present `inbox` replaces what a consumer stored, and `items: []` is an empty Inbox. **Absent means
+  unread** — keep the stored block, never blank it.
+- **`typeId` is the game's `InboxTypeId`**, the source the Inbox names on each item ("Overflow from full
+  Artifact Storage", "Gift from Plarium", "Clan Quest Reward" …). It is raw. Names are in
+  [`inbox-types.json`](inbox-types.json), and **the binding there is partial**: the enum's values are
+  explicit (4…141, 82 configured on 11.75.0), so declaration order says nothing, and only ids the data
+  itself identifies are bound. Render an unbound id from its prize, never from a guessed name.
+- **`prize` is the event-reward shape** (`eventPrize`): the same decoder reads both, so anything that
+  draws an event reward draws an Inbox item. Item ids are the inventory id space (`items`), resource ids
+  the `resources[]` one.
+- **An overflowed artifact arrives twice: slim in `prize.artifacts`, full in `artifacts`.** A full vault
+  sends new gear to the Inbox as a real piece with an id and rolled substats. `artifacts` carries it in
+  the `artifacts[]` item shape, same order as the prize. It is **not** in the top-level
+  `artifacts[]`/`accessories[]` (0 of 62 on the mapping account), so adding the two never double-counts;
+  collecting it in game moves it into the vault, where the next export finds it.
+- **`read` is "opened", not "collected".** A collected item is gone from the list.
+- **Timestamps are UTC**, verified: item 26072 was delivered during the mapping session and read
+  `11:47:35Z` four minutes before 11:51 UTC. `expiresAt` is the game's deletion instant; most types
+  live 100 days, energy gifts one.
+- **No sender, anywhere.** `InboxItem` records none, including on a friend's gift, so the block
+  describes only the account.
+- **Not here: Raid Mail.** `UserInboxData.PersonalMessages` (`Id`, `ValidTill`, `IsSeen`, `IsRead`,
+  `IsReplied`, `IsRewardTaken`) was empty on the mapping account. It ships when its filled shape has been
+  seen. `questPrototypeId`, `parentId` and `chestOrRandom` are read but have not been seen populated.
+
+Verified live on 11.75.0 (2026-10-07): 102 items, `typeId` 7 ×62, 12 ×2, 60 ×13, 112 ×24, 132 ×1. Not yet
+checked item by item against the Inbox screen.
+
+---
+
 ## Storage and read APIs
 
 Not part of the wire contract — this is the shape the payload is built for, recorded so the server
@@ -1687,6 +1742,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 40 | v1.44.0 | 2026-10-07 | **Additive: `inbox`** — the in-game Inbox (see [`inbox`](#inbox--the-in-game-inbox-schema-40)): every reward waiting to be collected, each with `id`, `typeId` (the game's `InboxTypeId`; names in the new [`inbox-types.json`](inbox-types.json), partially bound), `read`, `receivedAt` / `expiresAt` (UTC), `prize` (the event-reward shape) and, for an overflowed artifact, the full `artifacts[]` record with stats — which is not also in the vault. The whole Inbox: `items: []` = empty, absent = unread. No sender is recorded. Verified live (11.75.0, 102 items). A consumer that ignores it is exactly as correct as on schema 39. |
 | 39 | v1.43.0 | 2026-10-05 | **Additive: `soloEvents[].frontier` — the Frontier Event map and progress; corrective: a Frontier Event's `points`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). A Frontier Event (internally `ConquestEvent`, `soloTypeId` 8) now carries `frontier`: every outpost with its rarity, type, neighbours, optional unlock time, 4 quest ids and 4 reward slots (track 1 Basic, 2 Explorer), plus the account's state per outpost (started, completed quests, claimed slots) and its revealed quests (condition, counts, points), and `unlockPoints`, the Frontier Points each rarity needs (4447: 15 / 25 / 40 / 60). Its `points` was 0 on every Frontier Event and is now the account's Frontier Points. Its `rewards` stays `[]`. Absent on other events, and when unread. Verified live (11.75.0, event 4447). A consumer that ignores `frontier` is exactly as correct as on schema 38, except that it now sees a Frontier Event's real points. |
 | 38 | v1.43.0 | 2026-10-05 | **Additive: `battlePasses[]`, and `startsAt` / `endsAt` on every pass; `battlePass` is deprecated and changes selection** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). `battlePasses[]` carries every pass kind the account has, one entry per `kindId`: the running pass of that kind, else its newest. This matters when two run at once, e.g. the Forge Pass and the Champion Pass. `kindId` 2 = Forge Pass and 3 = Champion Pass (internally `hero-pass`; there is no "Hero Path") are confirmed. Kind 0, the 12 oldest Forge Passes, is never sent. `[]` = no pass, absent = unread. Each pass now has `startsAt` (static `Start`) and `endsAt` (`Start` + `DurationDays`; the game stores no end instant, and on pass 1037 this equals the server's challenge-quest deadline). Both are omitted when unread, and `endsAt` on a force-stopped pass. There is no `claimUntil` on passes: the game defines no claim window. **`battlePass` stays until the first schema released on or after 2027-01-05** and is now the running Forge Pass, else the newest pass of any kind (before: the first running pass of any kind). Track ids are unchanged: 1 = Free certain, 2/3 inferred. Level tables went to RslCompanionMetadata `battle_pass_index.json`, not the payload. Verified live (11.75.0). A consumer that ignores the new fields is exactly as correct as on schema 37, except while a Champion Pass runs without a Forge Pass, when `battlePass` now names the newest pass rather than the Champion Pass. That is the same pass unless an older Champion Pass is still running. |
 | 37 | v1.39.0 | 2026-10-03 | **Additive: `clanBosses.{demonLord,hydra,chimera}.difficulties[]`** — `{ difficultyId, keysSpent, damage }` per difficulty attacked: the Demon Lord's current boss, Hydra's and Chimera's current week. Read from the clan's boss record, this account's own row only. Verified live (11.75.0): the key balances fell by exactly the keys read. A consumer that ignores it is exactly as correct as on schema 36. |

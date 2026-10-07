@@ -529,7 +529,8 @@ Alongside them, two **static game metadata** files — not payloads, since every
 tables, but they ship here because the payload's ids are opaque without them:
 [docs/role-names.json](docs/role-names.json) for `champions[].roleId`, and
 [docs/artifact-enums.json](docs/artifact-enums.json) for the artifact `kindId` (slot), `statKindId`,
-`rankId`, `rarityId` and `setKindId`. Same rule applies: if one of those enums gains a member, that
+`rankId`, `rarityId` and `setKindId`, and [docs/inbox-types.json](docs/inbox-types.json) for
+`inbox.items[].typeId`. Same rule applies: if one of those enums gains a member, that
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
@@ -691,6 +692,18 @@ it rides on the event's `soloEvents[]` entry as `frontier`: outposts, rarity unl
 slots on the Basic and Explorer tracks, and per-outpost progress. Its traps: an unrevealed outpost has
 quest ids but `quests: []`, and quest prototype ids repeat across outposts. Same standing: a summary,
 never the contract.
+
+[docs/raidtools-inbox.md](docs/raidtools-inbox.md) is the prompt for schema 40's `inbox`: the
+account's in-game Inbox, every reward waiting to be collected, shown per account in RaidTools. The
+prize is the events' `eventPrize` shape, and an overflowed artifact also arrives as a full
+`artifacts[]` record. **That record is not in the vault** (0 of 62 were), so a consumer must never add
+it to the artifact counts. The whole Inbox ships each time: `items: []` is empty, absent is unread.
+**`typeId` names come from [docs/inbox-types.json](docs/inbox-types.json), and its binding is partial
+on purpose.** The game's `InboxTypeId` has explicit values (4…141), so its 82 member names and 83
+source lines are real but not paired with ids. Only an id the data proves is bound (today 7 =
+Overflow). Don't fill the rest in by position or spelling. No inbox item records a sender. Raid Mail
+(`PersonalMessages`) is not exported until its filled shape is seen. Same standing: a summary, never
+the contract.
 
 [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md) is the prompt for the
 site's half of 1.42's mismatch notice: "Update Data" passes the card's in-game id on the launch URI
