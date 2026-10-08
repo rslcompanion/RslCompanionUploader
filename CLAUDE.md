@@ -715,7 +715,7 @@ it to the artifact counts. The whole Inbox ships each time: `items: []` is empty
 to a localization key. The game keeps that mapping as a switch in code, not data, so it was read out of
 GameAssembly (`extraction/tools/inbox_titles.py`) and checked against the open Inbox. The key resolves in
 RslCompanionMetadata `exports/localization_en.json`, the client's whole text table (~31k keys). That
-dictionary is the shared one: a later id table should carry keys, not copied text. Never pair
+dictionary is the shared one: a later id table should carry keys, not copied text. **`docs/inbox-types.json` is a copy of RslCompanionMetadata `exports/inbox_types.json`**, which Metadata Studio diffs and uploads (type `InboxTypes`, beside `Localization`). Refresh by copying; if the two disagree, the metadata repo is right. Never pair
 `InboxTypeId` member names with ids by position (explicit values). No inbox item records a sender. Raid Mail
 (`PersonalMessages`) is not exported until its filled shape is seen. Same standing: a summary, never
 the contract.
