@@ -173,12 +173,12 @@ Tokens", exactly the in-game popup. Don't render "Item #id". Join like this:
 Text comes from the shared localization dictionary (see "Titles"). The catalog is RslCompanionMetadata
 `data/account-resources/catalog.json`: `{ kind: "resource"|"item", id, key, name, nameKey, category }`
 for 185 resources and 407 items, and every `nameKey` in it resolves in the dictionary.
-**RaidTools does not have it yet.** The published `account-resources/index.json` carries `key` and
-`name` but no numeric `id`, so it cannot be joined to a payload. Serve `catalog.json` as a metadata
-type (e.g. `AccountResources`, uploaded on dev and prod like the other two), and resolve
-`(kind, id)` → `nameKey`/`key` on the server, next to the titles. `eventPrizeNames` (the mode-rewards
-walk the events page uses) should fall back to it as well. It is why event prizes still draw `#id`
-for anything the mode catalog never mentions.
+**RaidTools reads it from the assets host, no upload needed (done 2026-10-08, RaidTools `656a4e7`).**
+The published `account-resources/index.json` carries `kind` and `id` beside `key` and `name` for 501
+of its entries. `AccountResourceIndexService` keeps them, and `withResourceIndexNames` (`core/events.ts`)
+puts those names first under `eventPrizeNames`, for the Inbox tile and the Events & progress tiles
+alike. Icons then resolve by name as before. The 91 members that ship no icon are not in the index and
+still draw as `#id`.
 
 Observed on the mapping account, for a sanity check after wiring it up:
 
