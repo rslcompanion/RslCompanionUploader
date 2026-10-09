@@ -110,6 +110,9 @@ public sealed class MainForm : Form
     // transitions rather than every poll — it only changes when the game itself changes.
     private ExtractionService.GameBuildInfo? _buildInfo;
 
+    /// <summary>Actions ▸ Publish memory map: admins only (<see cref="ApplyAdminState"/>).</summary>
+    private ToolStripMenuItem? _publishMapItem;
+
     /// <summary>
     /// Whether this is the newest uploader — null until the check succeeds. Gates auto-recalibration
     /// for an uncovered build: if the user is behind, the release they haven't installed may already
@@ -999,6 +1002,46 @@ public sealed class MainForm : Form
         await TrySelfCalibrateAsync(Path.Combine(AppContext.BaseDirectory, "offsets_cache.json"), _statusCts.Token);
     }
 
+#if EXTRACTION
+    /// <summary>
+    /// Actions ▸ Publish memory map (admins): sends this PC's map for the running build to the
+    /// session's server, which then serves it to every player on that build
+    /// (<c>docs/build-certification-schema.md</c>). Asks first, since it changes what every one of them
+    /// downloads. The server refuses a non-admin, and an entry naming another build.
+    /// </summary>
+    private async Task PublishBuildMapAsync()
+    {
+        if (!IsAdmin || _busy) return;
+        if (_buildInfo is not { } build)
+        {
+            Log("Start Raid first: the map published is the one for the Raid version running.");
+            return;
+        }
+        var label = BuildLabel(build);
+        if (BuildCertification.ReadMapForPublishing(build.GameAssemblyHash) is not { } map)
+        {
+            Log($"This PC has no memory map for Raid {label} yet; Actions → Set up this Raid version makes one.");
+            return;
+        }
+        var server = _api.Session?.Target.ApiBaseUrl ?? "the server";
+        if (MessageBox.Show(this,
+                $"Publish this PC's memory map for Raid {label} to {server}?\n\nEvery player on this Raid version " +
+                "will download it instead of setting the version up themselves.",
+                "Publish memory map", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+            return;
+
+        try
+        {
+            var error = await _api.PublishBuildMapAsync(build.GameAssemblyHash, map, _statusCts.Token);
+            Log(error ?? $"Published the memory map for Raid {label}.");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Log($"Publishing the memory map for Raid {label} failed: {ex.Message}");
+        }
+    }
+#endif
+
     private static string BuildLabel(ExtractionService.GameBuildInfo b)
         => b.GameVersion is string v && v.Length > 0 ? v : b.GameAssemblyHash[..12];
 
@@ -1447,6 +1490,13 @@ public sealed class MainForm : Form
                     _statusCts.Token,
                     force: true);
             }));
+
+        // Admins: hand this PC's map for the running build to RSL Companion, so every player on a build
+        // this release predates downloads it instead of scanning. Hidden for everyone else.
+        _publishMapItem = new ToolStripMenuItem("&Publish memory map for this Raid version", null,
+            async (_, _) => await PublishBuildMapAsync())
+        { Visible = false };
+        help.DropDownItems.Add(_publishMapItem);
 #endif
 
         // The stay-signed-in choice is made on the sign-in window, which someone with a remembered
@@ -2467,6 +2517,7 @@ public sealed class MainForm : Form
     {
         bool admin = IsAdmin;
         _shell.SetAdmin(admin);
+        if (_publishMapItem is not null) _publishMapItem.Visible = admin;
         _shell.SetLogDetail(admin && UserSettings.Current.ActivityLogDetail);
 #if EXTRACTION
         ExtractLog.WriteToDisk = admin;

@@ -174,6 +174,27 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
+    /// Admins only: publishes this PC's memory map for a game build, so every player on it gets the map
+    /// from <c>GET /api/extractor/offsets/{hash}</c> instead of a local calibration scan. The server
+    /// checks the entry names the same build and strips session-local addresses again.
+    /// Returns null on success, else the reason in one sentence.
+    /// </summary>
+    public async Task<string?> PublishBuildMapAsync(string gameAssemblyHash, string offsetsJson, CancellationToken ct = default)
+    {
+        using var req = await BuildRequestAsync(HttpMethod.Put, $"/api/admin/extractor-offsets/{Uri.EscapeDataString(gameAssemblyHash)}", ct);
+        req.Content = new StringContent($"{{\"offsets\":{offsetsJson}}}", System.Text.Encoding.UTF8, "application/json");
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.IsSuccessStatusCode) return null;
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        return resp.StatusCode switch
+        {
+            HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => "This account can't publish memory maps.",
+            HttpStatusCode.NotFound => "This server doesn't accept memory maps yet.",
+            _ => $"Publishing failed ({(int)resp.StatusCode} {resp.ReasonPhrase}). {Trim(body)}",
+        };
+    }
+
+    /// <summary>
     /// Fetches the champion base-stat catalog RSL Companion currently publishes, so
     /// <c>heroes[].baseStats</c> can follow a game rebalance without shipping a build.
     ///

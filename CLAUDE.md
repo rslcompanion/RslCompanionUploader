@@ -240,7 +240,8 @@ the runtime is absent.
 **An uncovered game build resolves itself, automatically, with no button to click.** When Raid updates
 ahead of a release, `MainForm.UpdateReportPrompt` fires the moment the status poll notices a build
 `CoveredByShippedCatalog` doesn't know: it asks RSL Companion for a published memory map
-(`Endpoints.BuildCertification`) and installs it into the user's own `calibrated-offsets.json`, and
+(`Endpoints.BuildCertification`; served by RaidTools since 2026-10-09, before which it always answered
+404, and published by an admin with Actions → Publish memory map for this Raid version) and installs it into the user's own `calibrated-offsets.json`, and
 only falls back to the ~35–50 s local calibration scan when the server has none. The server lookup is
 still **opt-in** — a TaskDialog with a "Check automatically from now on" verification box, one offer
 per build per session, the tick persisted to `settings.json` — but nothing here waits for the user to

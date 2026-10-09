@@ -95,6 +95,29 @@ public static class BuildCertification
         }
     }
 
+    /// <summary>
+    /// This PC's map for the build, as one catalog entry's JSON, for an admin to publish: the local
+    /// catalog (a calibration or an earlier certification), else the catalog shipped beside the exe.
+    /// Both files are written by the engine, which strips session-local addresses, so the entry is
+    /// fit to publish as is. Null when neither holds the build.
+    /// </summary>
+    public static string? ReadMapForPublishing(string gameAssemblyHash)
+    {
+        foreach (var path in new[] { KnownOffsets.LocalCatalogPath, Path.Combine(AppContext.BaseDirectory, KnownOffsets.FileName) })
+        {
+            try
+            {
+                if (!File.Exists(path)) continue;
+                if (JsonNode.Parse(File.ReadAllText(path))?["builds"] is not JsonObject builds) continue;
+                var entry = builds.FirstOrDefault(b => string.Equals(b.Key, gameAssemblyHash, StringComparison.OrdinalIgnoreCase)).Value;
+                if (entry is JsonObject) return entry.ToJsonString();
+            }
+            catch (JsonException) { }
+            catch (IOException) { }
+        }
+        return null;
+    }
+
     private static void MergeIntoLocalCatalog(string gameAssemblyHash, JsonObject offsets)
     {
         var path = KnownOffsets.LocalCatalogPath;

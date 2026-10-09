@@ -131,6 +131,22 @@ Nothing else is stored, and no extraction output is sent as part of this call.
 
 ---
 
+## Publishing a map (admins)
+
+The endpoint went live in RaidTools on 2026-10-09; before that every lookup answered 404 and every
+player on an uncovered build calibrated locally. Maps are published with
+`PUT {ApiBaseUrl}/api/admin/extractor-offsets/{gameAssemblyHash}` (admin only), body
+`{ "offsets": <one catalog entry, or a whole calibrated-offsets.json>, "gameVersion"?, "minUploaderVersion"? }`.
+The server takes the entry for the route's build from a whole file, refuses an entry whose own
+`gameAssemblyHash` names another build, and zeroes the session-local addresses listed above. A later
+publish replaces the map whole. `GET` lists them, `DELETE …/{hash}` withdraws one.
+
+The uploader does this for an admin: **Actions → Publish memory map for this Raid version** (shown to
+admins only) sends this PC's entry for the running build, from the local catalog or the shipped one,
+to the session's server, after a confirmation.
+
+---
+
 ## Privacy
 
 The request carries **only the build identifiers**: a hash of a file every player of that version
