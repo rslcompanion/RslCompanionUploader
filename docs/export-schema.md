@@ -1770,7 +1770,8 @@ Event scoring (schema 43), live on 11.80.0 (2026-10-09), 10 events and tournamen
 rules (36 artifact, 5 shard) and the Champion Training Tournament's 46 (levels, ranks, ascensions,
 tomes) equal `tools/EventProbe --rules` for both, value for value, none `undecoded`; Gear Enhancement,
 the three Turn Attacks, the Titan Event and the summon pool each send their action with no table; the
-Frontier Event sends `[]`.
+Frontier Event sends `[]`. **`points` is per unit, checked in play** (2026-10-10): opening one Mystery
+shard during event 4453 moved its `points` and `boardCurrency` by exactly +3, its `shardTypeId` 1 rule.
 Hero's Path (schema 42), live on 11.80.0 (2026-10-09): event 4453, 42 cells with rows, columns, parents
 and prizes (`otherKinds` empty); `keyCost` 1 on exactly the four cells the screen shows with a padlock;
 `keysHeld` 0 and 586 points unspent with nothing taken. The owner then took entry cell 102 (Brews ×3):

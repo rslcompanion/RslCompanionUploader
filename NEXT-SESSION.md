@@ -126,8 +126,8 @@ and another session had to merge it back.
    - **RaidTools step 2** (store + draw `scoring`/`revision`) is being built by the "Heroes path progress
      tracking" session, which was sent the full contract and live examples on 2026-10-10. Confirm with the
      owner that it is wanted, then step 3: the points calculator loads the running event's values.
-   - **Open:** `points` reads as per unit (per artifact, shard, level, rank-up, tome) but is unchecked
-     against points actually earned in an event. `GlobalEventInfo.MaxPointsPerDay` (`int?`, unset/0 on
+   - **`points` is per unit, checked in play 2026-10-10:** one Mystery shard opened during 4453 moved
+     `points` / `boardCurrency` by exactly +3 (2,175 → 2,178). **Open:** `GlobalEventInfo.MaxPointsPerDay` (`int?`, unset/0 on
      every event seen) is **not exported**. Deck of Fate (same `GlobalEventInfo`, `BingoInfo`) should carry
      `scoring`; confirm when one runs. Actions 52 / 55 / 61 have no enum member bound yet.
    - Raid on this PC reported **signed in on another device** at the end of 2026-10-09; `EventProbe
