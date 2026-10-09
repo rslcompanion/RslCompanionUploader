@@ -19,7 +19,7 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 | `…\RslCompanionUploader\extraction` (private submodule) | `e881a8e` (schema 42: path-event locks and keys), on top of `00eed4a` (EventProbe `--rules`). Standalone `D:\Codex\RslCompanionExtraction` checkout matches. Known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
-| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `0988b5b` (calculator: admin-owned point values). **`dev` is ahead, not on prod:** `44e6861` path map with progress tracking (reads schema 42), `577c11c` the uploader brief marked delivered. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** — not this session's; leave it. |
+| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `0988b5b` (calculator: admin-owned point values). **`dev` is ahead, not on prod:** `44e6861` path map with progress tracking (reads schema 42), `577c11c` the uploader brief marked delivered, `452bd09` `unlockedRewardIds` stored and drawn. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** — not this session's; leave it. |
 
 **Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
 **RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
@@ -118,8 +118,8 @@ and another session had to merge it back.
 13. **Path map: check on dev, then release (step 0 of the plan below).** Needs one **v1.49.0** upload to
    dev while the path event runs (ends 2026-10-13 08:00 UTC; the installed uploader here was still
    1.48.1). Check locked cells draw 🔒, keys held show, and routing is "any". Then Release to prod.
-   Known gap: RaidTools does not store `unlockedRewardIds` (schema 42), so a cell opened with a key
-   still draws 🔒 — add it to `SoloEventProgress` and `core/events.ts`.
+   Also check a cell opened with a key draws 🔓 and drops out of the key count (`unlockedRewardIds`,
+   RaidTools `452bd09` on dev).
 14. **Event point rules on the wire, registered by the first upload** — the plan is in
    `Claude outputs/event-scoring-plan.md` (untracked, local). Schema 43: `scoring` + `revision` on every
    solo event and tournament, from `GlobalEventInfo.Rules` (15 condition kinds and the
