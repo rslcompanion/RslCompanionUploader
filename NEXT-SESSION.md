@@ -19,7 +19,7 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 | `…\RslCompanionUploader\extraction` (private submodule) | `e881a8e` (schema 42: path-event locks and keys), on top of `00eed4a` (EventProbe `--rules`). Standalone `D:\Codex\RslCompanionExtraction` checkout matches. Known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
-| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `0988b5b` (calculator: admin-owned point values). **`dev` is ahead, not on prod:** `44e6861` path map with progress tracking (reads schema 42), `577c11c` the uploader brief marked delivered, `452bd09` `unlockedRewardIds` stored and drawn. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** — not this session's; leave it. |
+| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `dev` = `d86f46c` (2026-10-10): path map with progress tracking (schema 42 fields incl. `unlockedRewardIds`), Path Key as the documented constant 10401. The "Heroes path progress tracking" session is now adding schema 43 `scoring` / `revision` (step 2) — check `git log` on `dev`. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** — not this session's; leave it. |
 
 **Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
 **RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
@@ -115,20 +115,23 @@ and another session had to merge it back.
      and update the admin template (or that event's saved values).
    - Prod's Chrome session is signed in as the **"Creator"** admin account, dev's as Veaceslav.
 
-13. **Path map: check on dev, then release (step 0 of the plan below).** Needs one **v1.49.0** upload to
-   dev while the path event runs (ends 2026-10-13 08:00 UTC; the installed uploader here was still
-   1.48.1). Check locked cells draw 🔒, keys held show, and routing is "any". Then Release to prod.
-   Also check a cell opened with a key draws 🔓 and drops out of the key count (`unlockedRewardIds`,
-   RaidTools `452bd09` on dev).
-14. **Event point rules: step 1 done (v1.50.0, schema 43); steps 2–3 open.** Every catalog-resolved solo event
-   and tournament carries `scoring` (its `GlobalEventInfo.Rules`: `actionId`, `points`, condition `on` +
-   criteria) and `revision`. Verified live over 10 events. Action ids are bound by evidence in
-   `docs/event-actions.json` (the enum's values could not be read). **No `keyItemId`**: the event data
-   names no key item; RaidTools uses the documented constant 10401 (closed with that session).
-   **Next, the owner's call:** RaidTools step 2 (register an event from the first upload that carries it,
-   keyed by `eventId`, same `revision` never overwrites) and step 3 (the points calculator loads that run's
-   values). Plan: `Claude outputs/event-scoring-plan.md` (untracked, local). Still to confirm: Deck of Fate
-   (same `GlobalEventInfo`, `BingoInfo`) carries `scoring` when one runs.
+13. ~~Path map: check on dev, then release~~ — **done**: checked on dev with a v1.49.0 upload (42 cells,
+   4 locks 🔒1, "any" routing, keys held), released to prod (`d86f46c`). 🔓 (`unlockedRewardIds`) is unit-tested
+   only: no cell had been opened with a key yet.
+14. **Event point rules: step 1 released (v1.50.0, schema 43); step 2 under way in RaidTools.** Every
+   catalog-resolved solo event and tournament carries `scoring` (`GlobalEventInfo.Rules`: `actionId`,
+   `points`, condition `on` + flat criteria; no `points` = scored without a table, never 0) and `revision`.
+   Verified live over 10 events. Action ids are bound by evidence in `docs/event-actions.json` (the enum's
+   values could not be read). **No `keyItemId`**: the event data names no key item; RaidTools uses 10401.
+   - **RaidTools step 2** (store + draw `scoring`/`revision`) is being built by the "Heroes path progress
+     tracking" session, which was sent the full contract and live examples on 2026-10-10. Confirm with the
+     owner that it is wanted, then step 3: the points calculator loads the running event's values.
+   - **Open:** `points` reads as per unit (per artifact, shard, level, rank-up, tome) but is unchecked
+     against points actually earned in an event. `GlobalEventInfo.MaxPointsPerDay` (`int?`, unset/0 on
+     every event seen) is **not exported**. Deck of Fate (same `GlobalEventInfo`, `BingoInfo`) should carry
+     `scoring`; confirm when one runs. Actions 52 / 55 / 61 have no enum member bound yet.
+   - Raid on this PC reported **signed in on another device** at the end of 2026-10-09; `EventProbe
+     --events-json` reads events anyway, `--export` refuses. Plan: `Claude outputs/event-scoring-plan.md`.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
