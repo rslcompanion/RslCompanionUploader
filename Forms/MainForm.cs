@@ -1,12 +1,6 @@
 using System.Diagnostics;
-using System.Text;
 #if EXTRACTION
 using System.Text.Json;
-using NewParserOpus;
-using NewParserOpus.Il2Cpp;
-using NewParserOpus.Models;
-using NewParserOpus.Runtime;
-using NewParserOpus.StaticData;
 #endif
 using RslCompanionUploader.Api;
 using RslCompanionUploader.Auth;
@@ -108,7 +102,7 @@ public sealed class MainForm : Form
 
     // The running game's build, and whether the shipped catalog covers it. Refreshed on state
     // transitions rather than every poll — it only changes when the game itself changes.
-    private ExtractionService.GameBuildInfo? _buildInfo;
+    private Engine.GameBuildInfo? _buildInfo;
 
     /// <summary>Actions ▸ Publish memory map: admins only (<see cref="ApplyAdminState"/>).</summary>
     private ToolStripMenuItem? _publishMapItem;
@@ -209,7 +203,7 @@ public sealed class MainForm : Form
             await SubmitFeedbackAsync(category, message, includeLog);
 #if EXTRACTION
         // Nobody is an admin until a session says so, so the engine's run log stays off disk until then.
-        ExtractLog.WriteToDisk = false;
+        Engine.SetWriteLogFiles(false);
 #endif
 #if EXTRACTION
         // The export action lives on the shell's live tile; it reads the running game and routes by
@@ -699,7 +693,7 @@ public sealed class MainForm : Form
             // The parse stays whole rather than skimming for the timestamp because "newer" has to mean
             // newer than a catalog that actually LOADS: a corrupt local file with a future date would
             // otherwise block every update forever while Load quietly used the bundled copy instead.
-            var since = await Task.Run(HeroBaseStatsCatalog.EffectiveGeneratedAt, token);
+            var since = await Task.Run(Engine.HeroBaseStatsGeneratedAt, token);
 
             var response = await _api.GetHeroBaseStatsAsync(since, token);
             if (response.Status != CertificationStatus.Found)
@@ -813,30 +807,30 @@ public sealed class MainForm : Form
         if (_busy || _calibrating) return;
 
         var result = await Task.Run(
-            () => ExtractionService.DiscoverAccountAsync(cachePath: cachePath).GetAwaiter().GetResult(), token);
+            () => Engine.DiscoverAccount(cachePath), token);
         if (token.IsCancellationRequested) return;
 
         switch (result.Status)
         {
-            case ExtractionService.AccountDiscoveryStatus.Found when GameUserId(result.AccountId) is int uid:
+            case Engine.AccountDiscoveryStatus.Found when GameUserId(result.AccountId) is int uid:
                 _liveUserId = uid;
                 _liveName = string.IsNullOrWhiteSpace(result.Name) ? $"Account {uid}" : result.Name;
                 ReconcileLiveAccount();
                 ApplyGameState(GameState.Connected);
                 break;
 
-            case ExtractionService.AccountDiscoveryStatus.Found:
+            case Engine.AccountDiscoveryStatus.Found:
                 ApplyGameState(GameState.Loading,
                     detail: "the game reported an account id we don't recognise");
                 break;
 
-            case ExtractionService.AccountDiscoveryStatus.SignedOut:
+            case Engine.AccountDiscoveryStatus.SignedOut:
                 // Not Connected: the game still holds the account, but frozen at the sign-out, and the
                 // engine refuses to export it until the in-game Reconnect.
                 ApplyGameState(GameState.SignedOut);
                 break;
 
-            case ExtractionService.AccountDiscoveryStatus.NeedsCalibration:
+            case Engine.AccountDiscoveryStatus.NeedsCalibration:
                 ApplyGameState(GameState.NeedsCalibration);
                 // Published map first: it costs a GET against the ~35s scan below, and it is the same
                 // answer. Only when the server has nothing does the user pay to derive it.
@@ -912,11 +906,10 @@ public sealed class MainForm : Form
             // Accumulates under LocalAppData and is read back by KnownOffsets, so this build is
             // never calibrated again — and the same file is shareable: sending it in is what gets
             // the build into the next release so nobody else pays for this scan.
-            string exportPath = KnownOffsets.LocalCatalogPath;
+            string exportPath = Engine.LocalCatalogPath;
 
             var result = await Task.Run(
-                () => ExtractionService.CalibrateAsync(cachePath: cachePath, exportCatalogPath: exportPath)
-                                       .GetAwaiter().GetResult(), token);
+                () => Engine.Calibrate(cachePath, exportPath), token);
 
             if (token.IsCancellationRequested) return;
 
@@ -1069,7 +1062,7 @@ public sealed class MainForm : Form
     }
 #endif
 
-    private static string BuildLabel(ExtractionService.GameBuildInfo b)
+    private static string BuildLabel(Engine.GameBuildInfo b)
         => b.GameVersion is string v && v.Length > 0 ? v : b.GameAssemblyHash[..12];
 
     /// <summary>
@@ -1080,7 +1073,7 @@ public sealed class MainForm : Form
     {
         try
         {
-            _buildInfo = RaidProcess.IsRunning() ? ExtractionService.TryGetGameBuild() : null;
+            _buildInfo = RaidProcess.IsRunning() ? Engine.TryGetGameBuild() : null;
         }
         catch
         {
@@ -1189,7 +1182,7 @@ public sealed class MainForm : Form
     /// "don't ask again" checkbox, and because it is asking permission to send the build the user is
     /// running to the server — that is a question, not a notification.
     /// </summary>
-    private bool AskToCheckCompatibility(ExtractionService.GameBuildInfo build)
+    private bool AskToCheckCompatibility(Engine.GameBuildInfo build)
     {
         var check = new TaskDialogButton("Verify compatibility");
         var page = new TaskDialogPage
@@ -2147,7 +2140,7 @@ public sealed class MainForm : Form
             // extraction looks like an empty or garbage account, not a crash. RSL Companion can't
             // tell "this account really has nothing" from "this reading is wrong", so catch it here
             // rather than shipping it.
-            if (GameUserId(profile.AccountId) is not int || string.IsNullOrWhiteSpace(profile.Account.Name))
+            if (GameUserId(profile.AccountId) is not int || string.IsNullOrWhiteSpace(profile.AccountName))
             {
                 Log("Something looks wrong with the data read from Raid, so it wasn't sent to RSL "
                   + "Companion. If Raid just updated, try Actions → Set up this Raid version, then "
@@ -2156,16 +2149,16 @@ public sealed class MainForm : Form
             }
 
             var gameId = profile.AccountId;
-            var gameName = string.IsNullOrWhiteSpace(profile.Account.Name) ? $"account {gameId}" : profile.Account.Name;
+            var gameName = string.IsNullOrWhiteSpace(profile.AccountName) ? $"account {gameId}" : profile.AccountName;
             // Counts, in the names the game uses on screen — they are the one thing here a player can
             // check against their own account, which is what makes them worth a plain-level line. The
             // in-game id and the resource tally are bookkeeping, so they go to the detail level.
-            Log($"Read {gameName}'s account: {profile.Champions.Count} champions" +
+            Log($"Read {gameName}'s account: {profile.Count("champions")} champions" +
                 (ExportArtifacts
-                    ? $", {profile.Artifacts.Count} pieces of gear and {profile.Accessories.Count} accessories."
+                    ? $", {profile.Count("artifacts")} pieces of gear and {profile.Count("accessories")} accessories."
                     : ". (Gear isn't included in this version.)"));
-            Log($"accountId={gameId} resources={profile.Resources.Count} relics={profile.Relics.Count} "
-              + $"gemstones={profile.Gemstones.Count} guardians={profile.FactionGuardians.Count}", detail: true);
+            Log($"accountId={gameId} resources={profile.Count("resources")} relics={profile.Count("relics")} "
+              + $"gemstones={profile.Count("gemstones")} guardians={profile.Count("factionGuardians")}", detail: true);
 
             // The server derives an account's numeric UserId from this game accountId (parsed as a
             // uint), so that's how we recognise whether this game account is already registered —
@@ -2183,11 +2176,11 @@ public sealed class MainForm : Form
                 ? $"Sending it to RSL Companion to update “{match.Name ?? gameName}”…"
                 : $"Sending it to RSL Companion — this will add “{gameName}” to your profile…");
             // Stamp uploader-side provenance onto every export/update. These are the uploader's own
-            // concern (not the shared extraction model), so they are injected here at serialization
-            // time rather than baked into ConsolidatedProfile. The export just read the live game, so
+            // concern (not the shared extraction model), so they are added to the engine's JSON here
+            // rather than baked into ConsolidatedProfile. The export just read the live game, so
             // read its build version now (cheap — the GameAssembly hash is memoized).
-            var gameVersion = (_buildInfo ?? ExtractionService.TryGetGameBuild())?.GameVersion;
-            var json = SerializeWithProvenance(profile, gameVersion);
+            var gameVersion = (_buildInfo ?? Engine.TryGetGameBuild())?.GameVersion;
+            var json = SerializeWithProvenance(profile.Payload, gameVersion);
             var result = await _api.UploadConsolidatedAsync(json);
             Log(result.Message);
             if (result.Detail is string detail) Log($"Sync response: {detail}", detail: true);
@@ -2266,17 +2259,17 @@ public sealed class MainForm : Form
     private const bool ExportArtifacts = true;
 
     /// <summary>
-    /// Serializes an extracted payload and stamps the uploader-side <c>uploaderVersion</c> /
-    /// <c>gameVersion</c> fields onto its top level, without touching the shared extraction models.
+    /// Stamps the uploader-side <c>uploaderVersion</c> / <c>gameVersion</c> fields onto the top level of
+    /// the payload the engine serialized, and writes it out, without touching the shared extraction models.
     /// <paramref name="gameVersion"/> is the live Raid build ("11.67.0"); null when it couldn't be
     /// read. <c>uploaderVersion</c> is this app's own build (the value shown in About).
     ///
     /// Kept because when a payload turns out to be wrong, the first question is always which uploader
     /// against which game build produced it — and the server's own triage log keys off both.
     /// </summary>
-    private static string SerializeWithProvenance(object payload, string? gameVersion)
+    private static string SerializeWithProvenance(System.Text.Json.Nodes.JsonObject payload, string? gameVersion)
     {
-        var node = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize(payload, payload.GetType()))!.AsObject();
+        var node = payload;
         node["uploaderVersion"] = AboutForm.DisplayVersion;
         node["gameVersion"] = gameVersion;
         return node.ToJsonString();
@@ -2334,31 +2327,14 @@ public sealed class MainForm : Form
     /// mirroring its console diagnostics into the activity log. Backs "Update user data"; always
     /// pulls resources + champions, and artifacts when <see cref="ExportArtifacts"/> is enabled.
     ///
-    /// <para>The <c>Console</c> redirect is process-wide, so it is restored in a finally. It is what
-    /// makes the engine's own phase lines visible while a cold vault lookup runs for several
+    /// <para>The engine hands over each console line while the export runs (<see cref="Engine.ExtractConsolidated"/>).
+    /// That is what makes its own phase lines visible while a cold vault lookup runs for several
     /// seconds.</para>
     /// </summary>
-    private Task<ConsolidatedProfile> ExtractProfileAsync()
+    private Task<Engine.Profile> ExtractProfileAsync()
     {
         string cachePath = Path.Combine(AppContext.BaseDirectory, "offsets_cache.json");
-        return Task.Run(() =>
-        {
-            var originalOut = Console.Out;
-            var originalError = Console.Error;
-            using var writer = new ConsoleLogWriter(LogEngineLine);
-            Console.SetOut(writer);
-            Console.SetError(writer);
-            try
-            {
-                return ExtractionService.ExtractConsolidatedAsync(cachePath: cachePath, includeArtifacts: ExportArtifacts)
-                                        .GetAwaiter().GetResult();
-            }
-            finally
-            {
-                Console.SetOut(originalOut);
-                Console.SetError(originalError);
-            }
-        });
+        return Task.Run(() => Engine.ExtractConsolidated(cachePath, ExportArtifacts, LogEngineLine));
     }
 #endif
 
@@ -2473,7 +2449,7 @@ public sealed class MainForm : Form
     private string? _busyKind;
 
     // Marshals to the UI thread: the extraction engine logs from a background thread (see
-    // ConsoleLogWriter), and the shell may only be touched on the UI thread.
+    // Engine.ExtractConsolidated), and the shell may only be touched on the UI thread.
     //
     // `detail: true` marks a line as diagnostic — the page keeps it but hides it unless the user turned
     // the console's "Details" toggle on. The default is the user-facing level, so an unmarked call is
@@ -2547,7 +2523,7 @@ public sealed class MainForm : Form
         if (_publishMapItem is not null) _publishMapItem.Visible = admin;
         _shell.SetLogDetail(admin && UserSettings.Current.ActivityLogDetail);
 #if EXTRACTION
-        ExtractLog.WriteToDisk = admin;
+        Engine.SetWriteLogFiles(admin);
 #endif
         List<(DateTime At, string Message)> held;
         lock (_preAuthDetail) { held = new(_preAuthDetail); _preAuthDetail.Clear(); }
@@ -2659,52 +2635,5 @@ public sealed class MainForm : Form
         if (result.Detail is string d) Log($"Feedback response: {d}", detail: true);
         if (result.Success) Log(result.Message);
         _shell.SetFeedbackResult(result.Success, result.Message);
-    }
-}
-
-/// <summary>
-/// Bridges the extraction engine's <c>Console.WriteLine</c> diagnostics into the activity log.
-/// Line-buffered so partial writes are not reported until a newline arrives.
-/// </summary>
-internal sealed class ConsoleLogWriter : TextWriter
-{
-    private readonly Action<string> _sink;
-    private readonly StringBuilder _buffer = new();
-
-    public ConsoleLogWriter(Action<string> sink) => _sink = sink;
-
-    public override Encoding Encoding => Encoding.UTF8;
-
-    public override void Write(char value)
-    {
-        if (value == '\n')
-        {
-            _sink(_buffer.ToString().TrimEnd('\r'));
-            _buffer.Clear();
-        }
-        else
-        {
-            _buffer.Append(value);
-        }
-    }
-
-    public override void Write(string? value)
-    {
-        if (string.IsNullOrEmpty(value)) return;
-        foreach (char c in value) Write(c);
-    }
-
-    public override void WriteLine(string? value)
-    {
-        if (_buffer.Length > 0)
-        {
-            _buffer.Append(value);
-            _sink(_buffer.ToString().TrimEnd('\r'));
-            _buffer.Clear();
-        }
-        else
-        {
-            _sink((value ?? string.Empty).TrimEnd('\r'));
-        }
     }
 }

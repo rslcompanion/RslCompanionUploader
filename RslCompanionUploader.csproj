@@ -26,11 +26,14 @@
     <AssemblyTitle>RSL Companion Account Data Extractor</AssemblyTitle>
     <Description>Signs in to rslcompanion.com and uploads Raid: Shadow Legends account data.</Description>
     <Copyright>Copyright © RSL Companion</Copyright>
+    <!-- Engine.cs hands the native engine a function pointer for its log lines. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!-- The game-data extraction engine lives in a PRIVATE repo, consumed as a git submodule at
-       extraction/. Public clones build without it: the EXTRACTION define is absent, the
-       "Sync from game" code paths compile out, and file upload still works. -->
+       extraction/. Public clones build without it: the EXTRACTION define is absent and the
+       "Update user data" code paths compile out. With it, the engine ships as a NATIVE DLL
+       (RslCompanionEngine.dll, see BuildNativeEngine below and Engine.cs), not as managed assemblies. -->
   <ItemGroup>
     <!-- The submodule lives inside the project folder; keep its sources out of this
          project's implicit globs — it is consumed via the ProjectReference below. -->
@@ -56,10 +59,46 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(ExtractionAvailable)' == 'true'">
     <DefineConstants>$(DefineConstants);EXTRACTION</DefineConstants>
+    <NativeEngineProject>$(MSBuildProjectDirectory)\extraction\Native\RslCompanion.Engine.Native.csproj</NativeEngineProject>
+    <NativeEngineDir>$(MSBuildProjectDirectory)\obj\native-engine\out\</NativeEngineDir>
+    <!-- The nested publish keeps every bin/obj of its own under here, so it can never collide with
+         another build of the same engine projects running at the same time (the tests reference
+         MemoryCore directly). -->
+    <NativeEngineArtifacts>$(MSBuildProjectDirectory)\obj\native-engine\build</NativeEngineArtifacts>
+    <_DotnetHost>$(DOTNET_HOST_PATH)</_DotnetHost>
+    <_DotnetHost Condition="'$(_DotnetHost)' == ''">dotnet</_DotnetHost>
   </PropertyGroup>
   <ItemGroup Condition="'$(ExtractionAvailable)' == 'true'">
-    <ProjectReference Include="extraction\RslCompanion.Extraction.csproj" />
+    <_NativeEngineInput Include="extraction\**\*.cs;extraction\**\*.csproj;extraction\**\*.json"
+                        Exclude="extraction\tools\**;extraction\**\bin\**;extraction\**\obj\**;extraction\offsets_cache.json" />
   </ItemGroup>
+
+  <!--
+    The engine is compiled ahead of time to RslCompanionEngine.dll (NativeAOT, ~25 s; skipped when no
+    engine file changed) and copied beside the exe with its data files (known-offsets.json,
+    resource-allowlist.json, exports\*.json), for build and publish alike. Never its .pdb: native
+    symbols name every method, which is the decompiler's job done for it.
+
+    Needs the MSVC x64 build tools and a Windows SDK (see extraction/Native/*.csproj). vcvarsall calls
+    vswhere through PATH, which a plain shell lacks, hence the Installer folder on PATH here.
+  -->
+  <Target Name="BuildNativeEngine"
+          Condition="'$(ExtractionAvailable)' == 'true' And '$(DesignTimeBuild)' != 'true'"
+          Inputs="@(_NativeEngineInput)" Outputs="$(NativeEngineDir)RslCompanionEngine.dll">
+    <Exec Command="&quot;$(_DotnetHost)&quot; publish &quot;$(NativeEngineProject)&quot; -c Release -o &quot;$(NativeEngineDir.TrimEnd('\'))&quot; --artifacts-path &quot;$(NativeEngineArtifacts)&quot; -nologo -v:minimal"
+          EnvironmentVariables="PATH=$([MSBuild]::Escape('$(PATH);$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer'))" />
+    <Touch Files="$(NativeEngineDir)RslCompanionEngine.dll" />
+  </Target>
+
+  <Target Name="IncludeNativeEngine" BeforeTargets="AssignTargetPaths" DependsOnTargets="BuildNativeEngine"
+          Condition="'$(ExtractionAvailable)' == 'true' And '$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <_NativeEngineFile Include="$(NativeEngineDir)**\*" Exclude="$(NativeEngineDir)**\*.pdb" />
+      <None Include="@(_NativeEngineFile)"
+            Link="%(_NativeEngineFile.RecursiveDir)%(_NativeEngineFile.Filename)%(_NativeEngineFile.Extension)"
+            CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
   <ItemGroup>
     <!-- WebView2 is retained for hosting web-based content panels inside the app. -->

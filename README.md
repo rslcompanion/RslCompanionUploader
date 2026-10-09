@@ -89,6 +89,11 @@ git submodule update --init
 dotnet build RslCompanionUploader.csproj   # now builds with EXTRACTION enabled
 ```
 
+With the engine, the build compiles it ahead of time into a native DLL (`RslCompanionEngine.dll`,
+NativeAOT) that ships beside the exe. That needs the **MSVC x64 build tools and a Windows SDK**: in the
+Visual Studio Installer, Individual components → "MSVC Build Tools for x64/x86 (Latest)" and a
+"Windows 11 SDK". GitHub's Windows runners already have both.
+
 ## Configuration
 
 `appsettings.json` (copied next to the exe). Change these once the real endpoints exist:

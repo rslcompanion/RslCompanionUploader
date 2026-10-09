@@ -306,6 +306,33 @@ This repo is **public**; the extraction engine is **private** and optional at bu
   `resource-allowlist.json`), limitations, and vendoring rules are documented **in the
   private repo's CLAUDE.md** — do not re-document them here.
 
+**The engine ships as a native DLL, never as managed assemblies (1.48).** The app does not reference
+the engine projects. The `BuildNativeEngine` target in the csproj publishes `extraction/Native` with
+NativeAOT into `obj/native-engine/out` (~25 s, skipped when no engine file changed), and
+`IncludeNativeEngine` copies `RslCompanionEngine.dll` plus the engine's data files beside the exe, for
+build and publish alike. **Never its `.pdb`**: native symbols name every method. [Engine.cs](Engine.cs)
+is the app's only contact with it: a few `LibraryImport`s over a C API that answers in JSON (the
+engine's `Native/Exports.cs` is the source of truth; the ABI version is checked on first use). The
+engine's exception messages come back as `Engine.EngineException`, so `DescribeExtractionFailure` keeps
+matching on the same text. Its console lines reach `LogEngineLine` through a callback the DLL calls
+during an export, which replaced the app redirecting its own `Console`.
+
+- **Why:** a managed engine decompiles to near-source in seconds with ILSpy, which handed every
+  memory-reading technique to anyone. Native code needs a disassembler and real effort. That is a cost,
+  not secrecy. The offsets still ship as plain JSON, and the LICENSE is what covers them.
+- **The payload bytes did not change.** The engine serializes the profile with source-generated JSON
+  (`ExportJson`), and the app adds `uploaderVersion` / `gameVersion` to that JSON. Checked on a live
+  6.3 MB export (2026-10-09): reflection and source generation are byte-identical
+  (`tools/EventProbe --jsonparity`), and the native DLL's export equals the managed engine's except
+  `timestamp`.
+- **Building needs the MSVC x64 build tools and a Windows SDK** (README). The target puts the VS
+  Installer folder on PATH because `vcvarsall` calls `vswhere` through it.
+- **The installer deletes the old managed engine on upgrade** (`[InstallDelete]` in `setup.iss`).
+  Otherwise an upgrade from ≤1.47 would leave the decompilable copies in `{app}` for good.
+- **The tests reference MemoryCore directly** (only when the submodule is present) for
+  `LearnedRvaTests`. `AtomicFile` is the app's copy of `KnownOffsets.WriteAtomically`, since both
+  write the local catalog. Keep the two in step.
+
 ## Sign-in: the real browser, always
 
 Clicking Sign In shows [SignInPanel](Forms/SignInPanel.cs), and **the panel opens on an invitation —
@@ -733,6 +760,13 @@ the contract.
 site's half of 1.42's mismatch notice: "Update Data" passes the card's in-game id on the launch URI
 as `&account=`, and its "click Export account there" message goes, since 1.41 starts the update
 itself. Same standing: a summary, never the contract.
+
+[docs/raidtools-gzip-uploads.md](docs/raidtools-gzip-uploads.md) is the prompt for RaidTools to accept
+gzip upload bodies (`UseRequestDecompression`). **The uploader sends gzip since 1.48** (6.2 MB → 0.4 MB)
+and does not wait for it: a server that can't read the body answers 415 or the model-binding 400
+(`application/problem+json`), and `UploadConsolidatedAsync` then resends it plain and stays plain for
+that server for the session (`PlainUploadServers`). The controller's own 400s are `{message}` JSON and
+are never resent. Same standing: a summary, never the contract.
 
 [docs/raidtools-uploaded-data-and-metadata.md](docs/raidtools-uploaded-data-and-metadata.md) is the
 cross-cutting one: how RaidTools joins the payload's ids to its `MetadataType` catalogs, which side

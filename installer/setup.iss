@@ -102,6 +102,16 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb,*.xml"; Flags: ign
 ; Extracted only when it is about to run, and removed afterwards.
 Source: "{#WebView2Bootstrapper}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: NeedsWebView2
 
+[InstallDelete]
+; Up to 1.47 the extraction engine shipped as two managed assemblies; since 1.48 it is one native DLL
+; (RslCompanionEngine.dll). An upgrade only overwrites what the new build ships, so without these the
+; old, decompilable engine would stay in {app} for good: unused (nothing references it), but still
+; there to be read. Shipping it native is the point of the change.
+Type: files; Name: "{app}\RslCompanion.Extraction.dll"
+Type: files; Name: "{app}\RslCompanion.MemoryCore.dll"
+Type: files; Name: "{app}\RslCompanion.Extraction.pdb"
+Type: files; Name: "{app}\RslCompanion.MemoryCore.pdb"
+
 [Registry]
 ; rslcompanion-extractor:// protocol handler — lets rslcompanion.com launch the app and hand
 ; over a sign-in token. HKA resolves to HKCU because PrivilegesRequired=lowest.

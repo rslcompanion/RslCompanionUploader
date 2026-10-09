@@ -1,7 +1,6 @@
 #if EXTRACTION
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using NewParserOpus.Il2Cpp;
 
 namespace RslCompanionUploader;
 
@@ -82,7 +81,7 @@ public static class BuildCertification
     {
         try
         {
-            var path = KnownOffsets.LocalCatalogPath;
+            var path = Engine.LocalCatalogPath;
             if (!File.Exists(path)) return false;
 
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
@@ -103,7 +102,7 @@ public static class BuildCertification
     /// </summary>
     public static string? ReadMapForPublishing(string gameAssemblyHash)
     {
-        foreach (var path in new[] { KnownOffsets.LocalCatalogPath, Path.Combine(AppContext.BaseDirectory, KnownOffsets.FileName) })
+        foreach (var path in new[] { Engine.LocalCatalogPath, Path.Combine(AppContext.BaseDirectory, Engine.KnownOffsetsFileName) })
         {
             try
             {
@@ -120,7 +119,7 @@ public static class BuildCertification
 
     private static void MergeIntoLocalCatalog(string gameAssemblyHash, JsonObject offsets)
     {
-        var path = KnownOffsets.LocalCatalogPath;
+        var path = Engine.LocalCatalogPath;
 
         JsonObject catalog;
         try
@@ -145,7 +144,7 @@ public static class BuildCertification
 
         // Atomic: the status poll reads this file while a map is being installed, and a torn read is
         // "no map", which would start the very setup the map exists to spare.
-        KnownOffsets.WriteAtomically(path, catalog.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.Write(path, catalog.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>

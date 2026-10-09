@@ -32,6 +32,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 | Method / path | `POST {ApiBaseUrl}/api/sync/consolidated/raw` (path from `appsettings.json` → `Endpoints.SyncConsolidated`) |
 | Default origin | `https://api.rslcompanion.com` |
 | Content type | `application/json; charset=utf-8` |
+| Content encoding | **`gzip` since uploader 1.48** (`Content-Encoding: gzip`, ~17× smaller: 6.2 MB → 0.4 MB measured). A server that cannot read it answers 415, or the model-binding 400 (`application/problem+json`). The uploader then resends the same body plain and sends plain to that server for the rest of the session. The JSON is unchanged either way, so this is not a schema change. Server side: [raidtools-gzip-uploads.md](raidtools-gzip-uploads.md). |
 | Auth | `Authorization: Bearer <Firebase ID token>` |
 | Routing | **The payload is self-identifying.** It carries the in-game `accountId`; the server routes by that, not by a selected account. |
 

@@ -107,11 +107,20 @@ public sealed class RslCompanionApiClient
     public async Task<UploadResult> UploadConsolidatedAsync(string consolidatedJson, CancellationToken ct = default)
     {
         var endpoint = _config.SyncConsolidatedEndpoint;
-        using var req = await BuildRequestAsync(HttpMethod.Post, endpoint, ct);
-        req.Content = new StringContent(consolidatedJson, Encoding.UTF8, "application/json");
+        var server = Session?.Target.ApiBaseUrl ?? "";
+        bool gzip = !PlainUploadServers.ContainsKey(server);
 
-        using var resp = await _http.SendAsync(req, ct);
-        var body = await resp.Content.ReadAsStringAsync(ct);
+        var (resp, body, sent) = await PostConsolidatedAsync(endpoint, consolidatedJson, gzip, ct);
+        if (gzip && CouldNotReadBody(resp))
+        {
+            // A server that cannot decompress yet answers the gzip body the way it answers malformed JSON.
+            // Send the same payload plain, and keep sending plain to that server for this session.
+            PlainUploadServers[server] = 0;
+            resp.Dispose();
+            (resp, body, sent) = await PostConsolidatedAsync(endpoint, consolidatedJson, gzip: false, ct);
+            sent += " (the server didn't accept gzip, so it was resent uncompressed)";
+        }
+        using var _ = resp;
 
         // A 404 is called out separately because it means something different from a failure: the
         // endpoint isn't deployed, which is a server-side state the user can do nothing about and
@@ -121,7 +130,7 @@ public sealed class RslCompanionApiClient
                 "RSL Companion isn't accepting uploads at the moment — nothing is wrong on your side. "
               + "Please try again later. If it's still happening after a while, use Actions → Check for "
               + "updates: a newer version of this app may be sending to a route this one doesn't know.",
-                $"404 from {endpoint}: {Trim(body)}");
+                $"404 from {endpoint}, {sent}: {Trim(body)}");
 
         // 403 is a decision about this account on this server (dev without Extractor access), not a
         // fault — so it says who to ask, and is marked so the caller does not count it towards the
@@ -130,19 +139,77 @@ public sealed class RslCompanionApiClient
             return UploadResult.Fail(
                 ServerMessage(body)
                 ?? $"Your account isn't allowed to upload to {Session!.Target.ApiHost}. Ask an RSL Companion admin for access.",
-                $"403 from {endpoint}: {Trim(body)}") with { Forbidden = true };
+                $"403 from {endpoint}, {sent}: {Trim(body)}") with { Forbidden = true };
 
         if (!resp.IsSuccessStatusCode)
             return UploadResult.Fail(
                 "RSL Companion couldn't accept your data. Please try again in a few minutes. If it "
               + "keeps being rejected, use Actions → Check for updates — a rejection that doesn't clear "
               + "on its own is usually this app sending something the server has moved on from.",
-                $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
+                $"{(int)resp.StatusCode} {resp.ReasonPhrase}, {sent}: {Trim(body)}");
 
         return UploadResult.Ok(
             "Done — your account is up to date on RSL Companion.",
-            $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
+            $"{(int)resp.StatusCode} {resp.ReasonPhrase}, {sent}: {Trim(body)}");
     }
+
+    /// <summary>
+    /// Servers (API base URLs) that could not read a gzip upload this session. Their uploads go plain until
+    /// the app restarts, so a server that hasn't deployed request decompression costs one extra round trip
+    /// per session, not one per upload.
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> PlainUploadServers = new();
+
+    /// <summary>
+    /// Posts the payload, gzip-compressed when <paramref name="gzip"/> (1.48+). A consolidated export is
+    /// ~6 MB of JSON and ~0.4 MB gzipped (measured 2026-10-09: 6,156 KB → 363 KB), so on a slow uplink the
+    /// upload goes from the slowest step of an update to a short one. RaidTools decompresses it before
+    /// the controller reads the body (<c>docs/raidtools-gzip-uploads.md</c>). Returns the response, its
+    /// body, and how it was sent, for the diagnostic line.
+    /// </summary>
+    private async Task<(HttpResponseMessage Response, string Body, string Sent)> PostConsolidatedAsync(
+        string endpoint, string json, bool gzip, CancellationToken ct)
+    {
+        using var req = await BuildRequestAsync(HttpMethod.Post, endpoint, ct);
+        byte[] utf8 = Encoding.UTF8.GetBytes(json);
+        string sent;
+        if (gzip)
+        {
+            byte[] packed = Gzip(utf8);
+            var content = new ByteArrayContent(packed);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
+            content.Headers.ContentEncoding.Add("gzip");
+            req.Content = content;
+            sent = $"sent gzip, {packed.Length / 1024:N0} KB of {utf8.Length / 1024:N0} KB";
+        }
+        else
+        {
+            req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+            sent = $"sent uncompressed, {utf8.Length / 1024:N0} KB";
+        }
+
+        var resp = await _http.SendAsync(req, ct);
+        var body = await resp.Content.ReadAsStringAsync(ct);
+        return (resp, body, sent);
+    }
+
+    internal static byte[] Gzip(byte[] data)
+    {
+        using var ms = new MemoryStream();
+        using (var gz = new System.IO.Compression.GZipStream(ms, System.IO.Compression.CompressionLevel.Optimal, leaveOpen: true))
+            gz.Write(data);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// Whether the server answered as one that could not read the body at all: 415, or ASP.NET's own
+    /// model-binding 400, which is <c>application/problem+json</c>. The import's own refusals are 400s
+    /// with a plain JSON <c>{message}</c>, so they are never mistaken for this and never resent.
+    /// </summary>
+    internal static bool CouldNotReadBody(HttpResponseMessage resp)
+        => resp.StatusCode == HttpStatusCode.UnsupportedMediaType
+        || (resp.StatusCode == HttpStatusCode.BadRequest
+            && resp.Content.Headers.ContentType?.MediaType == "application/problem+json");
 
     /// <summary>
     /// Asks the server whether it has a memory map for <paramref name="gameAssemblyHash"/> — the game

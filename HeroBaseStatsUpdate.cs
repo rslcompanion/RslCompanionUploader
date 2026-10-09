@@ -1,6 +1,4 @@
 #if EXTRACTION
-using NewParserOpus.StaticData;
-
 namespace RslCompanionUploader;
 
 /// <summary>
@@ -37,7 +35,8 @@ public static class HeroBaseStatsUpdate
     /// Validates <paramref name="responseBody"/> and, when it is genuinely newer and genuinely
     /// usable, replaces the local catalog with it.
     ///
-    /// <para>Validation runs the payload through <see cref="HeroBaseStatsCatalog.Parse"/> — the same
+    /// <para>Validation runs the payload through the engine's <c>HeroBaseStatsCatalog.Parse</c>
+    /// (<see cref="Engine.InspectHeroBaseStats"/>) — the same
     /// code that would have to read the file afterwards — rather than through a second opinion on
     /// what "valid" means, which would be free to drift. A catalog that parses but carries no growth
     /// model or no champions is rejected there, so a served file can never leave this PC worse off
@@ -50,10 +49,10 @@ public static class HeroBaseStatsUpdate
     /// </summary>
     public static Result Apply(string responseBody)
     {
-        HeroBaseStatsCatalog? served;
+        Engine.HeroBaseStatsInfo? served;
         try
         {
-            served = HeroBaseStatsCatalog.Parse(responseBody, sourcePath: null);
+            served = Engine.InspectHeroBaseStats(responseBody);
         }
         catch (Exception ex)
         {
@@ -69,12 +68,12 @@ public static class HeroBaseStatsUpdate
         if (served.GeneratedAt is not { } servedAt)
             return new(Outcome.Rejected, "the champion stats RSL Companion sent weren't dated.");
 
-        if (HeroBaseStatsCatalog.EffectiveGeneratedAt() is { } localAt && servedAt <= localAt)
+        if (Engine.HeroBaseStatsGeneratedAt() is { } localAt && servedAt <= localAt)
             return new(Outcome.NotPublished, "your champion stats are already up to date.");
 
         try
         {
-            var path = HeroBaseStatsCatalog.LocalPath;
+            var path = Engine.HeroBaseStatsLocalPath;
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllText(path, responseBody);
         }

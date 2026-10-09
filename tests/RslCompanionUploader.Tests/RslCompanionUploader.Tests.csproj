@@ -25,4 +25,17 @@
     <ProjectReference Include="..\..\RslCompanionUploader.csproj" />
   </ItemGroup>
 
+  <!-- LearnedRvaTests pins MemoryCore's catalog writes. The app reaches the engine only as a native
+       DLL, so these tests reference the managed MemoryCore themselves, and only when the private
+       submodule is present. -->
+  <PropertyGroup>
+    <MemoryCoreProject>$(MSBuildThisFileDirectory)..\..\extraction\Core\RslCompanion.MemoryCore.csproj</MemoryCoreProject>
+  </PropertyGroup>
+  <ItemGroup Condition="Exists('$(MemoryCoreProject)')">
+    <ProjectReference Include="$(MemoryCoreProject)" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('$(MemoryCoreProject)')">
+    <Compile Remove="LearnedRvaTests.cs" />
+  </ItemGroup>
+
 </Project>
