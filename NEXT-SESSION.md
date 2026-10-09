@@ -72,13 +72,12 @@ and another session had to merge it back.
 6. **Event numbers still unchecked on screen**: the checklist at the end of
    `extraction/docs/events-findings.md` (summon pool 55 vs 40, tournament claims, Forge Pass level).
 7. **The `-dev` pre-release channel has never been used.** The first `v…-dev.N` tag is the test.
-8. **Protect the engine from reuse — built, not yet released.** The engine now ships as a NativeAOT
-   DLL (`RslCompanionEngine.dll`, see CLAUDE.md "The engine ships as a native DLL"). Verified locally on
-   2026-10-09 against live 11.80.0: the payload is byte-identical, and 153 tests pass. Before tagging
-   1.48.0, still to check: that the first CI run builds the native DLL on the GitHub runner, that Avast
-   leaves an unsigned native DLL that reads process memory alone, and an installed upgrade from 1.47.1
-   (the old engine DLLs must be gone from `{app}`). Offsets themselves cannot be hidden: the app must
-   read them, and IL2CPP dumpers re-derive them.
+8. **Protect the engine from reuse — released in v1.48.0.** The engine ships as a NativeAOT DLL
+   (`RslCompanionEngine.dll`, see CLAUDE.md "The engine ships as a native DLL"). Verified against live
+   11.80.0 (byte-identical payload), and the release run built the DLL on GitHub's runner. Still to
+   check by hand: that Avast leaves the unsigned native DLL alone, and that an upgrade over 1.47.1 leaves
+   no `RslCompanion.Extraction.dll` / `RslCompanion.MemoryCore.dll` in the install folder. Offsets
+   themselves cannot be hidden: the app must read them, and IL2CPP dumpers re-derive them.
 9. **Rate-limit and log `GET /api/extractor/offsets/{hash}`** (RaidTools, on `dev`), so bulk map
    downloads are slow and visible.
 10. **RaidTools: accept gzip uploads** ([docs/raidtools-gzip-uploads.md](docs/raidtools-gzip-uploads.md)).
