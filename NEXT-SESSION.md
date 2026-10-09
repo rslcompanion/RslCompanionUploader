@@ -4,7 +4,7 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten **2026-10-09**, updated after **v1.49.0** (schema 42) and the path-event work the same day. The "Open elsewhere" list is carried over from 2026-09-03
+Rewritten **2026-10-09**, updated after **v1.50.0** (schema 43, event scoring rules) the same day. The "Open elsewhere" list is carried over from 2026-09-03
 and was not re-checked. **Check `git log` before trusting any state below**: more than one session
 works in these repos (the uploader and its `extraction/` checkout, and RaidTools through two
 worktrees), so a clean tree is not evidence that nothing has moved.
@@ -15,7 +15,7 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.49.0**. Payload **schema 42**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.50.0**. Payload **schema 43**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
 | `…\RslCompanionUploader\extraction` (private submodule) | `e881a8e` (schema 42: path-event locks and keys), on top of `00eed4a` (EventProbe `--rules`). Standalone `D:\Codex\RslCompanionExtraction` checkout matches. Known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
@@ -120,13 +120,15 @@ and another session had to merge it back.
    1.48.1). Check locked cells draw 🔒, keys held show, and routing is "any". Then Release to prod.
    Also check a cell opened with a key draws 🔓 and drops out of the key count (`unlockedRewardIds`,
    RaidTools `452bd09` on dev).
-14. **Event point rules on the wire, registered by the first upload** — the plan is in
-   `Claude outputs/event-scoring-plan.md` (untracked, local). Schema 43: `scoring` + `revision` on every
-   solo event and tournament, from `GlobalEventInfo.Rules` (15 condition kinds and the
-   `GlobalEventAction` enum already listed there; bind the enum values with `BlessingProbe --enumvalues`
-   first). Then RaidTools registers an event from the first upload that carries it, and the points
-   calculator loads that run's values. Unknowns: Deck of Fate (not seen running), and the actions whose
-   rule list is empty (22, 52, 55, 61).
+14. **Event point rules: step 1 done (v1.50.0, schema 43); steps 2–3 open.** Every catalog-resolved solo event
+   and tournament carries `scoring` (its `GlobalEventInfo.Rules`: `actionId`, `points`, condition `on` +
+   criteria) and `revision`. Verified live over 10 events. Action ids are bound by evidence in
+   `docs/event-actions.json` (the enum's values could not be read). **No `keyItemId`**: the event data
+   names no key item; RaidTools uses the documented constant 10401 (closed with that session).
+   **Next, the owner's call:** RaidTools step 2 (register an event from the first upload that carries it,
+   keyed by `eventId`, same `revision` never overwrites) and step 3 (the points calculator loads that run's
+   values). Plan: `Claude outputs/event-scoring-plan.md` (untracked, local). Still to confirm: Deck of Fate
+   (same `GlobalEventInfo`, `BingoInfo`) carries `scoring` when one runs.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
