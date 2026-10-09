@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 41** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 42** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1654,8 +1654,69 @@ same shape.
 - `TopRewards`, the five headline prizes on the event's banner, are not exported. They repeat
   milestone prizes and carry no threshold.
 
+### Hero's Path — locks, keys and the parent rule (schema 42)
+
+The **Hero's Path** is an ordinary board event: `soloTypeId` **2**, the same `ThreeLineRewards` table as
+the Wicked Path, and on the payload since schema 33. Event 4453 runs 2026-10-09 08:00 → 10-13 08:00
+(claims until 10-14 08:00). It has 42 cells: four entry cells in row 1, then branches that end in two 5★
+champions (50,000 points each) and Radiant Sunlily ×50 (15,000). What it adds over the boards seen
+before is **locks**: some cells take Path Keys before they can be bought. Schema 42 sends them, and
+states the rule the board follows.
+
+```jsonc
+{ "eventId": 4453, "questPrototypeId": 364453, "soloTypeId": 2, "title": "Hero's Path",
+  "startsAt": "2026-10-09T08:00:00Z", "endsAt": "2026-10-13T08:00:00Z", "claimUntil": "2026-10-14T08:00:00Z",
+  "points": 586, "claimedRewardIds": [], "boardCurrency": 586,
+  "parentRule": "any", "keysHeld": 0, "unlockedRewardIds": [],
+  "rewards": [
+    { "id": 102, "cost": 300, "row": 1, "column": 2, "parentIds": [], "prize": { "items": [{ "id": 5504, "amount": 3 }] } },
+    { "id": 201, "cost": 500, "row": 2, "column": 1, "parentIds": [102, 104, 106, 108], "prize": { "resources": [{ "id": 602, "amount": 5 }] } },
+    { "id": 602, "cost": 1000, "row": 6, "column": 2, "parentIds": [502], "prize": { "items": [{ "id": 10401, "amount": 1 }] } },
+    { "id": 804, "cost": 3000, "row": 8, "column": 4, "parentIds": [604], "keyCost": 1, "prize": { "avatarIds": [10720] } },
+    { "id": 1004, "cost": 50000, "row": 10, "column": 4, "parentIds": [804], "keyCost": 1, "prize": { "souls": [{ "championBaseId": 10720, "rarityId": 5, "grade": 5 }] } }
+    /* … 42 cells … */ ] }
+```
+
+- **`parentRule` is `"any"`: one taken parent opens a cell.** Every row-2 cell lists all four entry
+  cells as parents, and taking one entry opens all of row 2 (confirmed on the game screen, 2026-10-09).
+  The game stores no rule anywhere; this is how its client treats a board, so the producer sends
+  `"any"` on every board event. It is a field rather than a documented constant so that a board that
+  one day needs every parent arrives as `"all"` instead of as a silent misreading. Absent on every other
+  event. `parentIds` keeps its meaning: every cell a line on the screen joins to this one from the row
+  above, cross-bar links included (cell 908 lists 808 *and* 810).
+- **`keyCost` is the Path Keys a locked cell takes to open** (`ThreeLineRewardData.LockedKeys`, an
+  `int?`). It is absent on a cell that is not locked. On 4453 the four locked cells each take one key:
+  804 (avatar), 806 (frame), 1004 and 1006 (the two champions). A locked cell's prize is sent like any
+  other, because the catalog holds it whether or not the cell is open, so there is no `hidden` flag.
+- **A locked cell's `cost` still applies.** The screen shows the key in place of the points while the
+  cell is locked. Once a key has opened it, it is bought with `cost` points like any other cell. The
+  non-zero `cost` on all four (3,000 / 5,000 / 50,000 / 50,000) supports this. The purchase itself has
+  not been watched yet.
+- **`keysHeld` is the Path Keys in hand for this event** (`ThreeLineResources.ThreeLineKeys`, beside
+  `ThreeLineCurrency`). Keys are counted per event, not in the inventory, so `resources[]` never
+  carries them. The game exchanges unused keys when the event ends
+  (`l10n:inbox/threeline-unused-key-compensation`).
+- **A cell that pays a key pays item `10401`** ("Path Key", `l10n:bmi/name?id=10401`): `prize.items`
+  with `id` 10401. On 4453 those are 602, 608, 902 and 908, one key each for 1,000 points. The keys a
+  path earns are the sum of item 10401 over its cells, the same way Titan Points are item 10600. The id
+  is a game constant, not per-event data, which is why it is documented here and not sent.
+- **`unlockedRewardIds` lists the locked cells opened with a key and not yet bought**
+  (`GlobalEventUnlockedRewardIds`); a bought cell is in `claimedRewardIds`; `[]` when none. The keys a
+  planned path is short are its `keyCost` total over cells in neither list, less the keys it pays out
+  on the way, less `keysHeld`. That an opened cell sits in this list before it is bought has not been
+  watched yet.
+- **The champions are already in the prizes.** Event 4453 ties to two champions, not one: the 5★ souls
+  on 1004 (base 10720) and 1006 (base 10760), each under an avatar or frame cell. So there is no
+  event-level `championTypeId`. A consumer that wants to name the event's champions reads
+  `prize.souls[].championBaseId` (or `prize.champions[].typeId`) on its last row.
+
 ### Verified
 
+Hero's Path (schema 42), live on 11.80.0 (2026-10-09): event 4453, 42 cells with rows, columns, parents
+and prizes (`otherKinds` empty); `keyCost` 1 on exactly the four cells the screen shows with a padlock;
+`keysHeld` 0 and 586 points unspent with nothing taken. The owner then took entry cell 102 (Brews ×3):
+`claimedRewardIds` read `[102]` and `boardCurrency` 286 (586 − 300), and the screen showed all of row 2
+open, which is `parentRule` `"any"`. Not yet watched: a key earned, a cell opened with it, and the purchase after.
 Titan Event (schema 41), live on 11.75.0 (2026-10-07): event 4440, 50 milestones in 5 tabs read in full,
 every prize decoded (`otherKinds` empty), 50 Titan Points, nothing claimed. Item 10600 summed over the
 open labelled events matches each one's internal "+ N TP" label: Gear Hunters 80, Gear Enhancement 60,
@@ -1795,6 +1856,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 42 | v1.49.0 | 2026-10-09 | **Additive: locks and keys on board events, and the rule the board follows** (see [Hero's Path](#heros-path--locks-keys-and-the-parent-rule-schema-42)). The Hero's Path was already on the payload as a board event (`soloTypeId` 2, since schema 33). Board events now also carry `parentRule` (`"any"`: one taken parent opens a cell, confirmed in game), `keysHeld` (Path Keys in hand for the event) and `unlockedRewardIds` (locked cells opened with a key, not yet bought), and a locked cell carries `keyCost` (keys to open it; its `cost` is paid on top). The key a cell pays is item 10401. Read live off event 4453 (11.80.0, 42 cells, 4 locked). A consumer that ignores them is exactly as correct as on schema 41, except that it should stop assuming every parent is needed. |
 | 41 | v1.45.0 | 2026-10-07 | **Additive: the Titan Event's milestones, and `randomGemstones` prizes** (see [Titan Event](#titan-event--milestones-schema-41)). A Titan Event (internally a "universal" event, `soloTypeId` 4) sent `rewards: []`. Its milestone table is now in `rewards`, every reward with its Titan Point threshold, its prize and the new `milestone` (the in-game "Milestone 1–5" tab). Titan Points are item 10600, so the Titan Points a labelled event or tournament pays are already in its `rewards`. Separately, `eventPrize.randomGemstones` (`count`, `rarityIds`, optional `onlyShapeIds` / `excludedShapeIds`) decodes `RandomRelicStonesPrizes`, which before was only named in `otherKinds`. It applies to every prize, Frontier outposts and the Inbox included. Read live off event 4440 (11.75.0, 50 milestones in 5 tabs). A consumer that ignores both is exactly as correct as on schema 40. |
 | 40 | v1.44.0 | 2026-10-07 | **Additive: `inbox`** — the in-game Inbox (see [`inbox`](#inbox--the-in-game-inbox-schema-40)): every reward waiting to be collected, each with `id`, `typeId` (the game's `InboxTypeId`; titles via the new [`inbox-types.json`](inbox-types.json)), `read`, `receivedAt` / `expiresAt` (UTC), `prize` (the event-reward shape) and, for an overflowed artifact, the full `artifacts[]` record with stats — which is not also in the vault. The whole Inbox: `items: []` = empty, absent = unread. No sender is recorded. Verified live (11.75.0, 102 items). A consumer that ignores it is exactly as correct as on schema 39. |
 | 39 | v1.43.0 | 2026-10-05 | **Additive: `soloEvents[].frontier` — the Frontier Event map and progress; corrective: a Frontier Event's `points`** (see [Time-limited content](#time-limited-content--soloevents-tournaments-battlepass)). A Frontier Event (internally `ConquestEvent`, `soloTypeId` 8) now carries `frontier`: every outpost with its rarity, type, neighbours, optional unlock time, 4 quest ids and 4 reward slots (track 1 Basic, 2 Explorer), plus the account's state per outpost (started, completed quests, claimed slots) and its revealed quests (condition, counts, points), and `unlockPoints`, the Frontier Points each rarity needs (4447: 15 / 25 / 40 / 60). Its `points` was 0 on every Frontier Event and is now the account's Frontier Points. Its `rewards` stays `[]`. Absent on other events, and when unread. Verified live (11.75.0, event 4447). A consumer that ignores `frontier` is exactly as correct as on schema 38, except that it now sees a Frontier Event's real points. |
