@@ -272,6 +272,14 @@ is validated (a parseable positive account id, a non-empty name) before it is al
 file. A result that fails validation returns `Success: false` and nothing is written, leaving whatever
 was already in the catalog — a prior good calibration, or nothing — untouched.
 
+**A second failed setup of the same build in a session says a new app version is needed**
+(`NoteCalibrationFailure`). One failure is usually Raid still loading, and the log says to retry. Two
+(the automatic try, then Actions → Set up this Raid version) mean the game changed in a way this engine
+cannot read, which only a release can fix. The notice banner and the log then say, in one sentence, that
+this version can't set the Raid version up by itself and a new version has to be downloaded, and a
+non-silent update check runs at once, so the banner offers the release if one is out. Once per build per
+session.
+
 **Both `TryCertifyBuildAsync` and `TrySelfCalibrateAsync` hold `SetBusy(true)` for their duration**,
 same as export — the accounts grid's action buttons disable while either is in flight, since a click
 landing mid-scan or mid-apply would race the process attach the scan already owns.

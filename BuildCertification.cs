@@ -143,8 +143,9 @@ public static class BuildCertification
         // map is authoritative for every field it carries.
         builds[gameAssemblyHash] = offsets.DeepClone();
 
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, catalog.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        // Atomic: the status poll reads this file while a map is being installed, and a torn read is
+        // "no map", which would start the very setup the map exists to spare.
+        KnownOffsets.WriteAtomically(path, catalog.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
     /// <summary>

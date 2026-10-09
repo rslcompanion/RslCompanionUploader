@@ -149,6 +149,13 @@ public sealed class MainForm : Form
     /// </summary>
     private readonly HashSet<string> _calibrationDeferred = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Failed setups per game build this session. One failure is usually Raid still loading; a second
+    /// (the automatic try, then Actions ▸ Set up this Raid version) means this app version cannot read the
+    /// build at all — see <see cref="NoteCalibrationFailure"/>.
+    /// </summary>
+    private readonly Dictionary<string, int> _calibrationFailures = new(StringComparer.OrdinalIgnoreCase);
+
     // Stops the status poll when the window closes.
     private readonly CancellationTokenSource _statusCts = new();
 #endif
@@ -933,6 +940,7 @@ public sealed class MainForm : Form
                 Log($"Couldn't finish setting up this Raid version: {result.Error}. If Raid was still "
                   + "loading, wait until your heroes are visible, then try again from "
                   + "Actions → Set up this Raid version.");
+                NoteCalibrationFailure(buildKey);
             }
         }
         catch (OperationCanceledException)
@@ -942,6 +950,7 @@ public sealed class MainForm : Form
         catch (Exception ex)
         {
             Log($"Couldn't set up this Raid version: {DescribeExtractionFailure(ex)}");
+            NoteCalibrationFailure(buildKey);
         }
         finally
         {
@@ -990,6 +999,24 @@ public sealed class MainForm : Form
                        && _isLatestUploader == true
                        && !BuildCertification.HasLocalMap(b.GameAssemblyHash);
         if (needsCover) _ = AutoCoverUncoveredBuildAsync();
+    }
+
+    /// <summary>
+    /// Counts a failed setup of <paramref name="buildKey"/>. The second failure in a session — the automatic
+    /// try and a retry, so not "Raid was still loading" — means the game changed in a way this app version
+    /// cannot set up by itself: only a new release with a fixed engine can. Said once per build, in the
+    /// notice banner as well as the log, and an update check runs at once so the banner offers the release
+    /// if there is one (or the log says there is none yet).
+    /// </summary>
+    private void NoteCalibrationFailure(string buildKey)
+    {
+        int failures = _calibrationFailures[buildKey] = _calibrationFailures.GetValueOrDefault(buildKey) + 1;
+        if (failures != 2) return;
+        var label = _buildInfo is { } b ? BuildLabel(b) : "this Raid version";
+        var message = $"This version of RSL Companion can't set up Raid {label} by itself; a new version of the app has to be downloaded.";
+        _shell.SetNotice(message);
+        Log(message);
+        _ = CheckForUpdateAsync(silent: false);
     }
 
     /// <summary>
