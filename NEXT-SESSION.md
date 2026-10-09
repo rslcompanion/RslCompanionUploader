@@ -54,9 +54,9 @@ and another session had to merge it back.
    `dev`), an uploader release carrying `26a0c77` (tag it), then an admin on 11.80.0 runs Actions →
    Publish memory map. Afterwards `GET /api/extractor/offsets/A66241F0…` answers 200 for players on
    v1.46.0 and older. Repeat on every Raid update until a release ships the build.
-2. **The site half of the account-mismatch notice** — prompt
-   [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md). Check RaidTools `dev`
-   first: it may have been done after this file was written.
+2. ~~The site half of the account-mismatch notice~~ — **done** in RaidTools `d9976b9`, on prod.
+   Still worth a live check with two accounts: Update Data on the card Raid is *not* on should sync the
+   open account and show the app's one-sentence notice.
 3. **Confirm the site's `/handoff/status` check on prod** reports "launched" for an already-open
    1.40+ app (verified only from the app's side).
 4. **Code signing.** Releases are unsigned; SmartScreen warns, and Avast locked a fresh installer once.

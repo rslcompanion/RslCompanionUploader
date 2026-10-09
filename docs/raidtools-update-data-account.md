@@ -1,5 +1,10 @@
 # RaidTools: "Update Data" names the account it was clicked on
 
+> **Done** — RaidTools `d9976b9` ("Update Data names its card to the Extractor; launch copy matches the
+> app"), on prod by 2026-10-09: `buildSyncUri` appends `&account=` for a positive id, only
+> `updateViaExtractor` passes one, and the post-click message no longer says "Export account". Kept as
+> the record of why.
+
 A prompt for a RaidTools session, written from the uploader side. **This is a summary, never the
 contract.** The launch URI is described in this repo's README and CLAUDE.md, and the uploader's
 parser (`ProtocolHandler.TryGetHandoff`) is what actually reads it.
