@@ -1643,8 +1643,7 @@ same shape.
   Titan Points total (the sum of its per-day progress; the game leaves `TotalPoints` unset). A reward is
   claimable when `points` ≥ its threshold and its `id` is not in `claimedRewardIds`.
 - **Reward ids run across the tabs** (1–50 on 4440), so `claimedRewardIds` keys them as on any solo
-  event. That the game records Titan claims in the same list is assumed from the shared quest shape;
-  no claim has been observed yet.
+  event. Claims land in the same list as other solo events: verified 2026-10-09 (below).
 - **Where Titan Points come from is already on the payload.** Titan Points are inventory item **10600**
   (`l10n:bmi/name?id=10600` = "Titan Points"), and a labelled event or tournament pays them as an
   ordinary tier prize: `prize.items` with `id` 10600. Gear Hunters Event 4444 paid 10 + 20 + 50 = 80 over
@@ -1660,7 +1659,10 @@ Titan Event (schema 41), live on 11.75.0 (2026-10-07): event 4440, 50 milestones
 every prize decoded (`otherKinds` empty), 50 Titan Points, nothing claimed. Item 10600 summed over the
 open labelled events matches each one's internal "+ N TP" label: Gear Hunters 80, Gear Enhancement 60,
 Spider Turn Attack 50, Ice Golem Turn Attack 40. The same run decoded the Frontier Event's three
-random-gemstone slots (outposts 28 / 47 / 48: Epic, Legendary, Mythical). Frontier (schema 39), live on 11.75.0 (2026-10-05): event 4447, 4 Frontier Points = 4 completed quests
+random-gemstone slots (outposts 28 / 47 / 48: Epic, Legendary, Mythical). Checked against the game
+screen on 2026-10-09, now on build 11.80.0: at 170 Titan Points the screen showed 13 claimable
+milestones and memory read 13 reachable with none claimed. After the owner claimed the first two,
+`claimedRewardIds` read `[1, 2]` and 11 claimable, matching the screen. Frontier (schema 39), live on 11.75.0 (2026-10-05): event 4447, 4 Frontier Points = 4 completed quests
 at 1 point each; Outpost 1 completed with slots 0–3 claimed; Outposts 2 and 9 started, one quest at 4/10;
 unlock thresholds 15 / 25 / 40 / 60. Passes (schema 38), live on 11.75.0 (2026-10-05): Forge Pass 1037 at 365 points with free levels 1–36
 collected, 2026-09-16 09:00 → 2026-10-14 09:00; Champion Pass 2004 ended at 2,820 points with 1–25
