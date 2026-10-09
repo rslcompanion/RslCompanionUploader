@@ -77,6 +77,7 @@ internal static class ProtocolHandler
         string? api = null;
         var apiCount = 0;
         int? account = null;
+        var update = false;
 
         foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
         {
@@ -96,10 +97,14 @@ internal static class ProtocolHandler
                      && account is null && int.TryParse(value, System.Globalization.NumberStyles.None,
                          System.Globalization.CultureInfo.InvariantCulture, out var id) && id > 0)
                 account = id; // first valid wins; anything else is ignored, never an error
+            else if (name.Equals("intent", StringComparison.OrdinalIgnoreCase)
+                     && value.Equals("update", StringComparison.OrdinalIgnoreCase))
+                update = true;
         }
 
         if (string.IsNullOrWhiteSpace(code)) return null;
-        return new HandoffLaunch(code, api, ApiAmbiguous: apiCount > 1, AccountId: account);
+        return new HandoffLaunch(code, api, ApiAmbiguous: apiCount > 1, AccountId: account,
+                                 RequestsUpdate: update || account is not null);
     }
 }
 
@@ -113,8 +118,16 @@ internal static class ProtocolHandler
 /// account open in Raid, and it syncs that one. When the two differ the user is told which was
 /// synced (<c>MainForm.TryRunSiteUpdate</c>). It is not allow-listed or validated beyond being a
 /// positive number, because nothing is sent anywhere on its account.</para>
+///
+/// <para><see cref="RequestsUpdate"/> says the launch came from a site button that uploads (1.48.1):
+/// <c>&amp;intent=update</c>, which the dashboard's "Update Data" and "Launch Account Data Extractor"
+/// send, or an <c>account</c> id, which only "Update Data" has ever sent. Everything else is a sign-in
+/// and nothing more. Before 1.48.1 the app inferred the intent from where the launch landed, and
+/// <c>/connect-extractor</c>, which launches on its own once the user is signed in on the site, ran
+/// an upload nobody asked for.</para>
 /// </summary>
-internal sealed record HandoffLaunch(string Code, string? Api, bool ApiAmbiguous = false, int? AccountId = null)
+internal sealed record HandoffLaunch(string Code, string? Api, bool ApiAmbiguous = false, int? AccountId = null,
+                                     bool RequestsUpdate = false)
 {
     /// <summary>
     /// The environment this code must be redeemed at, or null when the launch names one this app will

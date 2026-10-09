@@ -123,6 +123,21 @@ public class ProtocolHandlerTests
         Assert.Null(launch.AccountId);
     }
 
+    // Only a site button that uploads asks for an upload. /connect-extractor sends a bare sign-in link once
+    // the user is signed in on the site, and that must never start one.
+    [Theory]
+    [InlineData("rslcompanion-extractor://sync?code=abc&intent=update", true)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&intent=UPDATE", true)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=95604564", true)] // "Update Data" before intent existed
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=95604564&intent=update", true)]
+    [InlineData("rslcompanion-extractor://sync?code=abc", false)]                  // /connect-extractor
+    [InlineData("rslcompanion-extractor://sync?code=abc&api=https%3A%2F%2Fapi.rslcompanion.com", false)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&intent=signin", false)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&intent=", false)]
+    [InlineData("rslcompanion-extractor://sync?code=abc&account=junk", false)]
+    public void Only_an_upload_button_requests_an_upload(string uri, bool expected) =>
+        Assert.Equal(expected, Parse(uri)!.RequestsUpdate);
+
     [Fact]
     public void An_account_never_affects_where_the_code_is_redeemed() =>
         Assert.Same(ApiTarget.Production,

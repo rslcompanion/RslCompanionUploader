@@ -409,11 +409,18 @@ redeemed, so that showed up as "the Extractor didn't respond". The rules now:
 
 **A website button's launch runs the export too (1.41), and only a website button's.** "Update Data"
 and "Sync New Account" used to sign the app in and stop there. The user then had to find the window
-and press Update user data, the step the button's name promised. The link carries no intent: the
-site sends the same `sync?code=…` from its dashboard and from `/connect-extractor`, the page this
-app's own Sign In opens. But that page's launch always arrives while `SignInPanel` is waiting and
-goes there. So a launch that does *not* reach the panel, forwarded or fresh, came from a dashboard
-button, and `MainForm.RequestSiteUpdate` records it in a [SiteUpdateRequest](SiteUpdateRequest.cs).
+and press Update user data, the step the button's name promised. A launch that asks for it is recorded
+by `MainForm.RequestSiteUpdate` in a [SiteUpdateRequest](SiteUpdateRequest.cs).
+
+**Only a launch that says so asks (1.48.1): `&intent=update`, or an `account` id**
+(`HandoffLaunch.RequestsUpdate`). The site's two upload buttons send `intent=update` (RaidTools
+`b3a44c6`), and "Update Data" has sent `account` since 1.42. `/connect-extractor` sends neither, and
+its launch is a sign-in and nothing more. **Do not go back to inferring the intent from where a launch
+lands.** 1.41–1.48 did: a launch that didn't reach a waiting `SignInPanel` counted as a button press.
+But `/connect-extractor` launches by itself once the user is signed in on the site, without the app
+waiting for anything, so signing in on the website started an upload nobody asked for (reported
+2026-10-09). Until the site change reaches prod, its "Launch Account Data Extractor" button signs the
+app in without uploading; "Update Data" still uploads, through its `account` id.
 
 - **It runs when it can, once.** That means signed in, not busy or calibrating, and the game
   `Connected`. It is re-tried when the account becomes readable and whenever `SetBusy(false)` ends a

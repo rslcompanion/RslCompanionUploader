@@ -327,10 +327,11 @@ public sealed class MainForm : Form
                 await AdoptSessionAsync(session);
                 await KeepSessionPerChoiceAsync(session);
 #if EXTRACTION
-                // Started by a button on the site, so the button's purpose applies: update the data.
-                // The game poll has usually not identified the account yet this early, which is why
-                // this records a request rather than exporting on the spot.
-                RequestSiteUpdate(launch.AccountId);
+                // Only a site button that uploads says so (intent=update, or the card's account id);
+                // /connect-extractor launches after a plain sign-in and must stay a sign-in. The game
+                // poll has usually not identified the account yet this early, which is why this records
+                // a request rather than exporting on the spot.
+                if (launch.RequestsUpdate) RequestSiteUpdate(launch.AccountId);
 #endif
                 return;
             }
@@ -497,7 +498,11 @@ public sealed class MainForm : Form
             Log($"Signed in from rslcompanion.com as {session.Email ?? session.DisplayName ?? session.Uid}.");
             await KeepSessionPerChoiceAsync(session);
 #if EXTRACTION
-            if (exportAlreadyRunning)
+            if (!launch.RequestsUpdate)
+            {
+                // A sign-in from the site (/connect-extractor), not an upload button: nothing to send.
+            }
+            else if (exportAlreadyRunning)
                 Log("Your data was just sent to RSL Companion by the update that was already running.");
             else
                 RequestSiteUpdate(launch.AccountId);
