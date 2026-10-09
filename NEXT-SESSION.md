@@ -61,11 +61,11 @@ and another session had to merge it back.
    A66241F0…"). **On every Raid update from now on:** an admin on the new build runs Actions → Publish
    memory map, **signed in to prod** — the action publishes to the session's server, and the first try
    went to dev. Then ship the build in `known-offsets.json` with the next release.
-2. ~~The site half of the account-mismatch notice~~ — **done** in RaidTools `d9976b9`, on prod.
-   Still worth a live check with two accounts: Update Data on the card Raid is *not* on should sync the
-   open account and show the app's one-sentence notice.
-3. **Confirm the site's `/handoff/status` check on prod** reports "launched" for an already-open
-   1.40+ app (verified only from the app's side).
+2. ~~The site half of the account-mismatch notice~~ — **done** in RaidTools `d9976b9`, on prod, and
+   **checked live by the owner on 2026-10-09** with two accounts: Update Data on the card Raid was not on
+   synced the open account and showed the one-sentence notice.
+3. ~~Confirm the site's `/handoff/status` check on prod~~ — **checked live by the owner on 2026-10-09**:
+   it reports "launched" for an already-open app.
 4. **Code signing.** Releases are unsigned; SmartScreen warns, and Avast locked a fresh installer once.
    The workflow has a stubbed signing step.
 5. **The WebView2 bootstrap path is untested** on a machine without the runtime (a Windows 10 VM).
