@@ -86,13 +86,15 @@ and another session had to merge it back.
    or an `account` id, and the site's two upload buttons send `intent=update` (RaidTools `b3a44c6`, on
    prod). Worth a live check: sign in on the site with the app closed, and nothing should upload.
 
-12. **One points calculator for two events** (RaidTools `/deck-of-fate`). **Hero's Path** (visible reward
-   paths; a node opens once the node before it is claimed) and **Deck of Fate** (usually 40 cards, rewards
-   hidden until flipped) are different events. They earn points from the same in-game activities, which
-   are the calculator's six components, but **the points per activity can differ from event to event**.
-   Inside the game, Hero's Path is called the *threeline* event (`soloTypeId` 2, Hero Coins 10400, Path
-   Keys 10401); that name matters only when reading game memory. **Done 2026-10-09:** the point values of
-   the running Hero's Path (event 4453, 10-09 → 10-13) were read live with
+12. **One points calculator for two event types** (RaidTools `/deck-of-fate`). A **path event** (visible
+   reward paths; a node opens once the node before it is claimed) and a **Deck of Fate** event (usually 40
+   cards, rewards hidden until flipped) are different events. They earn points from the same in-game
+   activities, which are the calculator's six components, but **the points per activity can differ from
+   run to run**. **The title is per run, not the type**: "Hero's Path" (10-09), "Wicked Path Event"
+   (09-28), maybe "Angels Path" next. Inside the game the path type is the *threeline* event
+   (`soloTypeId` 2, board currency 10400, Path Keys 10401), which is how to recognise a run whatever it is
+   titled. **Done 2026-10-09:** the point values of the running path event, titled "Hero's Path" (event
+   4453, 10-09 → 10-13) were read live with
    `extraction/tools/EventProbe --appmodel --rules <eventId>` (`GlobalEventInfo.Rules`; nullable condition
    fields read `hasValue | value << 32`): shards Mystery **3** / Ancient 300 / Void 750 / Primal 1800 /
    Sacred 4500 (action 31, shard `TypeId` 1/3/6/7/5), and artifact drops rank × rarity 1★ Common **8** …
@@ -104,12 +106,12 @@ and another session had to merge it back.
      and custom-setup toggles are still saved per user.
    - **Saved template beats code defaults.** The code values only matter on an empty DB; changing what
      users see is an Admin → Settings save, per environment.
-   - **Next step, the owner's call:** the admin template now holds *this* Hero's Path's values, so the next
-     event that scores differently means overwriting it. Saved events (one per Hero's Path / Deck of Fate
+   - **Next step, the owner's call:** the admin template now holds *this* path event's values, so the next
+     event that scores differently means overwriting it. Saved events (one per path-event / Deck of Fate
      run, each with its own values and goal) avoid that; none exist yet on either environment, and users
      see them only while `calculators:deck-of-fate-events` is on.
    - **Still open:** Champ Chase, Soulstones, Champion Training and Artifact Enhancement were not in this
-     event, so their values are unverified. Re-run `--rules` during the next Hero's Path that scores them
+     event, so their values are unverified. Re-run `--rules` during the next path event that scores them
      and update the admin template (or that event's saved values).
    - Prod's Chrome session is signed in as the **"Creator"** admin account, dev's as Veaceslav.
 
