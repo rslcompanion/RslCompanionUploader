@@ -1,5 +1,8 @@
 # RaidTools: accept gzip-compressed Extractor uploads
 
+> **On `dev` since 2026-10-09** — RaidTools `a43a17d` ("Extractor: accept gzip uploads; throttle and log
+> memory-map lookups"), deployed to api-dev. Prod follows with the next Release to prod.
+
 A prompt for a RaidTools session, written from the uploader side. **This is a summary, never the
 contract.** The transport is described in this repo's [export-schema.md](export-schema.md) ("Transport"),
 and the uploader's `RslCompanionApiClient.UploadConsolidatedAsync` is what actually sends it.
