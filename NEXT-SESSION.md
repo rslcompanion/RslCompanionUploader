@@ -15,11 +15,11 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.46.1**. `main` is one commit past it (`26a0c77`, the admin "Publish memory map" action), not yet tagged. Payload **schema 41**. |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.47.0** (admin "Publish memory map" action). Payload **schema 41**. |
 | `…\RslCompanionUploader\extraction` (private submodule) | `baf6d91`: known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
-| RaidTools (`D:\Codex\RaidTools`, worktrees `RaidTools-cloud-hosting` on `dev`, `RaidTools-extractor-offsets` on branch `extractor-offsets`) | prod (`main`) at `9c867bc`. **`dev` is ahead at `a30aa3c`** — the memory-map endpoint and the Titan tile — waiting for **Actions → Release to prod**. |
+| RaidTools (`D:\Codex\RaidTools`, worktrees `RaidTools-cloud-hosting` on `dev`, `RaidTools-extractor-offsets` on branch `extractor-offsets`) | prod and `dev` both at `a30aa3c` (memory-map endpoint, Titan tile), released 2026-10-09. |
 
 **Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
 **RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
@@ -50,10 +50,11 @@ and another session had to merge it back.
 
 ## Open in this repo
 
-1. **Publish the 11.80.0 map.** Needs, in order: RaidTools **Release to prod** (the endpoint is on
-   `dev`), an uploader release carrying `26a0c77` (tag it), then an admin on 11.80.0 runs Actions →
-   Publish memory map. Afterwards `GET /api/extractor/offsets/A66241F0…` answers 200 for players on
-   v1.46.0 and older. Repeat on every Raid update until a release ships the build.
+1. ~~Publish the 11.80.0 map~~ — **done 2026-10-09**: RaidTools released (`a30aa3c`), uploader v1.47.0,
+   and the map published to prod and dev (Cloud Run logs "Published extractor memory map for build
+   A66241F0…"). **On every Raid update from now on:** an admin on the new build runs Actions → Publish
+   memory map, **signed in to prod** — the action publishes to the session's server, and the first try
+   went to dev. Then ship the build in `known-offsets.json` with the next release.
 2. ~~The site half of the account-mismatch notice~~ — **done** in RaidTools `d9976b9`, on prod.
    Still worth a live check with two accounts: Update Data on the card Raid is *not* on should sync the
    open account and show the app's one-sentence notice.
