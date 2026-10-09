@@ -86,9 +86,12 @@ and another session had to merge it back.
    or an `account` id, and the site's two upload buttons send `intent=update` (RaidTools `b3a44c6`, on
    prod). Worth a live check: sign in on the site with the app closed, and nothing should upload.
 
-12. **Deck of Fate calculator = the Hero's Path calculator** (RaidTools `/deck-of-fate`). Hero's Path is the
-   game's *threeline* solo event (`soloTypeId` 2, title "Hero's Path", Hero Coins 10400, Path Keys
-   10401); its objectives are the calculator's six components. **Done 2026-10-09:** the point values of
+12. **One points calculator for two events** (RaidTools `/deck-of-fate`). **Hero's Path** (visible reward
+   paths; a node opens once the node before it is claimed) and **Deck of Fate** (usually 40 cards, rewards
+   hidden until flipped) are different events. They earn points from the same in-game activities, which
+   are the calculator's six components, but **the points per activity can differ from event to event**.
+   Inside the game, Hero's Path is called the *threeline* event (`soloTypeId` 2, Hero Coins 10400, Path
+   Keys 10401); that name matters only when reading game memory. **Done 2026-10-09:** the point values of
    the running Hero's Path (event 4453, 10-09 → 10-13) were read live with
    `extraction/tools/EventProbe --appmodel --rules <eventId>` (`GlobalEventInfo.Rules`; nullable condition
    fields read `hasValue | value << 32`): shards Mystery **3** / Ancient 300 / Void 750 / Primal 1800 /
@@ -101,11 +104,13 @@ and another session had to merge it back.
      and custom-setup toggles are still saved per user.
    - **Saved template beats code defaults.** The code values only matter on an empty DB; changing what
      users see is an Admin → Settings save, per environment.
+   - **Next step, the owner's call:** the admin template now holds *this* Hero's Path's values, so the next
+     event that scores differently means overwriting it. Saved events (one per Hero's Path / Deck of Fate
+     run, each with its own values and goal) avoid that; none exist yet on either environment, and users
+     see them only while `calculators:deck-of-fate-events` is on.
    - **Still open:** Champ Chase, Soulstones, Champion Training and Artifact Enhancement were not in this
      event, so their values are unverified. Re-run `--rules` during the next Hero's Path that scores them
-     and update the admin template. No events are saved on either environment; a "Hero's Path" event
-     (needs the `calculators:deck-of-fate-events` feature) would be the way to pin per-event values and a
-     goal.
+     and update the admin template (or that event's saved values).
    - Prod's Chrome session is signed in as the **"Creator"** admin account, dev's as Veaceslav.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
