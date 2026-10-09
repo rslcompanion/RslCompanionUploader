@@ -78,12 +78,13 @@ and another session had to merge it back.
    check by hand: that Avast leaves the unsigned native DLL alone, and that an upgrade over 1.47.1 leaves
    no `RslCompanion.Extraction.dll` / `RslCompanion.MemoryCore.dll` in the install folder. Offsets
    themselves cannot be hidden: the app must read them, and IL2CPP dumpers re-derive them.
-9. **Rate-limit and log the memory-map lookup — on RaidTools `dev`** (`a43a17d`, 2026-10-09): 10 an
-   hour per user, every lookup logged with uid, build and uploader version. Goes to prod with the next
-   Release to prod.
-10. **RaidTools accepts gzip uploads — on `dev`, same commit.** Check from a 1.48 app signed in to the
-   dev server (Details on: the sync line should say "sent gzip"), then Release to prod. Until prod has it,
-   each session's first upload there costs one extra round trip (the uploader falls back to plain).
+9. ~~Rate-limit and log the memory-map lookup~~ — **on prod 2026-10-09** (RaidTools `a43a17d`): 10 an
+   hour per user, every lookup logged with uid, build and uploader version.
+10. ~~RaidTools accepts gzip uploads~~ — **on prod, same commit.** Still worth one look: with Details on,
+   a 1.48+ upload's sync line should say "sent gzip".
+11. ~~A website sign-in started an upload~~ — **fixed**: uploader 1.48.1 uploads only for `intent=update`
+   or an `account` id, and the site's two upload buttons send `intent=update` (RaidTools `b3a44c6`, on
+   prod). Worth a live check: sign in on the site with the app closed, and nothing should upload.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
