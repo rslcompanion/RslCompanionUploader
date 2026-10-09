@@ -1,0 +1,35 @@
+RSL Companion Account Data Extractor
+Copyright (c) 2026 Veaceslav Dragancea. All rights reserved.
+
+This repository is published so that its behaviour can be inspected. Publication is not a licence.
+No permission is granted to use, copy, modify, merge, publish, distribute, sublicense or sell this
+software or any part of it, except as stated below.
+
+1. Using the app. You may download the official releases of RSL Companion Account Data Extractor
+   (from this repository's GitHub Releases or from rslcompanion.com) and run them on your own
+   computer to send your own game account's data to RSL Companion.
+
+2. Reading the code. You may read the source on GitHub, and you may fork it on GitHub only to the
+   extent GitHub's Terms of Service require. A fork grants no further rights.
+
+3. Data files. The game-memory maps and offsets this software ships, downloads or produces (including
+   known-offsets.json, calibrated-offsets.json, offsets_cache.json and the responses of the RSL Companion
+   memory-map service), the export schemas and the metadata files in this repository are part of this
+   software. You may not extract, copy or reuse them, in whole or in part, in any other software, tool,
+   service or dataset.
+
+4. No reverse engineering. You may not decompile, disassemble or otherwise reverse engineer the app or
+   the extraction engine it contains, except where applicable law expressly permits it despite this
+   restriction.
+
+Any use not expressly permitted above requires prior written permission from the copyright holder.
+Contact: through rslcompanion.com.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+Raid: Shadow Legends is a trademark of Plarium Global Ltd. This project is not affiliated with or
+endorsed by Plarium.

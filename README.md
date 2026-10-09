@@ -160,3 +160,9 @@ get.rslcompanion.com link resolves through the same "latest", so neither ever se
 whose session is on a dev server (or that Actions ▸ Server points at dev, or that is already running a
 pre-release) checks the full release list instead. It is offered the newest dev build, and then the
 production release that follows it.
+
+## License
+
+Proprietary, all rights reserved; see [LICENSE](LICENSE). The source is public so its behaviour can be
+inspected. Its code, and the memory maps and offsets it ships, downloads or produces, may not be reused
+in other software.
