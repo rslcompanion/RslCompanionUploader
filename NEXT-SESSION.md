@@ -4,7 +4,7 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten **2026-10-09**, updated after **v1.47.1** the same day. The "Open elsewhere" list is carried over from 2026-09-03
+Rewritten **2026-10-09**, updated after **v1.48.1** and the Hero's Path calculator release the same day. The "Open elsewhere" list is carried over from 2026-09-03
 and was not re-checked. **Check `git log` before trusting any state below**: more than one session
 works in these repos (the uploader and its `extraction/` checkout, and RaidTools through two
 worktrees), so a clean tree is not evidence that nothing has moved.
@@ -15,11 +15,11 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.47.1**. Payload **schema 41**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
-| `…\RslCompanionUploader\extraction` (private submodule) | `8beb3a2`: known builds **11.80.0**, 11.75.0, 11.70.0 |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.48.1**. Payload **schema 41**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
+| `…\RslCompanionUploader\extraction` (private submodule) | pointer `457924d` (native engine); engine `main` is at `00eed4a` (EventProbe `--rules`, tool-only, no bump needed). Known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
-| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod at `a30aa3c` (memory-map endpoint, Titan tile), released 2026-10-09. `dev` has moved on since (another session) — check before releasing. |
+| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `dev` = `0988b5b` (Deck of Fate calculator: Hero's Path defaults, admin-owned point values), released 2026-10-09 ~14:40 UTC. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** (hero-search-popup, promo codes, CLAUDE.md, RaidApiControllers) — not this session's; leave it. |
 
 **Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
 **RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
@@ -85,6 +85,28 @@ and another session had to merge it back.
 11. ~~A website sign-in started an upload~~ — **fixed**: uploader 1.48.1 uploads only for `intent=update`
    or an `account` id, and the site's two upload buttons send `intent=update` (RaidTools `b3a44c6`, on
    prod). Worth a live check: sign in on the site with the app closed, and nothing should upload.
+
+12. **Deck of Fate calculator = the Hero's Path calculator** (RaidTools `/deck-of-fate`). Hero's Path is the
+   game's *threeline* solo event (`soloTypeId` 2, title "Hero's Path", Hero Coins 10400, Path Keys
+   10401); its objectives are the calculator's six components. **Done 2026-10-09:** the point values of
+   the running Hero's Path (event 4453, 10-09 → 10-13) were read live with
+   `extraction/tools/EventProbe --appmodel --rules <eventId>` (`GlobalEventInfo.Rules`; nullable condition
+   fields read `hasValue | value << 32`): shards Mystery **3** / Ancient 300 / Void 750 / Primal 1800 /
+   Sacred 4500 (action 31, shard `TypeId` 1/3/6/7/5), and artifact drops rank × rarity 1★ Common **8** …
+   6★ Mythical **64** (action 21). Written into the code defaults *and* saved in Admin → Settings →
+   Deck of Fate on **both dev and prod** (checked via `GET /api/admin/settings/deck-of-fate-template`).
+   The whole board costs **268,200** Hero Coins (42 rewards; `--prizes <eventId>`).
+   - **Point values are now the admin's** (`0988b5b`): never saved to or restored from localStorage; a
+     user's edit lasts until reload. Old saves' point keys are ignored. Goal, counts, simulated artifacts
+     and custom-setup toggles are still saved per user.
+   - **Saved template beats code defaults.** The code values only matter on an empty DB; changing what
+     users see is an Admin → Settings save, per environment.
+   - **Still open:** Champ Chase, Soulstones, Champion Training and Artifact Enhancement were not in this
+     event, so their values are unverified. Re-run `--rules` during the next Hero's Path that scores them
+     and update the admin template. No events are saved on either environment; a "Hero's Path" event
+     (needs the `calculators:deck-of-fate-events` feature) would be the way to pin per-event values and a
+     goal.
+   - Prod's Chrome session is signed in as the **"Creator"** admin account, dev's as Veaceslav.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
