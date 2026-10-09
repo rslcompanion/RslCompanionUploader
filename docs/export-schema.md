@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 42** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 43** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1710,8 +1710,67 @@ states the rule the board follows.
   event-level `championTypeId`. A consumer that wants to name the event's champions reads
   `prize.souls[].championBaseId` (or `prize.champions[].typeId`) on its last row.
 
+### Event scoring rules (schema 43)
+
+Every solo event and tournament the catalog resolves now says **what scores and for how much**:
+`scoring`, read from the event's `GlobalEventInfo.Rules`, plus `revision` (`GlobalEvent.Revision`).
+Point values change from run to run of the same kind of event, and the run's title changes too
+("Hero's Path", "Wicked Path Event", ...), so a consumer that wants the right numbers for a run reads
+them here rather than keeping its own table.
+
+```jsonc
+{ "eventId": 4453, "soloTypeId": 2, "title": "Hero's Path", "revision": 2,
+  "scoring": [
+    { "actionId": 21, "points": 8,    "on": "artifact", "rankId": 1, "rarityId": 1 },
+    /* … 36 artifact rules, rank × rarity, up to 6★ Mythical 64 … */
+    { "actionId": 31, "points": 3,    "on": "shard", "shardTypeId": 1 },
+    { "actionId": 31, "points": 4500, "on": "shard", "shardTypeId": 5 } ], "…": "…" }
+{ "eventId": 4445, "soloTypeId": 1, "title": "Gear Enhancement Event", "revision": 1,
+  "scoring": [ { "actionId": 22 } ], "…": "…" }
+{ "eventId": 4449, "tournamentKindId": 5, "title": "Champion Training Tournament", "revision": 2,
+  "scoring": [
+    { "actionId": 1, "points": 8,   "on": "hero", "grade": 6 },
+    { "actionId": 3, "points": 35,  "on": "hero", "rarityId": 6, "ascendLevel": 6 },
+    { "actionId": 4, "points": 500, "on": "blackMarketItem", "itemId": 5004 } ], "…": "…" }
+```
+
+- **One entry per rule.** Doing `actionId` to something that matches the rule earns `points`.
+  `actionId` is the game's `GlobalEventAction`; [`event-actions.json`](event-actions.json) names the ids
+  seen so far and says how each was bound. The enum's values could not be read from the client, so an id
+  there is bound by its own rules and its event, and one not listed is unknown, not guessed.
+- **`on` names the condition**, the one `GlobalEventRule` field the server set, camel-cased: `artifact`,
+  `hero`, `shard`, `resource`, `arena`, `arena3X3`, `story`, `dungeon`, `battle`, `allianceBoss`,
+  `blackMarketItem`, `heroSoul`, `soulStone`, `relic`. Its criteria sit flat beside it, in the payload's
+  usual names (`rankId`, `rarityId`, `kindId`, `setKindId`, `grade`, `ascendLevel`, `shardTypeId`,
+  `itemId`, `leagueId`, `difficultyId`, …; lists as `rankIds`, `rarityIds`, `ascendLevels`, `elementIds`,
+  `regionTypeIds`). **A criterion is absent unless the rule sets it, and an absent criterion matches
+  anything.** `on` absent means the rule sets no condition and scores every unit of the action.
+- **An entry with no `points` stands for an action the event scores without a table here.** The
+  game's rule list for that action is empty (or null). On 2026-10-09 that was Gear Enhancement (22),
+  the Turn Attacks (55), and the Titan Event and the summon pool (61). Absent `points` is never 0.
+- **`undecoded: true`** marks a rule carrying something this schema does not decode: a second
+  condition, a criterion not listed, or a condition class whose fields could not be read. The decoded
+  part still ships. A consumer must not treat that rule as complete.
+- **`turnAttack`** (`x`, `y`, `s`, `minPoints`, `maxPoints`) carries `TurnAttackParameters` raw when a
+  rule sets them. The Turn Attacks seen so far sent no rules at all, so the formula is not derived.
+- **`scoring` absent** means the catalog could not be read this run (as with `title` and `rewards`).
+  **`[]`** means the event declares no rules (the Frontier Event scores by quests).
+- **`revision`** is what lets a consumer that stores rules per `eventId` tell a correction from a
+  contradiction: Plarium edits running events, and the Hero's Path was already at revision 2 on its
+  first day. The same `eventId` at the same `revision` carries the same rules.
+- **No key-item id is sent for boards.** The event data names no key item: `GlobalEventInfo` holds
+  `ThreeLineStartKeys`, and `BlackMarketItem` records no kind. The client maps item 10401 to "Path Key"
+  in code. So 10401 stays documented above as a game constant rather than a field.
+- **Deck of Fate is the same kind of event** (`GlobalEventInfo.BingoInfo`, `BingoFieldRewards`), so it
+  should carry `scoring` the same way; none was running to confirm it.
+
 ### Verified
 
+Event scoring (schema 43), live on 11.80.0 (2026-10-09), 10 events and tournaments: the Hero's Path's 41
+rules (36 artifact, 5 shard) and the Champion Training Tournament's 46 (levels, ranks, ascensions,
+tomes) equal `tools/EventProbe --rules` for both, value for value, none `undecoded`; Gear Enhancement,
+the three Turn Attacks, the Titan Event and the summon pool each send their action with no table; the
+Frontier Event sends `[]`.
 Hero's Path (schema 42), live on 11.80.0 (2026-10-09): event 4453, 42 cells with rows, columns, parents
 and prizes (`otherKinds` empty); `keyCost` 1 on exactly the four cells the screen shows with a padlock;
 `keysHeld` 0 and 586 points unspent with nothing taken. The owner then took entry cell 102 (Brews ×3):
@@ -1856,6 +1915,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 43 | v1.50.0 | 2026-10-09 | **Additive: `scoring` and `revision` on every solo event and tournament** (see [Event scoring rules](#event-scoring-rules-schema-43)). `scoring` is the event's own point rules (`GlobalEventInfo.Rules`): one entry per rule with `actionId` (the game's `GlobalEventAction`, named in the new [`event-actions.json`](event-actions.json)), `points`, and the condition (`on`) with its criteria flat beside it. An action with no table ships with no `points`. `revision` is `GlobalEvent.Revision`, so a consumer storing rules per `eventId` can tell a correction from a contradiction. Both absent when the catalog was not read. Read live off 10 events (11.80.0), the Hero's Path's and the Champion Training Tournament's rules equal to the probe's. A consumer that ignores both is exactly as correct as on schema 42. |
 | 42 | v1.49.0 | 2026-10-09 | **Additive: locks and keys on board events, and the rule the board follows** (see [Hero's Path](#heros-path--locks-keys-and-the-parent-rule-schema-42)). The Hero's Path was already on the payload as a board event (`soloTypeId` 2, since schema 33). Board events now also carry `parentRule` (`"any"`: one taken parent opens a cell, confirmed in game), `keysHeld` (Path Keys in hand for the event) and `unlockedRewardIds` (locked cells opened with a key, not yet bought), and a locked cell carries `keyCost` (keys to open it; its `cost` is paid on top). The key a cell pays is item 10401. Read live off event 4453 (11.80.0, 42 cells, 4 locked). A consumer that ignores them is exactly as correct as on schema 41, except that it should stop assuming every parent is needed. |
 | 41 | v1.45.0 | 2026-10-07 | **Additive: the Titan Event's milestones, and `randomGemstones` prizes** (see [Titan Event](#titan-event--milestones-schema-41)). A Titan Event (internally a "universal" event, `soloTypeId` 4) sent `rewards: []`. Its milestone table is now in `rewards`, every reward with its Titan Point threshold, its prize and the new `milestone` (the in-game "Milestone 1–5" tab). Titan Points are item 10600, so the Titan Points a labelled event or tournament pays are already in its `rewards`. Separately, `eventPrize.randomGemstones` (`count`, `rarityIds`, optional `onlyShapeIds` / `excludedShapeIds`) decodes `RandomRelicStonesPrizes`, which before was only named in `otherKinds`. It applies to every prize, Frontier outposts and the Inbox included. Read live off event 4440 (11.75.0, 50 milestones in 5 tabs). A consumer that ignores both is exactly as correct as on schema 40. |
 | 40 | v1.44.0 | 2026-10-07 | **Additive: `inbox`** — the in-game Inbox (see [`inbox`](#inbox--the-in-game-inbox-schema-40)): every reward waiting to be collected, each with `id`, `typeId` (the game's `InboxTypeId`; titles via the new [`inbox-types.json`](inbox-types.json)), `read`, `receivedAt` / `expiresAt` (UTC), `prize` (the event-reward shape) and, for an overflowed artifact, the full `artifacts[]` record with stats — which is not also in the vault. The whole Inbox: `items: []` = empty, absent = unread. No sender is recorded. Verified live (11.75.0, 102 items). A consumer that ignores it is exactly as correct as on schema 39. |

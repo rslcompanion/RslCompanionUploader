@@ -1,0 +1,17 @@
+{
+  "$comment": "The game's GlobalEventAction values, as scoring[].actionId carries them (export schema 43). Static game metadata, not a payload: every account sees the same ids. The enum's member names are read from the client (GlobalEventAction: Hero_LevelUp, Hero_RankUp, Hero_Ascend, Hero_SkillLevelUp, Hero_Summon, Hero_Fuse, Hero_Receive, Hero_Assemble, Artifact_Collect, Artifact_Upgrade, Shards_Open, ResourceReceive_ArenaMedals, Battle_Story, Battle_Dungeon, Battle_Arena, Battle_DungeonReward, Battle_Arena3X3, Battle_DungeonTurn, BlackMarketItemReceive, DoubleAscend_HeroSoulReceive, DoubleAscend_SoulStoneOpen, CompleteCooperationEventMinionQuest), but their VALUES are explicit and were not readable from the runtime on 11.80.0, and declaration order is not evidence. So each id below is bound by what its own rules and its event say, and 'confirmed' states how. An id seen with no rules is bound to its event only. Ids not listed have not been seen; a consumer shows them as an unknown action, never guesses.",
+  "gameVersion": "11.80.0",
+  "observedAt": "2026-10-09",
+  "actions": [
+    { "id": 1, "member": "Hero_LevelUp", "label": "Level up champions", "condition": "hero (grade)", "confirmed": "Champion Training Tournament 4449: points per level by star rank 1,1,2,3,6,8 - the Training Calculator's level-up table." },
+    { "id": 2, "member": "Hero_RankUp", "label": "Rank up champions", "condition": "hero (grade)", "confirmed": "Tournament 4449: 0,5,15,50,100,300 by the star rank ranked from - the Training Calculator's rank-up table." },
+    { "id": 3, "member": "Hero_Ascend", "label": "Ascend champions", "condition": "hero (rarityId, ascendLevel)", "confirmed": "Tournament 4449: 30 rules keyed by rarity and ascension level." },
+    { "id": 4, "member": "Hero_SkillLevelUp", "label": "Use skill tomes", "condition": "blackMarketItem (itemId 5001-5004)", "confirmed": "Tournament 4449: tomes 5001-5004 at 25 / 75 / 200 / 500 - the Training Calculator's tome values." },
+    { "id": 21, "member": "Artifact_Collect", "label": "Get artifacts and accessories", "condition": "artifact (rankId, rarityId)", "confirmed": "Hero's Path 4453 (admin label 'Get Art.'): 36 rules, rank x rarity, 1* Common 8 to 6* Mythical 64." },
+    { "id": 22, "member": "Artifact_Upgrade", "label": "Upgrade artifacts and accessories", "condition": "none sent (empty rule list)", "confirmed": "Gear Enhancement Event 4445; its points are not a table on the event." },
+    { "id": 31, "member": "Shards_Open", "label": "Summon champions from shards", "condition": "shard (shardTypeId)", "confirmed": "Hero's Path 4453 (admin label 'Open Shards'): Mystery 3, Ancient 300, Void 750, Primal 1800, Sacred 4500." },
+    { "id": 52, "member": null, "label": "Classic Arena battles", "condition": "not seen with rules", "confirmed": "Classic Arena Takedown 4452 (2026-10-09 event list). Which Battle_* member it is is not established." },
+    { "id": 55, "member": null, "label": "Turn Attack battles", "condition": "none sent (empty rule list)", "confirmed": "Sand Devil / Ice Golem / Fire Knight Turn Attack 4443 / 4446 / 4460. Probably Battle_DungeonTurn; not established." },
+    { "id": 61, "member": null, "label": "Receive an inventory item", "condition": "none sent (empty rule list)", "confirmed": "Ingenious Titan Event 4440 (Titan Points are item 10600) and Support Soul Summon Pool 4439. Probably BlackMarketItemReceive; not established." }
+  ]
+}

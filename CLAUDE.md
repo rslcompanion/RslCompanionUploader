@@ -580,7 +580,10 @@ tables, but they ship here because the payload's ids are opaque without them:
 [docs/role-names.json](docs/role-names.json) for `champions[].roleId`, and
 [docs/artifact-enums.json](docs/artifact-enums.json) for the artifact `kindId` (slot), `statKindId`,
 `rankId`, `rarityId` and `setKindId`, and [docs/inbox-types.json](docs/inbox-types.json) for
-`inbox.items[].typeId`. Same rule applies: if one of those enums gains a member, that
+`inbox.items[].typeId`, and [docs/event-actions.json](docs/event-actions.json) for
+`soloEvents[]` / `tournaments[]` `scoring[].actionId` (schema 43). **That last one binds each id by its own
+rules and its event, never by the enum's declaration order**: the `GlobalEventAction` values could not be
+read from the client, and an id not in it is unknown, not guessed. Same rule applies: if one of those enums gains a member, that
 file and the schema pair change together. Each table in the artifact file states how it was
 corroborated, and the weaker ones say so — two of them replaced tables that were wrong for years.
 
