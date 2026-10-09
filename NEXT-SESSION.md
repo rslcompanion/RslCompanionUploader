@@ -4,7 +4,7 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten **2026-10-09**, updated after **v1.48.1** and the Hero's Path calculator release the same day. The "Open elsewhere" list is carried over from 2026-09-03
+Rewritten **2026-10-09**, updated after **v1.49.0** (schema 42) and the path-event work the same day. The "Open elsewhere" list is carried over from 2026-09-03
 and was not re-checked. **Check `git log` before trusting any state below**: more than one session
 works in these repos (the uploader and its `extraction/` checkout, and RaidTools through two
 worktrees), so a clean tree is not evidence that nothing has moved.
@@ -15,11 +15,11 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.48.1**. Payload **schema 41**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
-| `…\RslCompanionUploader\extraction` (private submodule) | pointer `457924d` (native engine); engine `main` is at `00eed4a` (EventProbe `--rules`, tool-only, no bump needed). Known builds **11.80.0**, 11.75.0, 11.70.0 |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.49.0**. Payload **schema 42**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
+| `…\RslCompanionUploader\extraction` (private submodule) | `e881a8e` (schema 42: path-event locks and keys), on top of `00eed4a` (EventProbe `--rules`). Standalone `D:\Codex\RslCompanionExtraction` checkout matches. Known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
-| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `dev` = `0988b5b` (Deck of Fate calculator: Hero's Path defaults, admin-owned point values), released 2026-10-09 ~14:40 UTC. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** (hero-search-popup, promo codes, CLAUDE.md, RaidApiControllers) — not this session's; leave it. |
+| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod = `0988b5b` (calculator: admin-owned point values). **`dev` is ahead, not on prod:** `44e6861` path map with progress tracking (reads schema 42), `577c11c` the uploader brief marked delivered. The `D:\Codex\RaidTools` checkout sits on `main` with **someone's uncommitted WIP** — not this session's; leave it. |
 
 **Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
 **RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
@@ -114,6 +114,19 @@ and another session had to merge it back.
      event, so their values are unverified. Re-run `--rules` during the next path event that scores them
      and update the admin template (or that event's saved values).
    - Prod's Chrome session is signed in as the **"Creator"** admin account, dev's as Veaceslav.
+
+13. **Path map: check on dev, then release (step 0 of the plan below).** Needs one **v1.49.0** upload to
+   dev while the path event runs (ends 2026-10-13 08:00 UTC; the installed uploader here was still
+   1.48.1). Check locked cells draw 🔒, keys held show, and routing is "any". Then Release to prod.
+   Known gap: RaidTools does not store `unlockedRewardIds` (schema 42), so a cell opened with a key
+   still draws 🔒 — add it to `SoloEventProgress` and `core/events.ts`.
+14. **Event point rules on the wire, registered by the first upload** — the plan is in
+   `Claude outputs/event-scoring-plan.md` (untracked, local). Schema 43: `scoring` + `revision` on every
+   solo event and tournament, from `GlobalEventInfo.Rules` (15 condition kinds and the
+   `GlobalEventAction` enum already listed there; bind the enum values with `BlessingProbe --enumvalues`
+   first). Then RaidTools registers an event from the first upload that carries it, and the points
+   calculator loads that run's values. Unknowns: Deck of Fate (not seen running), and the actions whose
+   rule list is empty (22, 52, 55, 61).
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
