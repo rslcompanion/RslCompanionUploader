@@ -4,63 +4,67 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten 2026-10-04, when **v1.41.0** was cut; brought up to **v1.42.1** on 2026-10-05. The "Open elsewhere" list is carried over from
-2026-09-03 and was not re-checked. **Check `git log` before trusting any state below**: more than one
-session works in `D:\Codex\RslCompanionUploader`, including its `extraction/` checkout, so a clean
-tree here is not evidence that nothing has moved.
+Rewritten **2026-10-09**, after **v1.46.1**. The "Open elsewhere" list is carried over from 2026-09-03
+and was not re-checked. **Check `git log` before trusting any state below**: more than one session
+works in these repos (the uploader and its `extraction/` checkout, and RaidTools through two
+worktrees), so a clean tree is not evidence that nothing has moved.
 
 ---
 
-## Where the repos stand (2026-10-05)
+## Where the repos stand (2026-10-09)
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.42.1**. Payload **schema 37** (shipped in v1.39.0). Builds with 0 warnings. |
-| `…\RslCompanionUploader\extraction` (private submodule) | pinned at `c903beb` (schema 37) |
-| `D:\Codex\RslCompanionMetadata` (private) | not re-checked |
-| `D:\Codex\RaidTools` | the API + Angular frontend; `main` and `dev` branches; its own TODO.md |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.46.1**. `main` is one commit past it (`26a0c77`, the admin "Publish memory map" action), not yet tagged. Payload **schema 41**. |
+| `…\RslCompanionUploader\extraction` (private submodule) | `baf6d91`: known builds **11.80.0**, 11.75.0, 11.70.0 |
+| `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
+| `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
+| RaidTools (`D:\Codex\RaidTools`, worktrees `RaidTools-cloud-hosting` on `dev`, `RaidTools-extractor-offsets` on branch `extractor-offsets`) | prod (`main`) at `9c867bc`. **`dev` is ahead at `a30aa3c`** — the memory-map endpoint and the Titan tile — waiting for **Actions → Release to prod**. |
 
-**RSL Companion is not live yet.** Everything goes to `main` and ships as a plain `vX.Y.Z` tag.
-There is no `dev` branch in this repo.
+**Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
+**RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
+**Release to prod** action moves `main`. Never push RaidTools `main` — it was done once on 2026-10-08
+and another session had to merge it back.
 
-## What changed in 1.40 – 1.42
+## What changed in 1.43 – 1.46.1
 
-- **1.40: a website launch reaches an already-open app.** Before, only the sign-in panel listened
-  for forwarded launches, so a signed-in window dropped "Update Data" from the site. `MainForm` is
-  now the single receiver (`SingleInstance.SetHandler`). It brings the window forward, redeems the
-  code at once, and switches session when idle. See CLAUDE.md, "A launch that arrives while the
-  app is already open".
-- **1.40: dev builds can ship as pre-releases** (`v1.2.0-dev.N`). Production installs never see
-  them. Installs on a dev server, or already running a pre-release, are offered them. **Never used
-  yet.** The first `-dev` tag is the test.
-- **1.41: the site's "Update Data" runs the export,** not only the sign-in (`SiteUpdateRequest`).
-  It runs once Raid's account is readable, waits up to 10 minutes, and never on a launch from the
-  app's own Sign In.
-- **1.41: the Help menu lives in the page's top bar.** The native `MenuStrip` is hidden and stays
-  the record of the items' state. It reappears only if WebView2 fails.
-- **1.41: the installer brings the WebView2 runtime** on machines without it (fresh Windows 10).
-- **1.42: a mismatch is reported, never blocked.** When the site names a card (`&account=<id>`)
-  and Raid is on a different account, the update syncs the account open in Raid and says so in
-  one sentence. 1.42.1 dropped a second sentence that told the user what to do.
-- **2026-10-05: the v1.39.0 "Update Data dropped by an open app" report was re-checked** against
-  the code. Every requirement in it (forwarding with ack, allow-list, prompt redemption, foreground,
-  401/403/429/503 messages) is already in 1.40+. Nothing to fix; the reporter needs to update.
+- **1.43 / schema 39 — Frontier Event** map and progress (`soloEvents[].frontier`). The site's tile is
+  built and **archived** (`FRONTIER_TILE_SHOWN = false`); don't touch it unasked.
+- **1.44 / schema 40 — the in-game Inbox** (`inbox.items[]`), titles via `docs/inbox-types.json`.
+- **1.45 / schema 41 — Titan Event milestones** (`soloTypeId` 4, `rewards[].milestone`) and
+  `prize.randomGemstones`. Titan Points are item **10600**, paid as tier prizes by labelled events.
+  **Verified on screen** on 11.80.0: points, reachable milestones and claims (`[1, 2]` after claiming two).
+- **Prize names on the site** come from `account-resources/index.json`, whose rows now carry the game's
+  `kind` + `id` (metadata `tools/publish-account-resources.py`). 4162 = Legendary Radiant Sunlily,
+  1122 = Eternal Soul Essence.
+- **1.46 — the Help menu is "Actions"**, drawn as a dropdown; every user-facing menu path says
+  `Actions → …`.
+- **1.46.1 — Raid 11.80.0 is a known build**, and class RVAs an export learns are written back into the
+  build's local calibration (`KnownOffsets.RecordLearnedRvas`). Without the AppModel RVA the liveness
+  check cannot run and a dead `User` can pass for the live one; that is what emptied the events read on
+  11.80.0 the morning it shipped.
+- **The memory-map endpoint exists at last** (RaidTools `dev`): `GET /api/extractor/offsets/{hash}`
+  had answered 404 since v1.10 because the route was never built, so every player on a new Raid build
+  paid the local calibration scan. Admins publish with `PUT /api/admin/extractor-offsets/{hash}`, or
+  from the uploader: **Actions → Publish memory map for this Raid version** (admin-only, on `main`).
 
 ## Open in this repo
 
-1. **The site half of the account-mismatch notice.** Since 1.42 the app reads `&account=<in-game id>`
-   on the launch URI, and when Raid is on a different account it syncs that one anyway and says so
-   (the owner chose informing over blocking). The site doesn't send the parameter yet, and its
-   post-click message still says to click "Export account". Prompt:
-   [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md).
-2. **Confirm the site's `/handoff/status` check on prod** reports "launched" for an already-open
-   1.40+ app. The fix was verified from the app's side (redeemed ~1 s after the click), not from
-   the site's.
-3. **Code signing.** Releases are unsigned. Avast locked a fresh installer once on 2026-10-04, and
-   SmartScreen warns. The workflow has a stubbed signing step.
-4. **The WebView2 bootstrap path is untested on a machine without the runtime.** The detection
-   was checked against this machine's registry, and the compile was checked with and without the
-   file. A Windows 10 VM without WebView2 is the real test.
+1. **Publish the 11.80.0 map.** Needs, in order: RaidTools **Release to prod** (the endpoint is on
+   `dev`), an uploader release carrying `26a0c77` (tag it), then an admin on 11.80.0 runs Actions →
+   Publish memory map. Afterwards `GET /api/extractor/offsets/A66241F0…` answers 200 for players on
+   v1.46.0 and older. Repeat on every Raid update until a release ships the build.
+2. **The site half of the account-mismatch notice** — prompt
+   [docs/raidtools-update-data-account.md](docs/raidtools-update-data-account.md). Check RaidTools `dev`
+   first: it may have been done after this file was written.
+3. **Confirm the site's `/handoff/status` check on prod** reports "launched" for an already-open
+   1.40+ app (verified only from the app's side).
+4. **Code signing.** Releases are unsigned; SmartScreen warns, and Avast locked a fresh installer once.
+   The workflow has a stubbed signing step.
+5. **The WebView2 bootstrap path is untested** on a machine without the runtime (a Windows 10 VM).
+6. **Event numbers still unchecked on screen**: the checklist at the end of
+   `extraction/docs/events-findings.md` (summon pool 55 vs 40, tournament claims, Forge Pass level).
+7. **The `-dev` pre-release channel has never been used.** The first `v…-dev.N` tag is the test.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
@@ -105,6 +109,9 @@ There is no `dev` branch in this repo.
   forwarded launches to whoever subscribed. Only the sign-in panel did, so a signed-in window dropped
   them silently for months. Anything carrying a single-use value needs exactly one owner, plus a
   queue for when the owner isn't ready.
+- **A 404 from a lookup can mean the route was never built.** The memory-map endpoint answered 404
+  for two months and every caller read it as "nothing published yet". Check the server has the
+  route before reading 404 as an answer.
 - **One account's holdings are not the game's structure.** The area-bonus doc claimed "which stats a
   location grants varies by location" — read off one player's *purchases*. All three Observatory
   tiers declare the same eight. This is why both village tables ship the whole declared grid.
