@@ -4,7 +4,7 @@ Paste this whole file as the opening prompt. **Read `CLAUDE.md` in each repo fir
 reasoning behind most of what follows, and this file is only the "what is open right now" layer on
 top of them.
 
-Rewritten **2026-10-09**, after **v1.46.1**. The "Open elsewhere" list is carried over from 2026-09-03
+Rewritten **2026-10-09**, updated after **v1.47.1** the same day. The "Open elsewhere" list is carried over from 2026-09-03
 and was not re-checked. **Check `git log` before trusting any state below**: more than one session
 works in these repos (the uploader and its `extraction/` checkout, and RaidTools through two
 worktrees), so a clean tree is not evidence that nothing has moved.
@@ -15,11 +15,11 @@ worktrees), so a clean tree is not evidence that nothing has moved.
 
 | Repo | State |
 | --- | --- |
-| `D:\Codex\RslCompanionUploader` (public) | released **v1.47.0** (admin "Publish memory map" action). Payload **schema 41**. |
-| `…\RslCompanionUploader\extraction` (private submodule) | `baf6d91`: known builds **11.80.0**, 11.75.0, 11.70.0 |
+| `D:\Codex\RslCompanionUploader` (public) | released **v1.47.1**. Payload **schema 41**. **Proprietary `LICENSE`** (all rights reserved; no reuse of code or offsets). |
+| `…\RslCompanionUploader\extraction` (private submodule) | `8beb3a2`: known builds **11.80.0**, 11.75.0, 11.70.0 |
 | `D:\Codex\RslCompanionMetadata` (private) | `920971b` |
 | `D:\Codex\RSL-game-assets` | `bd5598e` (push to `master` deploys assets.rslcompanion.com) |
-| RaidTools (`D:\Codex\RaidTools`, worktrees `RaidTools-cloud-hosting` on `dev`, `RaidTools-extractor-offsets` on branch `extractor-offsets`) | prod and `dev` both at `a30aa3c` (memory-map endpoint, Titan tile), released 2026-10-09. |
+| RaidTools (`D:\Codex\RaidTools`; worktree `RaidTools-cloud-hosting` holds `dev`) | prod at `a30aa3c` (memory-map endpoint, Titan tile), released 2026-10-09. `dev` has moved on since (another session) — check before releasing. |
 
 **Uploader:** everything goes to `main` and ships as a plain `vX.Y.Z` tag; there is no `dev` branch.
 **RaidTools is the opposite:** push to `dev` (auto-deploys the dev environment), and only the owner's
@@ -48,6 +48,12 @@ and another session had to merge it back.
   paid the local calibration scan. Admins publish with `PUT /api/admin/extractor-offsets/{hash}`, or
   from the uploader: **Actions → Publish memory map for this Raid version** (admin-only, on `main`).
 
+- **1.47.1 — setup robustness.** A wrong learned class RVA heals: it is replaced once a run proves it
+  wrong and its own value right (`Il2CppRuntime.KlassRvaResolvesFor`). Catalog files are written
+  atomically (`KnownOffsets.WriteAtomically`). A **second failed setup of one build in a session** says,
+  in the banner and the log, that this version can't set the Raid version up by itself and a new version
+  has to be downloaded, and runs an update check.
+
 ## Open in this repo
 
 1. ~~Publish the 11.80.0 map~~ — **done 2026-10-09**: RaidTools released (`a30aa3c`), uploader v1.47.0,
@@ -66,6 +72,12 @@ and another session had to merge it back.
 6. **Event numbers still unchecked on screen**: the checklist at the end of
    `extraction/docs/events-findings.md` (summon pool 55 vs 40, tournament claims, Forge Pass level).
 7. **The `-dev` pre-release channel has never been used.** The first `v…-dev.N` tag is the test.
+8. **Protect the engine from reuse.** The LICENSE forbids it; the engine DLL still decompiles to
+   near-source. Offsets themselves cannot be hidden (the app must read them, and IL2CPP dumpers re-derive
+   them), so the effort goes into the engine: NativeAOT or an obfuscator — see the feasibility notes from
+   2026-10-09 if recorded, and re-check Avast on any obfuscated build.
+9. **Rate-limit and log `GET /api/extractor/offsets/{hash}`** (RaidTools, on `dev`), so bulk map
+   downloads are slow and visible.
 
 ## Open elsewhere (carried over from 2026-09-03, not re-checked)
 
