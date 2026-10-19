@@ -173,14 +173,16 @@ public sealed class RslCompanionApiClient
         using var req = await BuildRequestAsync(HttpMethod.Post, endpoint, ct);
         byte[] utf8 = Encoding.UTF8.GetBytes(json);
         string sent;
+        var clock = System.Diagnostics.Stopwatch.StartNew();
         if (gzip)
         {
             byte[] packed = Gzip(utf8);
+            long gzipMs = clock.ElapsedMilliseconds;
             var content = new ByteArrayContent(packed);
             content.Headers.ContentType = new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };
             content.Headers.ContentEncoding.Add("gzip");
             req.Content = content;
-            sent = $"sent gzip, {packed.Length / 1024:N0} KB of {utf8.Length / 1024:N0} KB";
+            sent = $"sent gzip, {packed.Length / 1024:N0} KB of {utf8.Length / 1024:N0} KB (compressed in {gzipMs:N0} ms)";
         }
         else
         {
@@ -188,8 +190,11 @@ public sealed class RslCompanionApiClient
             sent = $"sent uncompressed, {utf8.Length / 1024:N0} KB";
         }
 
+        clock.Restart();
         var resp = await _http.SendAsync(req, ct);
         var body = await resp.Content.ReadAsStringAsync(ct);
+        // Covers the transfer and the server's import together; the server does not report its share.
+        sent += $", answered in {clock.ElapsedMilliseconds:N0} ms";
         return (resp, body, sent);
     }
 

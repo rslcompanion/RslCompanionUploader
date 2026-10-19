@@ -2137,9 +2137,19 @@ public sealed class MainForm : Form
         SetBusy(true, "export");
         BeginRun("Update user data");
         Log("Reading your account from Raid — keep the game open until this finishes.");
+        // Where an update's time goes, one detail line at the end. The engine's own timing summary
+        // covers the read in depth; this is the part it cannot see.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var stages = new List<string>();
+        void Stage(string name)
+        {
+            stages.Add($"{name} {clock.ElapsedMilliseconds:N0} ms");
+            clock.Restart();
+        }
         try
         {
             var profile = await ExtractProfileAsync();
+            Stage("read");
 
             // A scan can return without throwing even when it read the wrong offsets — a bad
             // extraction looks like an empty or garbage account, not a crash. RSL Companion can't
@@ -2186,7 +2196,9 @@ public sealed class MainForm : Form
             // read its build version now (cheap — the GameAssembly hash is memoized).
             var gameVersion = (_buildInfo ?? Engine.TryGetGameBuild())?.GameVersion;
             var json = SerializeWithProvenance(profile.Payload, gameVersion);
+            Stage("serialize");
             var result = await _api.UploadConsolidatedAsync(json);
+            Stage("upload (gzip + POST + server import)");
             Log(result.Message);
             if (result.Detail is string detail) Log($"Sync response: {detail}", detail: true);
 
@@ -2207,7 +2219,10 @@ public sealed class MainForm : Form
             // Refresh the tiles (a new account now exists). LoadAccountsAsync reconciles the live
             // account against them, so the exported one comes back highlighted as the in-game tile.
             if (result.Success)
+            {
                 await LoadAccountsAsync();
+                Stage("reload accounts");
+            }
         }
         catch (Exception ex)
         {
@@ -2216,6 +2231,8 @@ public sealed class MainForm : Form
         }
         finally
         {
+            if (stages.Count > 0)
+                Log($"Update timing: {string.Join(", ", stages)}.", detail: true);
             SetBusy(false);
         }
     }
