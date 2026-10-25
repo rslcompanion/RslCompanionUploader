@@ -1459,6 +1459,14 @@ so a consumer has nowhere else to get them. When the catalog cannot be read, `ev
 `titleId`, `startsAt`, `endsAt` and a solo event's `rewards` are omitted and everything else still
 ships; key on `questPrototypeId`, which is always present.
 
+**The same fields are also omitted for an event that has ended but is still in its claim window.**
+The server drops an event from the catalog when it ends, while the account's quest stays open until
+`claimUntil` (seen 2026-10-10: solo event 4444, quest 364444, ended 10-09 08:00, claimable to
+10-10 08:00, absent from an 11-event catalog). The quest itself names nothing — no title, no event id —
+so the producer has no source for them at that point. A consumer that stored the entry from an
+earlier upload while the event ran should **keep its stored catalog fields** (matched on
+`questPrototypeId`) rather than let the newer, thinner entry blank them.
+
 ### "Active"
 
 An event is on the payload when its quest is **open and its claim window (`claimUntil`) has not

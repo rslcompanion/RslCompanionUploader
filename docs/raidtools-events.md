@@ -161,9 +161,11 @@ when it has been reached and is not in that track's `claimedLevels`.
 - **`rewards` on a tournament is this account's bracket only.** Two accounts in the same tournament can
   have different tables. Never dedupe tournament rewards across accounts by `eventId`.
 - **`eventId`, `title`, `titleId`, `startsAt`, `endsAt` and solo `rewards` can be absent** when the
-  producer could not reach the event catalog. The account fields are still there. Key on
-  `questPrototypeId`, which is always present, and show "Event #questPrototypeId" when the title is
-  missing.
+  producer could not reach the event catalog, **and on every event that has ended but is still in its
+  claim window** — the server drops an ended event from the catalog before its `claimUntil`. The
+  account fields are still there. Key on `questPrototypeId`, which is always present. When storing an
+  upload, carry those catalog fields over from the stored entry with the same `questPrototypeId` if the
+  new one lacks them; only show "Event #questPrototypeId" when no upload ever carried a title.
 - **`title` is in the client's language**, as the server sent it. Store it as display text and never
   join on it.
 - **Summon pool `points` is unconfirmed.** The game's `TotalPoints` read 55 while the per-day progress

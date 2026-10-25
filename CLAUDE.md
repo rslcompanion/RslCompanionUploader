@@ -751,6 +751,11 @@ Event** (internally a "universal" event, `soloTypeId` 4). Its milestone table is
 `milestone`. **Titan Points are item 10600**, paid as tier prizes by the labelled events and tournaments,
 so "where to earn them" is already on the wire and needs no field of its own. The same schema decodes
 `prize.randomGemstones`. Same standing: a summary, never the contract.
+[docs/raidtools-event-types.md](docs/raidtools-event-types.md) holds the whole `soloTypeId` table
+(the game's `GlobalEventSoloTypeId`, 1–8; 5 and 6 are two different summon pools, champion and soul).
+**The owner's decision (2026-10-10): RaidTools draws tiles only for types 1 (points), 2 (board) and
+4 (Titan)**, using an allow-list so a new type stays hidden. Every type is still stored. Same
+standing.
 
 [docs/raidtools-inbox.md](docs/raidtools-inbox.md) is the prompt for schema 40's `inbox`: the
 account's in-game Inbox, every reward waiting to be collected, shown per account in RaidTools. The
