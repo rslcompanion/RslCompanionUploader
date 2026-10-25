@@ -100,6 +100,29 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
+    /// Sharing settings for every account the signed-in user owns, keyed by in-game id. Null when the
+    /// server can't say — an anonymous session (sharing is registered-users-only, 403), a server that
+    /// predates sharing, or no network — so the caller shows no sharing state rather than "not shared".
+    /// </summary>
+    public async Task<Dictionary<int, AccountSharing>?> GetSharingSettingsAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Get, "/api/shared-accounts/settings", ct);
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            var settings = await resp.Content.ReadFromJsonAsync<List<AccountSharing>>(cancellationToken: ct);
+            return settings?
+                .GroupBy(s => s.AccountId)
+                .ToDictionary(g => g.Key, g => g.First());
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// POSTs a fully-formed <c>ConsolidatedProfile</c> JSON (produced by the extraction engine) to
     /// the parser sync endpoint. The profile carries its own in-game <c>accountId</c>, so the server
     /// routes it without a selected account. The Firebase ID token is still attached as a Bearer.

@@ -415,7 +415,19 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("heroCount")] int HeroCount,
         [property: JsonPropertyName("artifactCount")] int ArtifactCount,
         [property: JsonPropertyName("lastSync")] string? LastSyncIso = null,
-        [property: JsonPropertyName("accessoryCount")] int? AccessoryCount = null);
+        [property: JsonPropertyName("accessoryCount")] int? AccessoryCount = null,
+        [property: JsonPropertyName("sharing")] Sharing? Sharing = null);
+
+    /// <summary>
+    /// Which grants are on for a shared account. Null on the tile when the account is not shared,
+    /// or when the server couldn't say — either way the tile shows nothing about sharing.
+    /// </summary>
+    public sealed record Sharing(
+        [property: JsonPropertyName("public")] bool Public,
+        [property: JsonPropertyName("clan")] string? Clan,
+        [property: JsonPropertyName("link")] bool Link,
+        [property: JsonPropertyName("editing")] bool Editing,
+        [property: JsonPropertyName("viewers")] int Viewers);
 
     private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
 
@@ -594,6 +606,16 @@ public sealed class AppShell : Panel
   .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
 
   /* Action row on the live tile only. */
+  /* Sharing: drawn only for a shared account. An unshared tile carries nothing, not an 'off' row. */
+  .tile .share { margin-top:10px; padding-top:10px; border-top:1px solid var(--line);
+                 display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  .tile .share .lbl { font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;
+                      letter-spacing:.04em; margin-right:2px; }
+  .tile .share .opt { font-size:11px; color:var(--fg); background:var(--panel); border:1px solid var(--line);
+                      border-radius:999px; padding:2px 8px; white-space:nowrap; max-width:100%;
+                      overflow:hidden; text-overflow:ellipsis; }
+  .tile .share .viewers { font-size:11px; color:var(--mut); white-space:nowrap; }
+
   .tile .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
   .tile .actions .btn { flex:1 1 120px; padding:9px 10px; border-radius:8px; border:1px solid transparent;
                         font-family:inherit; font-size:12px; font-weight:600; cursor:pointer;
@@ -894,6 +916,23 @@ public sealed class AppShell : Panel
     return ""<div class='meta'>"" + meta + ""</div>"";
   }
 
+  // Which sharing grants are on. a.sharing is null for an account that isn't shared (or when the
+  // server couldn't say), and then the tile shows nothing about sharing at all.
+  function tileSharing(a) {
+    var s = a.sharing;
+    if (!s) return '';
+    var opts = [];
+    if (s.public) opts.push(['Anyone can find it', 'Any signed-in RSL Companion user can find this account by name']);
+    if (s.clan !== null && s.clan !== undefined)
+      opts.push([s.clan ? 'Clan: ' + s.clan : 'Clan', 'Members of this account\'s clan can find it']);
+    if (s.link) opts.push(['Share link', 'Anyone holding the share link can add this account']);
+    opts.push(s.editing ? ['Can edit', 'Viewers can edit this account\'s planners'] : ['Read-only', 'Viewers can see this account but not change it']);
+    var html = ""<div class='share'><span class='lbl'>Shared</span>"";
+    opts.forEach(function(o) { html += ""<span class='opt' title='"" + esc(o[1]).replace(/'/g, '&#39;') + ""'>"" + esc(o[0]) + ""</span>""; });
+    if (s.viewers > 0) html += ""<span class='viewers'>"" + s.viewers + (s.viewers === 1 ? ' viewer' : ' viewers') + ""</span>"";
+    return html + ""</div>"";
+  }
+
   // The action row for the tile the running game is on. 'add' = the game is on an account that is
   // not imported yet, so the button imports it; 'update' refreshes an account the server already
   // knows. Same export either way — the server create-or-updates by the in-game id in the payload.
@@ -954,7 +993,7 @@ public sealed class AppShell : Panel
       html += a.clanName ? (""<div class='clan'>"" + esc(a.clanName) + ""</div>"") : '';
       html += ""</div>"";
       if (a.userId === state.identifiedUserId) html += ""<div class='badge'>In game</div>"";
-      html += ""</div>"" + tileMeta(a);
+      html += ""</div>"" + tileMeta(a) + tileSharing(a);
       if (a.lastSync) html += ""<div class='synced' data-sync='"" + esc(a.lastSync) + ""'>Last synced "" + esc(syncLabel(a.lastSync)) + ""</div>"";
       if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;

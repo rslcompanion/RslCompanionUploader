@@ -491,6 +491,7 @@ public sealed class MainForm : Form
                 _api.SignOut();
                 ApplyAdminState();
                 _loadedAccounts.Clear();
+                _sharing = null;
             }
 
             _shell.SetNotice(null); // an earlier failed launch's notice is answered now
@@ -1598,7 +1599,10 @@ public sealed class MainForm : Form
         }
         try
         {
+            var sharingTask = _api.GetSharingSettingsAsync();
             var accounts = await _api.GetAccountsAsync();
+            // Null means the server couldn't say; keep what the last load knew rather than blank it.
+            _sharing = await sharingTask ?? _sharing;
 
             // Show only accounts created by this uploader (last synced via the consolidated export).
             _loadedAccounts = accounts
@@ -1608,7 +1612,8 @@ public sealed class MainForm : Form
 
             _shell.SetAccounts(_loadedAccounts
                 .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName,
-                    a.HeroCount, a.ArtifactCount, LastSyncInstant(a.LastSyncDate), a.AccessoryCount))
+                    a.HeroCount, a.ArtifactCount, LastSyncInstant(a.LastSyncDate), a.AccessoryCount,
+                    SharingFor(a.UserId)))
                 .ToList());
 
             if (silent)
@@ -1650,6 +1655,19 @@ public sealed class MainForm : Form
     /// only true at the moment it is written and the tiles outlive that moment by hours.
     /// </summary>
     private static string? LastSyncInstant(DateTimeOffset? when) => when?.ToString("o");
+
+    /// <summary>Sharing settings from the last load that got an answer. Cleared on sign-out.</summary>
+    private Dictionary<int, AccountSharing>? _sharing;
+
+    /// <summary>
+    /// What the tile says about sharing: null for an account that isn't shared, so its tile shows
+    /// nothing extra. The link token itself never reaches the page — only that a link exists.
+    /// </summary>
+    private AppShell.Sharing? SharingFor(int userId) =>
+        _sharing?.GetValueOrDefault(userId) is { IsShared: true } s
+            ? new AppShell.Sharing(s.PublicLookup, s.ClanLookup ? s.ClanName ?? "" : null,
+                !string.IsNullOrEmpty(s.LinkToken), s.AllowEditing, s.ViewerCount)
+            : null;
 
     /// <summary>
     /// The release behind the update banner, so clicking it knows what to fetch. Null when the app is
@@ -2396,6 +2414,7 @@ public sealed class MainForm : Form
         _api.SignOut();
         ApplyAdminState();
         _loadedAccounts.Clear();
+        _sharing = null;
         if (_sessionSecurityItem is not null) _sessionSecurityItem.Enabled = false;
 #if EXTRACTION
         _shell.SetExportAvailable(false);
