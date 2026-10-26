@@ -1293,7 +1293,7 @@ public sealed class MainForm : Form
 
     /// <summary>
     /// Matches the live game account against the imported tiles: an already-imported account gets the
-    /// "In game" badge, an unknown one is surfaced as a "new account detected" tile.
+    /// green border, an unknown one is surfaced as a "new account detected" tile.
     ///
     /// Called from both sides — when detection finishes and when the tiles reload — because the two
     /// run concurrently at startup. Classifying once inside detection raced the initial account load

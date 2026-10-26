@@ -598,7 +598,7 @@ public sealed class AppShell : Panel
   .tile .avatar { width:34px; height:34px; border-radius:9px; background:var(--panel); color:var(--fg);
                   display:flex; align-items:center; justify-content:center; font-weight:600; font-size:13px; flex:none; }
   .tile.identified .avatar { background:var(--card); color:var(--ok); }
-  /* min-width:0 lets the name column shrink instead of shoving the badge out of the tile. */
+  /* min-width:0 lets a long name wrap inside the tile instead of widening it. */
   .tile .who { min-width:0; }
   .tile .name { font-size:15px; font-weight:600; word-break:break-word; }
   .tile.identified .name { color:var(--ok); }
@@ -609,19 +609,14 @@ public sealed class AppShell : Panel
   .tile.identified .meta { color:var(--ok); }
   .tile .synced { font-size:11px; color:var(--mut); margin-top:8px; }
   .tile.identified .synced { color:var(--ok); }
-  /* In the head's flow, not absolutely positioned over it — pinned to the corner it overlapped the
-     name as soon as the column hit its minimum width. */
-  .tile .badge { flex:none; margin-left:auto; align-self:flex-start; display:inline-flex; align-items:center;
-                 gap:5px; white-space:nowrap; font-size:11px; font-weight:600; color:var(--ok); }
-  .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
 
-  /* Action row on the live tile only. */
   /* Sharing: a small Shared / Not shared switch. It shows the state and is not a toggle — clicking
-     it in either state opens the account's sharing settings on the site, where the change is made. */
-  .tile .shared { flex:none; margin-left:auto; align-self:flex-start; display:inline-flex; align-items:center;
+     it in either state opens the account's sharing settings on the site, where the change is made.
+     It sits under the name and clan, not in the head row: beside the old 'In game' badge it left the
+     name a column a few letters wide. */
+  .tile .shared { display:inline-flex; align-items:center; margin-top:6px;
                   gap:6px; padding:0; border:none; background:none; color:var(--mut); font-family:inherit;
                   font-size:11px; font-weight:600; white-space:nowrap; cursor:pointer; }
-  .tile .badge + .shared { margin-left:0; }
   .tile .shared .track { position:relative; width:26px; height:14px; border-radius:999px; background:var(--mut);
                          opacity:.5; flex:none; transition:background .12s, opacity .12s; }
   .tile .shared .track::after { content:''; position:absolute; top:2px; left:2px; width:10px; height:10px;
@@ -630,8 +625,8 @@ public sealed class AppShell : Panel
   .tile .shared.on .track { background:var(--accent); opacity:1; }
   .tile .shared.on .track::after { left:14px; }
   .tile .shared:hover .txt { text-decoration:underline; }
-  .tile .badge + .shared { margin-left:0; }
 
+  /* Action row on the live tile only. */
   .tile .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
   .tile .actions .btn { flex:1 1 120px; padding:9px 10px; border-radius:8px; border:1px solid transparent;
                         font-family:inherit; font-size:12px; font-weight:600; cursor:pointer;
@@ -1016,9 +1011,8 @@ public sealed class AppShell : Panel
         + (sel && sel.kind === 'update' && a.userId === sel.userId ? ' selected' : '');
       var html = ""<div class='head'><div class='avatar'>"" + esc(initials(a.name)) + ""</div><div class='who'><div class='name'>"" + esc(a.name) + ""</div>"";
       html += a.clanName ? (""<div class='clan'>"" + esc(a.clanName) + ""</div>"") : '';
-      html += ""</div>"";
-      if (a.userId === state.identifiedUserId) html += ""<div class='badge'>In game</div>"";
-      html += tileSharing(a) + ""</div>"" + tileMeta(a);
+      html += tileSharing(a) + ""</div>"";
+      html += ""</div>"" + tileMeta(a);
       if (a.lastSync) html += ""<div class='synced' data-sync='"" + esc(a.lastSync) + ""'>Last synced "" + esc(syncLabel(a.lastSync)) + ""</div>"";
       if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;
