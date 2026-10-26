@@ -434,7 +434,7 @@ public sealed class MainForm : Form
     ///
     /// <para><b>The code is redeemed immediately, the switch is what waits.</b> It is single-use and
     /// lives about 60 seconds, and the site watches for the redemption to decide whether the app
-    /// responded, so it cannot sit behind a ~5 s export or a ~40 s calibration. Swapping the session
+    /// responded, so it cannot sit behind an export (seconds, most of it the server's import) or a ~40 s calibration. Swapping the session
     /// under a running export can, so that part waits for the window to be idle and says so.</para>
     /// </summary>
     private async Task HandleForwardedLaunchAsync(string[] args)
@@ -2306,9 +2306,9 @@ public sealed class MainForm : Form
     // moved to Unity ECS. They never did: the scan that "proved" the CachedArtifacts singleton was
     // gone tested one address per 4 KB page. See extraction/docs/artifact-findings.md.
     //
-    // The cost of that vault is why this flag still exists: the first export in a game session
-    // spends ~5 s locating the vault (~15 s the very first time a game build is seen), against ~4 s
-    // for the rest of the snapshot. Later exports in the same session reuse the cached address.
+    // The cost of that vault is why this flag exists. Until 1.50.2 the engine hunted the game's heap
+    // for it (2–12 s, and often again mid-session as the cached address went stale); it now walks to
+    // it from AppModel in ~10–30 ms, and the vault phase is ~0.5 s of decoding ~6,000 records.
     private const bool ExportArtifacts = true;
 
     /// <summary>
@@ -2337,8 +2337,8 @@ public sealed class MainForm : Form
     /// to a player it reads as either an error or a crash in progress.</para>
     ///
     /// <para>What the user gets instead is the engine's own phase markers, translated. They are the
-    /// one part of that stream that is genuinely about progress, and an export is slow enough
-    /// (~5 s cold) that silence during it is worse than jargon. The phase names are stable
+    /// one part of that stream that is genuinely about progress, and an update is slow enough
+    /// (the read ~1 s, the server's import several more) that silence during it is worse than jargon. The phase names are stable
     /// identifiers in <c>ExtractionService</c>, not prose — an unrecognised one simply produces no
     /// plain line rather than leaking the raw name.</para>
     /// </summary>

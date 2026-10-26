@@ -16,7 +16,7 @@ There is **one export**:
 
 | Action | Payload | Endpoint | Cost |
 | --- | --- | --- | --- |
-| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, relics, gemstones, `clanId` + `clanName`) | `/api/sync/consolidated/raw` | ~5 s first run of a game session, ~1 s after |
+| **Update user data** | consolidated profile (resources, champions, guardians, the whole artifact vault, relics, gemstones, `clanId` + `clanName`) | `/api/sync/consolidated/raw` | reading the game: ~1 s (0.7–1.2 s measured since 1.50.2); then the server's import |
 
 **There used to be a second one — "Export clan" → `/api/sync/clan/raw` — and it is gone. Do not
 bring it back.** It posted the clan record plus a roster of every clanmate's id and display name,
@@ -34,12 +34,24 @@ still not emitted.** That is the whole point: the reason was never cost, and now
 measurably zero, the consent reason stands on its own. Don't let a future "but it's cheap now"
 reopen it.
 
-**Artifacts are the one thing that pays a scan on this path, deliberately.** The vault is not
-reachable from the account object either, but it stays on the consolidated path: it is the account's
-own data, it costs ~3 s rather than ~25, and the cost is a one-off per game session — the instance
-address is cached for the session and the class RVA ships in the offset catalog. Gear and
-accessories are kept apart in the *payload* (`artifacts[]` / `accessories[]`) rather than in separate
-uploads, so one call still snapshots the account while a consumer can load either alone.
+**The artifact vault no longer costs a memory scan (1.50.2).** It is not reachable from the account
+object, and until 1.50.2 it was found by hunting the game's heap for it: 2–12 s, and not once per game
+session as this note used to say — the cached address went stale mid-session, so 14 of 25 exports in
+October 2026 paid it again. The engine now reaches it by a pointer walk from `AppModel` in ~10–30 ms,
+checked against the live account so a reconnect cannot pair it with a dead one, and the vault phase is
+~0.5 s of decoding ~6,000 records. The hunt survives only as the fallback for a build whose AppModel
+class is not yet known. The route and its checks are documented in the engine's `CLAUDE.md`. The vault
+stays on the consolidated path because it is the account's own data. Gear and accessories are kept
+apart in the *payload* (`artifacts[]` / `accessories[]`) rather than in separate uploads, so one call
+still snapshots the account while a consumer can load either alone.
+
+**Where an update's time goes is logged, at the detail level.** The engine writes a per-phase timing
+summary, and `ExportAccountAsync` ends every update with one "Update timing" line: read, serialize,
+upload (gzip + POST + the server's import) and reload accounts. The upload's own diagnostic line says
+how long gzip took and how long the server took to answer. Since 1.50.2 the server's import is the
+larger share (11–12 s on dev after RaidTools' parallel-write fix), so read that line before assuming a
+slow update is the engine's. The first export on a new Raid build can still pay one ~3–4 s class
+search (`read-clan`), once: the AppModel class RVA it learns is saved to the local catalog.
 
 ## UI: native shell + WebView2 page
 
