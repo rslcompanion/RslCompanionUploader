@@ -228,6 +228,15 @@ only account it could ever act on is the one being played. A new (unimported) ac
 `export` action — the server create-or-updates by the in-game id in the payload. When no game is
 reachable, no tile carries buttons at all.
 
+**Every tile carries a Shared / Not shared switch (1.52), and it is a link, not a toggle.** The state
+comes from `GET /api/shared-accounts/settings`. "Not shared" is drawn too, because the switch is also
+how an owner *starts* sharing. Clicking it in either state opens
+`<site>/dashboard?account=<id>&sharing=<id>`, and RaidTools opens that account's sharing panel there
+(`dashboard-page.component.ts`). **The uploader never changes sharing itself**: who may see an
+account is the site's decision, made on the site. The switch is hidden only when the settings could
+not be read, so it never shows a "Not shared" that might be wrong. The accounts header's Refresh
+button re-reads the accounts on demand, because sharing, counts and clan change on the site.
+
 `SetBusy` takes a *kind* (`"export"`, or null for background work like an account reload) so the page
 can show progress on the button that is running rather than only greying everything out, with the
 engine's own phase lines in the activity log alongside.

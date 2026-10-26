@@ -1660,14 +1660,24 @@ public sealed class MainForm : Form
     private Dictionary<int, AccountSharing>? _sharing;
 
     /// <summary>
-    /// What the tile says about sharing: null for an account that isn't shared, so its tile shows
-    /// nothing extra. The link token itself never reaches the page — only that a link exists.
+    /// The tile's Shared / Not shared switch. Null only when the server couldn't say, so the tile
+    /// shows nothing rather than a "Not shared" that might be wrong. The link token itself never
+    /// reaches the page — only that a link exists.
+    ///
+    /// <para><c>Url</c> is where clicking the switch goes, in either state: the session's own site, on
+    /// that account's dashboard (<c>?account=</c>, the same param "Open RSL Companion" sends), with
+    /// <c>sharing=</c> asking the site to open that account's sharing panel. A site that doesn't read
+    /// <c>sharing</c> still lands on the account, one click from its Shared button.</para>
     /// </summary>
-    private AppShell.Sharing? SharingFor(int userId) =>
-        _sharing?.GetValueOrDefault(userId) is { IsShared: true } s
-            ? new AppShell.Sharing(s.PublicLookup, s.ClanLookup ? s.ClanName ?? "" : null,
-                !string.IsNullOrEmpty(s.LinkToken), s.AllowEditing, s.ViewerCount)
-            : null;
+    private AppShell.Sharing? SharingFor(int userId)
+    {
+        if (_sharing is null) return null;
+        var url = $"{_api.Session?.Target.FrontendUrl ?? _config.FrontendUrl}/dashboard?account={userId}&sharing={userId}";
+        return _sharing.GetValueOrDefault(userId) is { IsShared: true } s
+            ? new AppShell.Sharing(true, s.PublicLookup, s.ClanLookup ? s.ClanName ?? "" : null,
+                !string.IsNullOrEmpty(s.LinkToken), s.AllowEditing, s.ViewerCount, url)
+            : new AppShell.Sharing(false, false, null, false, false, 0, url);
+    }
 
     /// <summary>
     /// The release behind the update banner, so clicking it knows what to fetch. Null when the app is

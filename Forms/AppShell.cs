@@ -94,7 +94,7 @@ public sealed class AppShell : Panel
     /// <summary>Raised when "Sign out" is chosen from the top-bar account menu.</summary>
     public event Action? SignOutRequested;
 
-    /// <summary>Raised when "Refresh accounts" is chosen from the top-bar account menu.</summary>
+    /// <summary>Raised by the accounts header's Refresh button or "Refresh accounts" in the top-bar account menu.</summary>
     public event Action? RefreshRequested;
 
     /// <summary>Raised with the new value when the activity console's "Details" toggle is clicked.</summary>
@@ -419,15 +419,18 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("sharing")] Sharing? Sharing = null);
 
     /// <summary>
-    /// Which grants are on for a shared account. Null on the tile when the account is not shared,
-    /// or when the server couldn't say — either way the tile shows nothing about sharing.
+    /// The account's sharing state, drawn as a Shared / Not shared switch that opens the site's
+    /// sharing settings (<paramref name="Url"/>). Null on the tile only when the server couldn't say,
+    /// and then the tile shows nothing about sharing.
     /// </summary>
     public sealed record Sharing(
+        [property: JsonPropertyName("shared")] bool Shared,
         [property: JsonPropertyName("public")] bool Public,
         [property: JsonPropertyName("clan")] string? Clan,
         [property: JsonPropertyName("link")] bool Link,
         [property: JsonPropertyName("editing")] bool Editing,
-        [property: JsonPropertyName("viewers")] int Viewers);
+        [property: JsonPropertyName("viewers")] int Viewers,
+        [property: JsonPropertyName("url")] string Url);
 
     private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
 
@@ -573,6 +576,13 @@ public sealed class AppShell : Panel
   #secHdr { display:none; align-items:baseline; justify-content:space-between; margin-bottom:12px; }
   #secHdr .lbl { font-size:12px; font-weight:600; color:var(--sub); text-transform:uppercase; letter-spacing:.04em; }
   #secHdr .cnt { font-size:12px; color:var(--mut); }
+  #secHdr .right { display:flex; align-items:baseline; gap:12px; }
+  /* Re-reads the accounts from RSL Companion: counts, clan, last sync and sharing all change on the
+     site without this app doing anything, and the 5-minute background reload is too slow to wait on. */
+  #refreshBtn { padding:4px 12px; border:1px solid var(--line); border-radius:8px; background:var(--card);
+                color:var(--fg); font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+  #refreshBtn:hover:not(:disabled) { background:var(--panel); }
+  #refreshBtn:disabled { opacity:.55; cursor:default; }
   /* auto-fill packs as many columns as fit, so a maximised window makes columns *narrower* (down to
      the minimum), not wider — the min has to hold a tile's widest row on its own. */
   #grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:12px; }
@@ -606,15 +616,21 @@ public sealed class AppShell : Panel
   .tile .badge::before { content:''; width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none; }
 
   /* Action row on the live tile only. */
-  /* Sharing: drawn only for a shared account. An unshared tile carries nothing, not an 'off' row. */
-  .tile .share { margin-top:10px; padding-top:10px; border-top:1px solid var(--line);
-                 display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-  .tile .share .lbl { font-size:11px; font-weight:700; color:var(--accent); text-transform:uppercase;
-                      letter-spacing:.04em; margin-right:2px; }
-  .tile .share .opt { font-size:11px; color:var(--fg); background:var(--panel); border:1px solid var(--line);
-                      border-radius:999px; padding:2px 8px; white-space:nowrap; max-width:100%;
-                      overflow:hidden; text-overflow:ellipsis; }
-  .tile .share .viewers { font-size:11px; color:var(--mut); white-space:nowrap; }
+  /* Sharing: a small Shared / Not shared switch. It shows the state and is not a toggle — clicking
+     it in either state opens the account's sharing settings on the site, where the change is made. */
+  .tile .shared { flex:none; margin-left:auto; align-self:flex-start; display:inline-flex; align-items:center;
+                  gap:6px; padding:0; border:none; background:none; color:var(--mut); font-family:inherit;
+                  font-size:11px; font-weight:600; white-space:nowrap; cursor:pointer; }
+  .tile .badge + .shared { margin-left:0; }
+  .tile .shared .track { position:relative; width:26px; height:14px; border-radius:999px; background:var(--mut);
+                         opacity:.5; flex:none; transition:background .12s, opacity .12s; }
+  .tile .shared .track::after { content:''; position:absolute; top:2px; left:2px; width:10px; height:10px;
+                                border-radius:50%; background:#fff; transition:left .12s; }
+  .tile .shared.on { color:var(--accent); }
+  .tile .shared.on .track { background:var(--accent); opacity:1; }
+  .tile .shared.on .track::after { left:14px; }
+  .tile .shared:hover .txt { text-decoration:underline; }
+  .tile .badge + .shared { margin-left:0; }
 
   .tile .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
   .tile .actions .btn { flex:1 1 120px; padding:9px 10px; border-radius:8px; border:1px solid transparent;
@@ -735,7 +751,7 @@ public sealed class AppShell : Panel
       <div class='cta-title'>Sign in to RSL Companion</div>
       <div class='cta-sub'>Use the <strong>Sign In</strong> button in the top-right to view the accounts linked to your profile and sync your Raid data.</div>
     </div>
-    <div id='secHdr'><span class='lbl'>Your accounts</span><span class='cnt'></span></div>
+    <div id='secHdr'><span class='lbl'>Your accounts</span><span class='right'><span class='cnt'></span><button id='refreshBtn' type='button' title='Reload your accounts from RSL Companion'>Refresh</button></span></div>
     <div id='grid'></div>
   </div>
 
@@ -916,21 +932,27 @@ public sealed class AppShell : Panel
     return ""<div class='meta'>"" + meta + ""</div>"";
   }
 
-  // Which sharing grants are on. a.sharing is null for an account that isn't shared (or when the
-  // server couldn't say), and then the tile shows nothing about sharing at all.
+  // The Shared / Not shared switch, with which grants are on in its hover text. a.sharing is null
+  // only when the server couldn't say, and then the tile shows nothing about sharing.
   function tileSharing(a) {
     var s = a.sharing;
     if (!s) return '';
-    var opts = [];
-    if (s.public) opts.push(['Anyone can find it', 'Any signed-in RSL Companion user can find this account by name']);
-    if (s.clan !== null && s.clan !== undefined)
-      opts.push([s.clan ? 'Clan: ' + s.clan : 'Clan', 'Members of this account\'s clan can find it']);
-    if (s.link) opts.push(['Share link', 'Anyone holding the share link can add this account']);
-    opts.push(s.editing ? ['Can edit', 'Viewers can edit this account\'s planners'] : ['Read-only', 'Viewers can see this account but not change it']);
-    var html = ""<div class='share'><span class='lbl'>Shared</span>"";
-    opts.forEach(function(o) { html += ""<span class='opt' title='"" + esc(o[1]).replace(/'/g, '&#39;') + ""'>"" + esc(o[0]) + ""</span>""; });
-    if (s.viewers > 0) html += ""<span class='viewers'>"" + s.viewers + (s.viewers === 1 ? ' viewer' : ' viewers') + ""</span>"";
-    return html + ""</div>"";
+    var lines;
+    if (s.shared) {
+      lines = ['Shared'];
+      if (s.public) lines.push('Anyone can find it by name');
+      if (s.clan !== null && s.clan !== undefined) lines.push(s.clan ? 'Clan: ' + s.clan : 'Clan members can find it');
+      if (s.link) lines.push('Share link is on');
+      lines.push(s.editing ? 'Viewers can edit' : 'Read-only');
+      if (s.viewers > 0) lines.push(s.viewers + (s.viewers === 1 ? ' viewer' : ' viewers'));
+    } else {
+      lines = ['Not shared: only you can see this account'];
+    }
+    lines.push('', 'Click to open the sharing settings on RSL Companion');
+    var tip = lines.map(function(l) { return esc(l).replace(/'/g, '&#39;'); }).join('&#10;');
+    return ""<button type='button' class='shared"" + (s.shared ? ' on' : '') + ""' role='switch' aria-checked='"" + !!s.shared + ""'""
+      + "" data-url='"" + esc(s.url).replace(/'/g, '&#39;') + ""' title='"" + tip + ""'>""
+      + ""<span class='track'></span><span class='txt'>"" + (s.shared ? 'Shared' : 'Not shared') + ""</span></button>"";
   }
 
   // The action row for the tile the running game is on. 'add' = the game is on an account that is
@@ -971,8 +993,11 @@ public sealed class AppShell : Panel
     }
 
     var sec = $('secHdr');
-    sec.style.display = state.accounts.length ? 'flex' : 'none';
-    sec.querySelector('.cnt').textContent = state.accounts.length + (state.accounts.length === 1 ? ' profile' : ' profiles');
+    // Shown with no accounts too: refreshing is how an account imported on the site turns up here.
+    sec.style.display = 'flex';
+    sec.querySelector('.cnt').textContent = state.accounts.length
+      ? state.accounts.length + (state.accounts.length === 1 ? ' profile' : ' profiles') : '';
+    $('refreshBtn').disabled = !!state.busy;
 
     if (!state.accounts.length) {
       if (!state.detected) {
@@ -993,7 +1018,7 @@ public sealed class AppShell : Panel
       html += a.clanName ? (""<div class='clan'>"" + esc(a.clanName) + ""</div>"") : '';
       html += ""</div>"";
       if (a.userId === state.identifiedUserId) html += ""<div class='badge'>In game</div>"";
-      html += ""</div>"" + tileMeta(a) + tileSharing(a);
+      html += tileSharing(a) + ""</div>"" + tileMeta(a);
       if (a.lastSync) html += ""<div class='synced' data-sync='"" + esc(a.lastSync) + ""'>Last synced "" + esc(syncLabel(a.lastSync)) + ""</div>"";
       if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;
@@ -1147,6 +1172,12 @@ public sealed class AppShell : Panel
     $('account').classList.toggle('open', open);
   };
   $('refresh').onclick = function(){ closeAccountMenu(); window.chrome.webview.postMessage({ type:'refresh' }); };
+  $('refreshBtn').onclick = function(){ window.chrome.webview.postMessage({ type:'refresh' }); };
+  // Delegated: the grid is rebuilt on every render, so a handler on the pill itself would be lost.
+  $('grid').addEventListener('click', function(e) {
+    var pill = e.target.closest && e.target.closest('.shared');
+    if (pill && pill.dataset.url) window.chrome.webview.postMessage({ type:'openUrl', url: pill.dataset.url });
+  });
   $('signout').onclick = function(){ closeAccountMenu(); window.chrome.webview.postMessage({ type:'signOut' }); };
   // Click anywhere else (or Esc) dismisses the menu.
   document.addEventListener('click', function(e){
