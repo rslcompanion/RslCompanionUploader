@@ -2225,8 +2225,11 @@ public sealed class MainForm : Form
             // app is out of date for. So the second consecutive rejection stops advising patience and
             // goes and looks — the check lights the banner if a release exists, and says so in the log
             // if it doesn't, which also rules the theory out instead of leaving the user to wonder.
-            // A 403 is the server deciding about this account, not a sign of an old uploader.
-            _uploadRejections = result.Success ? 0 : result.Forbidden ? _uploadRejections : _uploadRejections + 1;
+            // A 403 or a daily-limit 429 is the server deciding about this account, not a sign of an
+            // old uploader.
+            _uploadRejections = result.Success ? 0
+                : result.Forbidden || result.LimitReached ? _uploadRejections
+                : _uploadRejections + 1;
             if (_uploadRejections >= 2)
             {
                 Log($"That's {_uploadRejections} uploads in a row RSL Companion wouldn't take — "

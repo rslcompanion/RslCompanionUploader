@@ -495,6 +495,12 @@ each. Do not move the decision into this app. A client-side gate is a UI nicety,
 server is the only thing that stops an upload. A 403 upload is `UploadResult.Forbidden` and does not
 count towards `_uploadRejections`, because a refusal is not a sign of an out-of-date uploader.
 
+**RSL Companion caps uploads per game account per UTC day (429), and that is not a rejection either.**
+The cap is RaidTools' (`UploadLimitSettings`, 5 by default, overridable per group and per user in
+its admin pages); this app only reports it. A 429 is `UploadResult.LimitReached`, shows the server's
+own message (which says when it opens again), and does not count towards `_uploadRejections`. Failed
+uploads give their slot back server-side, so a retry after an error costs nothing.
+
 ## Staying signed in
 
 Once signed in, the app never needs the website again: it holds a Firebase **refresh token**, and

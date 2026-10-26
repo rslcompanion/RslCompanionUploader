@@ -164,6 +164,15 @@ public sealed class RslCompanionApiClient
                 ?? $"Your account isn't allowed to upload to {Session!.Target.ApiHost}. Ask an RSL Companion admin for access.",
                 $"403 from {endpoint}, {sent}: {Trim(body)}") with { Forbidden = true };
 
+        // 429 is RSL Companion's daily upload limit for this game account (set by its admins, per
+        // group or per user). Like a 403 it is a decision, not a fault: the server's message says when
+        // it opens again, and it is kept out of the out-of-date check.
+        if (resp.StatusCode == HttpStatusCode.TooManyRequests)
+            return UploadResult.Fail(
+                ServerMessage(body)
+                ?? "This account has reached its daily upload limit on RSL Companion and can be updated again after 00:00 UTC.",
+                $"429 from {endpoint}, {sent}: {Trim(body)}") with { LimitReached = true };
+
         if (!resp.IsSuccessStatusCode)
             return UploadResult.Fail(
                 "RSL Companion couldn't accept your data. Please try again in a few minutes. If it "
@@ -420,6 +429,12 @@ public readonly record struct UploadResult(bool Success, string Message, string?
     /// apart from other failures so a refusal never triggers the "you may be out of date" check.
     /// </summary>
     public bool Forbidden { get; init; }
+
+    /// <summary>
+    /// The account used up its uploads for the day (429). Also kept out of the out-of-date check:
+    /// an update would not change it, only the next UTC day does.
+    /// </summary>
+    public bool LimitReached { get; init; }
 }
 
 public enum CertificationStatus

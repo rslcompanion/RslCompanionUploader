@@ -94,4 +94,29 @@ public class GzipUploadTests
         Assert.False(result.Success);
         Assert.Equal("gzip", Assert.Single(handler.Requests).Encoding);
     }
+
+    [Fact]
+    public async Task The_daily_upload_limit_shows_the_servers_message_and_is_not_a_rejection()
+    {
+        var handler = new Canned(() => Reply(HttpStatusCode.TooManyRequests,
+            """{"message":"This account has reached its daily limit of 5 updates and can be updated again after 00:00 UTC.","code":"upload-limit","limit":5}"""));
+        var result = await Client(handler, ApiTarget.Production).UploadConsolidatedAsync(Payload);
+
+        Assert.False(result.Success);
+        Assert.True(result.LimitReached);
+        Assert.False(result.Forbidden);
+        Assert.Equal("This account has reached its daily limit of 5 updates and can be updated again after 00:00 UTC.", result.Message);
+        // A limit is the server's answer to the payload it read: never resent.
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task A_limit_answer_without_a_message_still_says_what_happened()
+    {
+        var handler = new Canned(() => Reply(HttpStatusCode.TooManyRequests, ""));
+        var result = await Client(handler, ApiTarget.Production).UploadConsolidatedAsync(Payload);
+
+        Assert.True(result.LimitReached);
+        Assert.Contains("daily upload limit", result.Message);
+    }
 }
