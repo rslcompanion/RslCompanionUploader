@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 43** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 44** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1457,7 +1457,7 @@ event catalog** (`GlobalEvents`), not static data. **That is why reward contents
 while Mode progress rewards do not:** these tables exist only while the event runs, in no static file,
 so a consumer has nowhere else to get them. When the catalog cannot be read, `eventId`, `title`,
 `titleId`, `startsAt`, `endsAt` and a solo event's `rewards` are omitted and everything else still
-ships; key on `questPrototypeId`, which is always present.
+ships (a tournament keeps its `endsAt` since schema 44, which comes from its own quest); key on `questPrototypeId`, which is always present.
 
 **The same fields are also omitted for an event that has ended but is still in its claim window.**
 The server drops an event from the catalog when it ends, while the account's quest stays open until
@@ -1466,6 +1466,38 @@ The server drops an event from the catalog when it ends, while the account's que
 so the producer has no source for them at that point. A consumer that stored the entry from an
 earlier upload while the event ran should **keep its stored catalog fields** (matched on
 `questPrototypeId`) rather than let the newer, thinner entry blank them.
+
+### A tournament's `endsAt` is the account's own deadline (schema 44)
+
+**Tournaments run per player.** The account's tournament quest opens when it joins, and it scores until
+that quest's own deadline (`QuestState.TimeDeadline`), the tournament's length counted from the moment
+it joined. The catalog's `DateCondition.End` is the server's window, and the account keeps scoring past
+it. Since schema 44 `endsAt` on a tournament is the account's deadline, and the catalog's `End` only
+when the quest holds none. It is also present now when the catalog was not read.
+
+Live, 2026-10-27 20:38 UTC, one account:
+
+| tournament | catalog `End` | account's deadline (`endsAt`) | in game |
+|---|---|---|---|
+| 4480 Dragon Tournament | 10-24 12:15 | 10-25 11:01 | ended |
+| 4483 Champion Training Tournament | 10-26 09:00 | 10-28 09:55 | running, ~13 h left at 20:16 |
+| 4484 Ice Golem Tournament | 10-27 11:00 | 10-28 11:02 | running |
+| 4485 Classic Arena Takedown | 10-27 09:30 | 10-28 09:49 | running |
+| 4486 Sand Devil Turn Attack | 10-28 09:30 | 10-29 10:32 | running |
+
+Before schema 44 all five went out with the catalog's `End`, so a consumer deciding "running" from
+`endsAt` saw only Sand Devil running and hid the other three as ended. `startsAt` is still the catalog's
+`Start`. Solo events are unchanged: their quest deadline equals the catalog's `End`.
+
+**A tournament the account is in but has not scored in** ships with `points: 0`, `claimedRewardIds: []`,
+`rewards: []` and no `bracketIndex`, because the game assigns the bracket, and with it the tier table,
+with the first rating. Such a quest is recognised by the catalog naming its prototype a tournament
+(quest category 14). Without the catalog it cannot be told from the standing "take part in tournaments"
+achievements, which complete the same way, so it is left out then. Not yet observed live; on
+2026-10-27 every running tournament on the mapping account already had a rating.
+
+Each open tournament quest is its own entry. Two tournaments of the same kind at once (an ended one
+still claimable beside a new one) are two entries with their own `eventId` and `questPrototypeId`.
 
 ### "Active"
 
@@ -1924,6 +1956,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 44 | v1.53.0 | 2026-10-27 | **Corrective: a tournament's `endsAt` is the account's own deadline; additive: a joined tournament with no rating yet ships** (see [A tournament's `endsAt`](#a-tournaments-endsat-is-the-accounts-own-deadline-schema-44)). Tournaments run per player: the account scores until its quest's `TimeDeadline`, the tournament's length from when it joined, which runs past the catalog's `End` by up to two days. `endsAt` was the catalog's `End`, so running tournaments went out looking ended. Live 2026-10-27: Champion Training 4483 sent `endsAt` 10-26 09:00 while the game showed ~13 h left. It now sends 10-28 09:55, and three more running tournaments change the same way. `endsAt` is also present now without the catalog. `bracketIndex` leaves `required`: a tournament the catalog names but on which the account holds no rating yet ships with `points: 0`, `claimedRewardIds: []`, `rewards: []` and no `bracketIndex`, where before it was dropped (not yet observed live). A consumer deciding "running" from `endsAt` needs no change and now shows the running tournaments; one that requires `bracketIndex` must accept it absent. |
 | 43 | v1.50.0 | 2026-10-09 | **Additive: `scoring` and `revision` on every solo event and tournament** (see [Event scoring rules](#event-scoring-rules-schema-43)). `scoring` is the event's own point rules (`GlobalEventInfo.Rules`): one entry per rule with `actionId` (the game's `GlobalEventAction`, named in the new [`event-actions.json`](event-actions.json)), `points`, and the condition (`on`) with its criteria flat beside it. An action with no table ships with no `points`. `revision` is `GlobalEvent.Revision`, so a consumer storing rules per `eventId` can tell a correction from a contradiction. Both absent when the catalog was not read. Read live off 10 events (11.80.0), the Hero's Path's and the Champion Training Tournament's rules equal to the probe's. A consumer that ignores both is exactly as correct as on schema 42. |
 | 42 | v1.49.0 | 2026-10-09 | **Additive: locks and keys on board events, and the rule the board follows** (see [Hero's Path](#heros-path--locks-keys-and-the-parent-rule-schema-42)). The Hero's Path was already on the payload as a board event (`soloTypeId` 2, since schema 33). Board events now also carry `parentRule` (`"any"`: one taken parent opens a cell, confirmed in game), `keysHeld` (Path Keys in hand for the event) and `unlockedRewardIds` (locked cells opened with a key, not yet bought), and a locked cell carries `keyCost` (keys to open it; its `cost` is paid on top). The key a cell pays is item 10401. Read live off event 4453 (11.80.0, 42 cells, 4 locked). A consumer that ignores them is exactly as correct as on schema 41, except that it should stop assuming every parent is needed. |
 | 41 | v1.45.0 | 2026-10-07 | **Additive: the Titan Event's milestones, and `randomGemstones` prizes** (see [Titan Event](#titan-event--milestones-schema-41)). A Titan Event (internally a "universal" event, `soloTypeId` 4) sent `rewards: []`. Its milestone table is now in `rewards`, every reward with its Titan Point threshold, its prize and the new `milestone` (the in-game "Milestone 1–5" tab). Titan Points are item 10600, so the Titan Points a labelled event or tournament pays are already in its `rewards`. Separately, `eventPrize.randomGemstones` (`count`, `rarityIds`, optional `onlyShapeIds` / `excludedShapeIds`) decodes `RandomRelicStonesPrizes`, which before was only named in `otherKinds`. It applies to every prize, Frontier outposts and the Inbox included. Read live off event 4440 (11.75.0, 50 milestones in 5 tabs). A consumer that ignores both is exactly as correct as on schema 40. |
