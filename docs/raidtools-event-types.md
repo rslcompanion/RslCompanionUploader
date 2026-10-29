@@ -14,7 +14,7 @@ order puts it.
 |---|---|---|---|
 | 1 | PointBased | Points tiers (Gear Enhancement Event, …) | **yes** |
 | 2 | ThreeLine | Board events (Hero's Path, Wicked Path, …) | **yes** |
-| 3 | Bingo | Bingo card, never seen | no |
+| 3 | Bingo | Deck of Fate (seen 2026-10-29; schema 45 adds its deck and board) | no |
 | 4 | Universal | Titan Event | **yes** |
 | 5 | LimitedHeroSummon | Champion summon pool | no |
 | 6 | LimitedSoulSummon | Soul summon pool ("Support Soul Summon Pool") | no |

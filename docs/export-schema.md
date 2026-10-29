@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 44** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 45** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1801,10 +1801,99 @@ them here rather than keeping its own table.
 - **No key-item id is sent for boards.** The event data names no key item: `GlobalEventInfo` holds
   `ThreeLineStartKeys`, and `BlackMarketItem` records no kind. The client maps item 10401 to "Path Key"
   in code. So 10401 stays documented above as a game constant rather than a field.
-- **Deck of Fate is the same kind of event** (`GlobalEventInfo.BingoInfo`, `BingoFieldRewards`), so it
-  should carry `scoring` the same way; none was running to confirm it.
+- **Deck of Fate is the same kind of event** (`GlobalEventInfo.BingoInfo`, `BingoFieldRewards`), and it
+  carries `scoring` the same way: confirmed on event 4489 (2026-10-29), see
+  [Deck of Fate](#deck-of-fate--the-deck-fate-chests-and-the-board-schema-45).
+
+### Deck of Fate — the deck, Fate Chests and the board (schema 45)
+
+A **Deck of Fate** is internally a **Bingo** event: a `soloEvents[]` entry with `soloTypeId` **3**
+(`GlobalEventSoloTypeId.Bingo`). It has been on the payload since schema 33 with its title, dates,
+`points`, `claimedRewardIds` and (since 43) `scoring`. What it lacked was its deck: `rewards` read `[]`,
+because the deck is not a tier table. Schema 45 sends the deck as `rewards[]` and the rest of the event
+as `deckOfFate`.
+
+**How the event works**, from the game's own event info (`l10n:bingo-event/info-overlay/*`) and the data:
+
+- Event objectives earn **Fate Points**. **Every card costs the same**, `deckOfFate.cardCost` (1000 on
+  4489); there are no point milestones. A player flips a card, and the card's reward is theirs.
+- The deck holds **Common, Rare and Epic cards** (`rarity` 1 / 2 / 3; 15 / 13 / 12 on 4489, 40 in all).
+  The game will not let a player earn more Fate Points than flipping every card takes, so the cap is
+  `cardCost × rewards.length`. Unused Fate Points turn into Silver when the event ends.
+- **Three cards of one rarity flipped in a row pay a Fate Chest** of that rarity, holding **one** prize
+  drawn at random from that rarity's pool (`fateChestRewards`, seven per rarity on 4489).
+- **A Rare or Epic rarity can be pinned**: a lower card then does not break the streak, a higher one
+  resets it and can take the pin.
+
+```jsonc
+{ "eventId": 4489, "questPrototypeId": 364489, "soloTypeId": 3, "title": "Lozrayn Deck of Fate", "titleId": 4398,
+  "startsAt": "2026-10-26T09:00:00Z", "endsAt": "2026-10-30T09:00:00Z", "claimUntil": "2026-10-31T09:00:00Z",
+  "points": 3268,                                   // Fate Points earned in all
+  "claimedRewardIds": [14, 15, 18],                 // the cards flipped, ids into rewards[]
+  "revision": 6,
+  "scoring": [ { "actionId": 21, "points": 4, "on": "artifact", "rankId": 1, "rarityId": 1 }, /* … 36 artifact rules … */
+               { "actionId": 72, "points": 90, "on": "soulStone", "soulStoneTypeId": 12001 },
+               { "actionId": 72, "points": 900, "on": "soulStone", "soulStoneTypeId": 12002 },
+               { "actionId": 72, "points": 4500, "on": "soulStone", "soulStoneTypeId": 12003 } ],
+  "rewards": [                                      // the deck: one row per card
+    { "id": 0,  "rarity": 1, "prize": { "resources": [{ "id": 4160, "amount": 25 }] } },
+    { "id": 14, "rarity": 1, "prize": { "items": [{ "id": 5001, "amount": 1 }] } },
+    { "id": 23, "rarity": 2, "prize": { "randomGemstones": [{ "count": 1, "rarityIds": [4] }] } },
+    { "id": 39, "rarity": 3, "prize": { "items": [{ "id": 5003, "amount": 1 }] } } /* … 40 cards … */ ],
+  "deckOfFate": {
+    "cardCost": 1000, "fixedHighRarityCard": true,
+    "fateChestRewards": [
+      { "id": 1,  "rarity": 1, "prize": { "items": [{ "id": 11002, "amount": 1 }] } },
+      { "id": 8,  "rarity": 2, "prize": { "items": [{ "id": 11000, "amount": 1 }] } },
+      { "id": 16, "rarity": 3, "prize": { "resources": [{ "id": 4, "amount": 500 }] } } /* … 21 … */ ],
+    "unspentPoints": 268,                           // 3268 − 3 cards × 1000
+    "streak": 2, "streakId": 2, "streakRarity": 2, "streakRarityPinned": true,
+    "claimedFateChestRewardIds": [], "allPrizesTaken": false,
+    "openedCards": [
+      { "slot": 11, "rarity": 2, "prize": { "resources": [{ "id": 4161, "amount": 25 }] } },
+      { "slot": 22, "rarity": 2, "prize": { "resources": [{ "id": 4161, "amount": 25 }] } },
+      { "slot": 25, "rarity": 1, "prize": { "items": [{ "id": 5001, "amount": 1 }] } } ] } }
+```
+
+| Field | Source | Meaning |
+|---|---|---|
+| `rewards[]` | `GlobalEventReward.BingoFieldRewards` | The deck, one row per card: `id` (the key `claimedRewardIds` uses), `rarity`, `prize`; `weight` when the event sets a draw weight (unset on 4489). |
+| `deckOfFate.cardCost` | `BingoInfo.BingoCardOpeningCost` | Fate Points per card flip. |
+| `deckOfFate.fixedHighRarityCard` | `BingoInfo.UseFixedHighRarityCard` | Raw. Its effect has not been watched. |
+| `deckOfFate.changeRate` | `BingoInfo.BingoChangeRate` (`int?`) | Raw; absent when unset (unset on 4489). |
+| `deckOfFate.fateChestRewards[]` | `GlobalEventReward.BingoStreakRewards` | The Fate Chest pools: `id`, `rarity`, `prize`. A chest pays **one** entry of its rarity, at random. |
+| `deckOfFate.unspentPoints` | `BingoState.Currency` | Fate Points not yet spent on a card. `points` is the total earned. |
+| `deckOfFate.streak` | `BingoState.StreakValue` | Cards in the current streak (3 pays a chest). |
+| `deckOfFate.streakRarity` | `BingoState.StreakRarity` (`int?`) | The rarity the streak counts. Absent when the game holds none. |
+| `deckOfFate.streakRarityPinned` | `BingoState.IsStreakRarityPinned` | The player pinned `streakRarity`. |
+| `deckOfFate.streakId` | `BingoState.StreakId` | Raw. 2 beside `streak` 2 on 4489; its meaning is not yet established. |
+| `deckOfFate.claimedFateChestRewardIds` | `BingoState.StreakPrizesTaken` | Ids into `fateChestRewards` already paid. Sorted. |
+| `deckOfFate.allPrizesTaken` | `BingoState.AllPrizeTaken` | The whole deck has been flipped. |
+| `deckOfFate.openedCards[]` | `BingoState.PrizeBySlotId` | Every card flipped: the board `slot` it was flipped at, its `rarity`, and what it paid. Sorted by slot. `[]` = none yet. |
+
+Rules, the same as every block in this section:
+
+- **Absent means "couldn't read it".** `deckOfFate` is absent on every other `soloTypeId`, and on a Deck
+  of Fate when neither half could be read. When only one half could be read, the other half's fields are
+  absent: `cardCost`, `fixedHighRarityCard` and `fateChestRewards` come from the catalog; `unspentPoints`,
+  the streak fields, `claimedFateChestRewardIds`, `allPrizesTaken` and `openedCards` come from the
+  account. Without the catalog, `rewards` is absent too, as on every solo event.
+- **There is no separate "last Deck of Fate" list.** An entry stays in `soloEvents[]` until its
+  `claimUntil`, so the running Deck of Fate and an ended one still in its claim window both arrive here.
+- **Cards and slots are not joined.** `claimedRewardIds` says *which* cards were flipped and
+  `openedCards` says *where*. The game stores no link between them, and several cards can share a prize
+  (4161 ×25 is on eight Rare cards), so do not join them by prize.
+- **A Deck of Fate has no stages.** It is one event with its own `scoring`. Other solo events running at
+  the same time (a Summon Rush, a Gear Enhancement Event) are separate events that score separately, even
+  when the same action scores in both.
 
 ### Verified
+
+Deck of Fate (schema 45), live on 11.85.5 (2026-10-29): event 4489, 40 cards (15 Common, 13 Rare, 12 Epic)
+and 21 Fate Chest prizes, every prize decoded (`otherKinds` empty), 39 scoring rules. The account had
+earned 3,268 Fate Points and flipped 3 cards: `unspentPoints` 268 = 3,268 − 3 × 1,000. The three
+`openedCards` pay exactly what cards 14 (Common, item 5001) and 15 and 18 (Rare, 4161 ×25) pay, and the
+streak reads 2 Rares, pinned. **Not yet checked against the in-game screen.**
 
 Event scoring (schema 43), live on 11.80.0 (2026-10-09), 10 events and tournaments: the Hero's Path's 41
 rules (36 artifact, 5 shard) and the Champion Training Tournament's 46 (levels, ranks, ascensions,
@@ -1956,6 +2045,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 45 | v1.54.0 | 2026-10-29 | **Additive: the Deck of Fate's deck and board** (see [Deck of Fate](#deck-of-fate--the-deck-fate-chests-and-the-board-schema-45)). A Deck of Fate is internally a Bingo event, a `soloEvents[]` entry with `soloTypeId` 3, and has been on the payload since schema 33 with its points, claimed cards and (since 43) scoring; its `rewards` read `[]`. It now carries the deck as `rewards[]` (each card with `rarity` 1 Common / 2 Rare / 3 Epic, and `weight` when set) and a new `deckOfFate` object: the card price, the Fate Chest pools, Fate Points unspent, the streak and pin, and every flipped card by board slot. **Answers to RaidTools' Deck of Fate brief:** (1) *Its own type, or a container of solo events?* Its own type: one solo event, `soloTypeId` 3, with no stages; other events running beside it score separately. (2) *What scores, and how is it priced?* Whatever its own `scoring` lists, per event: on 4489, artifact enhancement (action 21) by rank × rarity at 4–33 points, and soulstone opening (action 72) at 90 / 900 / 4,500 for Mortal / Immortal / Eternal. RaidTools' six-component template does not describe it, so read `scoring`. There are **no point milestones**: every card costs `cardCost` (1000), and three cards of one rarity in a row pay a Fate Chest. (3) *Does the account carry its own progress?* Yes: `points` (earned), `deckOfFate.unspentPoints`, `claimedRewardIds` (cards flipped), `openedCards`, the streak and `claimedFateChestRewardIds`. **No `kind` names were invented:** the game's own ids are sent (`scoring[].actionId`, `rarity`). **Not a top-level `deckOfFate[]`, as the brief proposed:** the event is already a `soloEvents[]` entry, kept until its `claimUntil`, so a second list would repeat it and invite double counting. A consumer that ignores `deckOfFate` and `rarity` needs no change; one that draws `rewards` will now see 40 card rows on a type-3 entry. |
 | 44 | v1.53.0 | 2026-10-27 | **Corrective: a tournament's `endsAt` is the account's own deadline; additive: a joined tournament with no rating yet ships** (see [A tournament's `endsAt`](#a-tournaments-endsat-is-the-accounts-own-deadline-schema-44)). Tournaments run per player: the account scores until its quest's `TimeDeadline`, the tournament's length from when it joined, which runs past the catalog's `End` by up to two days. `endsAt` was the catalog's `End`, so running tournaments went out looking ended. Live 2026-10-27: Champion Training 4483 sent `endsAt` 10-26 09:00 while the game showed ~13 h left. It now sends 10-28 09:55, and three more running tournaments change the same way. `endsAt` is also present now without the catalog. `bracketIndex` leaves `required`: a tournament the catalog names but on which the account holds no rating yet ships with `points: 0`, `claimedRewardIds: []`, `rewards: []` and no `bracketIndex`, where before it was dropped (not yet observed live). A consumer deciding "running" from `endsAt` needs no change and now shows the running tournaments; one that requires `bracketIndex` must accept it absent. |
 | 43 | v1.50.0 | 2026-10-09 | **Additive: `scoring` and `revision` on every solo event and tournament** (see [Event scoring rules](#event-scoring-rules-schema-43)). `scoring` is the event's own point rules (`GlobalEventInfo.Rules`): one entry per rule with `actionId` (the game's `GlobalEventAction`, named in the new [`event-actions.json`](event-actions.json)), `points`, and the condition (`on`) with its criteria flat beside it. An action with no table ships with no `points`. `revision` is `GlobalEvent.Revision`, so a consumer storing rules per `eventId` can tell a correction from a contradiction. Both absent when the catalog was not read. Read live off 10 events (11.80.0), the Hero's Path's and the Champion Training Tournament's rules equal to the probe's. A consumer that ignores both is exactly as correct as on schema 42. |
 | 42 | v1.49.0 | 2026-10-09 | **Additive: locks and keys on board events, and the rule the board follows** (see [Hero's Path](#heros-path--locks-keys-and-the-parent-rule-schema-42)). The Hero's Path was already on the payload as a board event (`soloTypeId` 2, since schema 33). Board events now also carry `parentRule` (`"any"`: one taken parent opens a cell, confirmed in game), `keysHeld` (Path Keys in hand for the event) and `unlockedRewardIds` (locked cells opened with a key, not yet bought), and a locked cell carries `keyCost` (keys to open it; its `cost` is paid on top). The key a cell pays is item 10401. Read live off event 4453 (11.80.0, 42 cells, 4 locked). A consumer that ignores them is exactly as correct as on schema 41, except that it should stop assuming every parent is needed. |
