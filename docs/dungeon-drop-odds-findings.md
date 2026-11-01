@@ -181,6 +181,31 @@ labelled as one.
 It's next to the drops: `stage.w.p.v["1"]` (resource 1 = Energy). It's already exported as
 `energyCost` in `stage_encounter_index.json`. Dragon/Ice/Fire/Spider Normal: 8 → 20. Hard: 20.
 
+## Cross-check against the community tables (2026-11-01)
+
+ayumilove's loot-table images ([page](https://ayumilove.net/raid-shadow-legends-loot-table-and-drop-rates/),
+data credited to u/Rhbobo) are the most complete published per-stage tables. Comparing them with
+11.85.5:
+
+- **Normal 1–25 (Dragon / Ice Golem / Fire Knight): identical on every row.** Artifact 79.4% → 85%,
+  then 99.5%. Mystery Shard and XP Brew 10.05% → 7.25%, Ancient Shard 0.5%. Every rank split
+  (N16 39.80 / 52.03 / 8.17 = our `3980/5203/817`), every rarity split, every energy cost.
+- **Spider's Den Normal: identical**, including the accessory type shares (Ring 100% at N1 → a
+  three-way split from N14) and **N10's rank as 18.2% / 81.8%, flagged there as "Code Bug? Missing
+  0"**. That's the same `{4: 69, 5: 310}` map listed above, normalized. So the community normalizes
+  each map on its own too, and so does this pipeline.
+- **Hard 1–10 rarity: identical, normalized the same way.** H2 46.88 / 33.34 / 18.75 / 1.04 is
+  Dragon's off-scale `450/320/180/10` over 960, and H5's 2.57% Mythical is `25/975`.
+- **Hard rank is the one difference.** Their table varies 5★ by stage (65.2–68.09%), while 11.85.5
+  has a flat 68 / 32 on all ten stages. Their table is most likely from an older build. The effect is at most
+  ~3 points of 6★ share.
+
+Inteleria's [drop-rate guide](https://www.inteleria.com/raid-dungeon-drop-rates/) agrees on Normal 20
+(73 / 27) and Normal 25 (68 / 32). Its Hard-mode text ("no Mythical before Hard 26", Hard running to
+stage 30) contradicts both the game and Plarium's
+[own announcement](https://raidshadowlegends.com/news/hard-mode-dungeons/) of 10 Hard stages, so
+don't use it for Hard mode. Plarium publishes no percentages.
+
 ## Not verified
 
 1. **That the server rolls with exactly this table.** It's the client's shared model, and the shapes
