@@ -175,8 +175,8 @@ Text comes from the shared localization dictionary (see "Titles"). The catalog i
 for 185 resources and 407 items, and every `nameKey` in it resolves in the dictionary.
 **RaidTools reads it from the assets host, no upload needed (done 2026-10-08, RaidTools `656a4e7`).**
 The published `account-resources/index.json` carries `kind` and `id` beside `key` and `name` for 501
-of its entries. `AccountResourceIndexService` keeps them, and `withResourceIndexNames` (`core/events.ts`)
-puts those names first under `eventPrizeNames`, for the Inbox tile and the Events & progress tiles
+of its entries. `AccountResourceIndexService` keeps them, and `eventPrizeNames` (`core/events.ts`) takes
+the index as its third argument and puts those names first, for the Inbox tile and the Events & progress tiles
 alike. Icons then resolve by name as before. The 91 members that ship no icon are not in the index and
 still draw as `#id`.
 
