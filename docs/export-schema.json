@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 45,
+  "schemaVersion": 46,
   "x-uploaderVersion": "1.44.0",
-  "x-lastUpdated": "2026-10-07",
+  "x-lastUpdated": "2026-11-05",
   "x-relatedCatalogs": {
     "battlePasses": "RslCompanionMetadata exports/battle_pass_index.json (schema 38+) — per passId: family and in-game name, season (startsAt/endsAt), level thresholds and each level's rewards per track. Not shipped here: it is a 1.9 MB catalog of every pass the game defines, served by RaidTools like the other metadata catalogs.",
     "inbox": "inbox-types.json (schema 40+) — inbox.items[].typeId (the game's InboxTypeId) to sourceKey, the Inbox's source-line key in the game's localization dictionary (RslCompanionMetadata exports/localization_en.json), with its English text; read out of the client's own switch and checked against the open Inbox. Ids with no title are absent there.",
@@ -81,7 +81,7 @@
         "required": ["quantity"],
         "properties": { "quantity": { "type": "integer", "minimum": 1 } }
       },
-      "description": "ALWAYS the complete allowlist (145 ids as of schema 23). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
+      "description": "ALWAYS the complete allowlist (145 ids as of schema 23). Ids the account holds none of are present with quantity 0, so a missing id means the allowlist changed - never 'zero owned'. ONE EXCEPTION, id 1 (Energy, schema 46): not on the allowlist; present only when it was read, as the whole energy the game shows (floored, regeneration accrues fractionally; includes energy above the regeneration cap). Absent id 1 = unknown, keep the last value - never 0. Join on id, NEVER on name: names track in-game renames (three changed in v1.5.4). NEVER ALL-ZERO: because every id is emitted unconditionally, a failed read returns a full-length array of zeroes rather than an empty one - so length proves nothing here and the `contains` constraint above is the real check. Every account holds at least some Silver, so at least one quantity is always non-zero. The uploader refuses to send an all-zero array; a consumer seeing one should discard the payload and keep what it has, never apply it (applying it zeroes the account's entire inventory).",
       "items": {
         "type": "object",
         "required": ["id", "name", "quantity"],

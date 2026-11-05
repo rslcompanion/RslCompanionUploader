@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 45** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 46** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -139,6 +139,22 @@ of them changed in v1.5.4 alone. `id` is stable.
 are emitted with `quantity: 0`. So a missing id means "not in the allowlist", never "zero owned" —
 and the array length only changes when the allowlist itself changes. Current allowlist: **145 ids**
 (see `extraction/resource-allowlist.json` / `.md` in the engine for the full annotated table).
+
+### Energy — `id: 1`, and the one id that may be missing (schema 46)
+
+```jsonc
+{ "id": 1, "name": "Energy", "quantity": 24 }
+```
+
+Energy is the game's `ResourceTypeId` 1, read from the same resources dictionary as Silver and Gems,
+at the moment of the export. `quantity` is what the top of the game screen shows: the whole balance,
+energy above the regeneration cap included. The client stores it as a fraction because it regenerates
+continuously (24.111 read while the screen showed 24), and the export **floors** it: 24.9 energy
+cannot pay for a 25-energy stage.
+
+**It is not on the allowlist, so the "every id, 0 when none" rule does not cover it.** It is present
+only when it was read. **A missing `id: 1` means unknown: keep the last stored value. Never treat it
+as 0.** A real empty tank is sent as `quantity: 0`. Before schema 46 energy was never sent.
 
 ### Shards & Remnants (corrected in schema 23)
 
@@ -2064,6 +2080,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 46 | v1.55.0 | 2026-11-05 | **Additive: the account's energy, as `resources[]` `id: 1`** (see [Energy](#energy--id-1-and-the-one-id-that-may-be-missing-schema-46)). The game's `ResourceTypeId.Energy` is 1, bound live from the client's own enum. The engine had labelled 5 as Energy, which is `Arena3X3ShopCurrency` and was never exported. `quantity` is the whole balance the game shows, floored, because energy regenerates continuously and reads fractionally. It is not on the allowlist: it is present only when the resources dictionary was read, and **a missing id 1 means unknown, not zero**. Answers RaidTools' `docs/energy-export-uploader-brief.md` (asks 1–5), which reads id 1 and keeps the stored energy when it is absent. A consumer that ignores id 1 needs no change. |
 | 45 | v1.54.0 | 2026-10-29 | **Additive: the Deck of Fate as a Hero's Path-shaped entry** (see [Deck of Fate](#deck-of-fate--cards-as-reward-cells-like-the-heros-path-schema-45)). **A Deck of Fate is `soloTypeId` 3**, internally a Bingo event. It has been in `soloEvents[]` since schema 33 with its points, flipped cards and (since 43) scoring, but its `rewards` read `[]`. It now uses the Hero's Path's fields: `rewards[]` is the deck, one cell per card with `cost` (one flip, 1000) and the new `rarity` (1 Common / 2 Rare / 3 Epic); `boardCurrency` is the Fate Points not yet spent. The deck has no order, locks or keys, so `row`, `column`, `parentIds`, `parentRule`, `keyCost`, `keysHeld` and `unlockedRewardIds` are left out. New, Deck only: `fateChestRewards` (three same-rarity flips in a row pay one at random), `streak`, `streakRarity`, `streakRarityPinned`, `claimedFateChestRewardIds`, `openedCards` (where each flipped card lies). **An announced Deck of Fate now ships from its teaser start**, before the account holds its quest, with its structure, `points: 0` and `claimedRewardIds: []`. **`eventId` is the game's own `GlobalEvent.Id`** from the server-sent catalog, the same on every account and sync; absent only when the catalog could not be read. **Answers to RaidTools' Deck of Fate brief:** (1) *Its own type, or a container of solo events?* Its own type: one solo event with no stages. Other events running beside it score separately. (2) *What scores, and how is it priced?* Whatever its own `scoring` lists, per event. On 4489 that is artifact enhancement (action 21) by rank × rarity at 4–33 points, and soulstone opening (action 72) at 90 / 900 / 4,500 for Mortal / Immortal / Eternal. RaidTools' six-component template does not describe it, so read `scoring`. There are **no point milestones**: every card costs the same, and three cards of one rarity in a row pay a Fate Chest. (3) *Does the account carry its own progress?* Yes: `points`, `boardCurrency`, `claimedRewardIds` and the streak fields. A consumer that ignores the new fields needs no change. One that draws `rewards` will now see 40 card cells on a type-3 entry, and may see a type-3 entry before it starts. |
 | 44 | v1.53.0 | 2026-10-27 | **Corrective: a tournament's `endsAt` is the account's own deadline; additive: a joined tournament with no rating yet ships** (see [A tournament's `endsAt`](#a-tournaments-endsat-is-the-accounts-own-deadline-schema-44)). Tournaments run per player: the account scores until its quest's `TimeDeadline`, the tournament's length from when it joined, which runs past the catalog's `End` by up to two days. `endsAt` was the catalog's `End`, so running tournaments went out looking ended. Live 2026-10-27: Champion Training 4483 sent `endsAt` 10-26 09:00 while the game showed ~13 h left. It now sends 10-28 09:55, and three more running tournaments change the same way. `endsAt` is also present now without the catalog. `bracketIndex` leaves `required`: a tournament the catalog names but on which the account holds no rating yet ships with `points: 0`, `claimedRewardIds: []`, `rewards: []` and no `bracketIndex`, where before it was dropped (not yet observed live). A consumer deciding "running" from `endsAt` needs no change and now shows the running tournaments; one that requires `bracketIndex` must accept it absent. |
 | 43 | v1.50.0 | 2026-10-09 | **Additive: `scoring` and `revision` on every solo event and tournament** (see [Event scoring rules](#event-scoring-rules-schema-43)). `scoring` is the event's own point rules (`GlobalEventInfo.Rules`): one entry per rule with `actionId` (the game's `GlobalEventAction`, named in the new [`event-actions.json`](event-actions.json)), `points`, and the condition (`on`) with its criteria flat beside it. An action with no table ships with no `points`. `revision` is `GlobalEvent.Revision`, so a consumer storing rules per `eventId` can tell a correction from a contradiction. Both absent when the catalog was not read. Read live off 10 events (11.80.0), the Hero's Path's and the Champion Training Tournament's rules equal to the probe's. A consumer that ignores both is exactly as correct as on schema 42. |
