@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 46** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 47** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -110,11 +110,23 @@ small, bounded error for no data at all.
 {
   "name": "Magikwolf", "level": 100, "accountId": "95604564",
   "arenaPoints": 682, "liveArenaPoints": 0,
-  "arenaLeague": 0, "liveArenaLeague": 0, "arena3x3League": 0
+  "arenaLeague": 0, "liveArenaLeague": 0, "arena3x3League": 0,
+  "energyCap": 130
 }
 ```
 
 `account.accountId` duplicates the top-level `accountId`; they are always equal.
+
+**`account.energyCap` (schema 47)** is the number after the `/` on the in-game energy bar (`19,299/120`
+→ `120`). Energy itself is [`resources[]` `id: 1`](#energy--id-1-and-the-one-id-that-may-be-missing-schema-46)
+and can sit far above the cap, since refills and rewards stack past it. The account stores no cap of its
+own: the client looks it up in its static per-level table (`StaticUserLevelData.EnergyLimitForLevel`) at
+the account's `level`, and the export reads that same table out of the running game rather than keeping a
+copy. On 2026-11-06 the table ran 18 at level 1, +3 per level to 75 at 20, +2 per level to 105 at 35, +1
+per level to **130 at level 60**, then flat to 100. So the "130" in fan guides is the level-60 row, and a
+level-50 account's 120 is the same table, not an exception. Still, read the field rather than computing
+it from `level`: Plarium can change the table. **Absent means unknown** (the client's static data could
+not be read): keep the stored value or fall back to the player's own entry. It is never sent as 0.
 
 **`account.liveArenaPoints` is the named field since schema 25** — `UserLiveArenaData.Points`, the same
 number as [`liveArena.points`](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege).
@@ -2080,6 +2092,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 47 | v1.56.0 | 2026-11-06 | **Additive: the account's energy cap, `account.energyCap`** (see [`account`](#account)). The number after the `/` on the in-game energy bar, read from the client's own per-level table (`StaticUserLevelData.EnergyLimitForLevel`) at the account's level. It is what one 40-gem energy refill adds. Verified live: a level-50 account read 120 against its `19,299/120` bar. Omitted when the table could not be read; never 0. Answers RaidTools' `docs/max-energy-uploader-brief.md`. A consumer that ignores it needs no change. |
 | 46 | v1.55.0 | 2026-11-05 | **Additive: the account's energy, as `resources[]` `id: 1`** (see [Energy](#energy--id-1-and-the-one-id-that-may-be-missing-schema-46)). The game's `ResourceTypeId.Energy` is 1, bound live from the client's own enum. The engine had labelled 5 as Energy, which is `Arena3X3ShopCurrency` and was never exported. `quantity` is the whole balance the game shows, floored, because energy regenerates continuously and reads fractionally. It is not on the allowlist: it is present only when the resources dictionary was read, and **a missing id 1 means unknown, not zero**. Answers RaidTools' `docs/energy-export-uploader-brief.md` (asks 1–5), which reads id 1 and keeps the stored energy when it is absent. A consumer that ignores id 1 needs no change. |
 | 45 | v1.54.0 | 2026-10-29 | **Additive: the Deck of Fate as a Hero's Path-shaped entry** (see [Deck of Fate](#deck-of-fate--cards-as-reward-cells-like-the-heros-path-schema-45)). **A Deck of Fate is `soloTypeId` 3**, internally a Bingo event. It has been in `soloEvents[]` since schema 33 with its points, flipped cards and (since 43) scoring, but its `rewards` read `[]`. It now uses the Hero's Path's fields: `rewards[]` is the deck, one cell per card with `cost` (one flip, 1000) and the new `rarity` (1 Common / 2 Rare / 3 Epic); `boardCurrency` is the Fate Points not yet spent. The deck has no order, locks or keys, so `row`, `column`, `parentIds`, `parentRule`, `keyCost`, `keysHeld` and `unlockedRewardIds` are left out. New, Deck only: `fateChestRewards` (three same-rarity flips in a row pay one at random), `streak`, `streakRarity`, `streakRarityPinned`, `claimedFateChestRewardIds`, `openedCards` (where each flipped card lies). **An announced Deck of Fate now ships from its teaser start**, before the account holds its quest, with its structure, `points: 0` and `claimedRewardIds: []`. **`eventId` is the game's own `GlobalEvent.Id`** from the server-sent catalog, the same on every account and sync; absent only when the catalog could not be read. **Answers to RaidTools' Deck of Fate brief:** (1) *Its own type, or a container of solo events?* Its own type: one solo event with no stages. Other events running beside it score separately. (2) *What scores, and how is it priced?* Whatever its own `scoring` lists, per event. On 4489 that is artifact enhancement (action 21) by rank × rarity at 4–33 points, and soulstone opening (action 72) at 90 / 900 / 4,500 for Mortal / Immortal / Eternal. RaidTools' six-component template does not describe it, so read `scoring`. There are **no point milestones**: every card costs the same, and three cards of one rarity in a row pay a Fate Chest. (3) *Does the account carry its own progress?* Yes: `points`, `boardCurrency`, `claimedRewardIds` and the streak fields. A consumer that ignores the new fields needs no change. One that draws `rewards` will now see 40 card cells on a type-3 entry, and may see a type-3 entry before it starts. |
 | 44 | v1.53.0 | 2026-10-27 | **Corrective: a tournament's `endsAt` is the account's own deadline; additive: a joined tournament with no rating yet ships** (see [A tournament's `endsAt`](#a-tournaments-endsat-is-the-accounts-own-deadline-schema-44)). Tournaments run per player: the account scores until its quest's `TimeDeadline`, the tournament's length from when it joined, which runs past the catalog's `End` by up to two days. `endsAt` was the catalog's `End`, so running tournaments went out looking ended. Live 2026-10-27: Champion Training 4483 sent `endsAt` 10-26 09:00 while the game showed ~13 h left. It now sends 10-28 09:55, and three more running tournaments change the same way. `endsAt` is also present now without the catalog. `bracketIndex` leaves `required`: a tournament the catalog names but on which the account holds no rating yet ships with `points: 0`, `claimedRewardIds: []`, `rewards: []` and no `bracketIndex`, where before it was dropped (not yet observed live). A consumer deciding "running" from `endsAt` needs no change and now shows the running tournaments; one that requires `bracketIndex` must accept it absent. |

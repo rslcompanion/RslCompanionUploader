@@ -3,7 +3,7 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 46,
+  "schemaVersion": 47,
   "x-uploaderVersion": "1.44.0",
   "x-lastUpdated": "2026-11-05",
   "x-relatedCatalogs": {
@@ -70,7 +70,8 @@
         "liveArenaPoints": { "type": "integer", "description": "Since schema 25 this is UserLiveArenaData.Points, the same value as liveArena.points. Schemas <= 24 filled it from a value-shape probe that is not reliable - prefer liveArena.points when present." },
         "arenaLeague": { "type": "integer" },
         "liveArenaLeague": { "type": "integer" },
-        "arena3x3League": { "type": "integer" }
+        "arena3x3League": { "type": "integer" },
+        "energyCap": { "type": "integer", "minimum": 1, "description": "Schema 47. The energy cap: the number after the '/' on the in-game energy bar. Read from the client's own per-level table (StaticUserLevelData.EnergyLimitForLevel) at this account's level - 130 from level 60 on 2026-11-06, 120 at level 50. Energy itself is resources[] id 1 and may exceed it. Absent = unknown (keep the stored value); never 0.", "examples": [120, 130] }
       }
     },
     "resources": {
