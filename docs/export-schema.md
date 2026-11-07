@@ -169,18 +169,22 @@ Where each number comes from — the game's own data, never a table kept here:
   arrive as `kind: serverPrize` through this same list.
 
 **Not established — consumers decide, and should say so:** how two running boosts combine (added or
-multiplied), and whether a pass boost counts once per claimed level or the game merges them. No account with
-a running boost was available when this was mapped (below). Summing the active `percent` values of one
+multiplied), and whether a pass boost counts once per claimed level or the game merges them. Only one boost has been seen running (below). Summing the active `percent` values of one
 `scope` is the reading the stacking flag suggests, not an observed fact.
 
-**Trial (2026-11-07, game 11.85.5, level-50 test account):** the account had no pass, card or booster
-running and owned none of items 3001–3004, so a run with and without a boost could not be compared without
-buying one. What was verified live: the effect list read (empty, `LastEffectId` 22 — the account has held 22
-effects in its life), the export carried `"xpBoosts": []`, the read took 1 ms. The effect-type and source
-values were read from `global-metadata.dat`, the boost items and Forge Pass rewards from the running client's
-static data, and their texts from the client's localization table. **Still to do:** one export while a boost
-is running, checking `percent` and `expiresAt` against the game's boost timer, and one Campaign run's XP with
-and without it.
+**Trial (2026-11-07, game 11.85.5, level-50 test account).** First export, 11:1x UTC: no pass, card or
+booster running, none of items 3001–3004 in stock → `"xpBoosts": []` (`LastEffectId` 22), read in 1 ms.
+Second export, 18:36:40 UTC, after a +100% XP Boost (1 d.) was activated on the account:
+
+```json
+"xpBoosts": [{ "kind": "booster", "scope": "allBattles", "effectTypeId": 2, "sourceId": 1, "percent": 100,
+  "active": true, "startsAt": "2026-11-07T18:35:46Z", "expiresAt": "2026-11-08T18:35:46Z" }]
+```
+
+The raw `UserEffect` read `Id 22, TypeId 2, Source 1, Power 100.0, Start/Finish` exactly one day apart
+(item 3001's `Duration`), `LastEffectId` 23. Both `DateTime`s carry Kind = UTC, and `startsAt` was 54 s
+before the machine's UTC clock (20:36 local, +02:00), so **the dates are UTC**. **Not yet compared:** a
+battle's XP with and without the boost, a Forge Pass or Raid Card boost, and two boosts at once.
 
 **`account.liveArenaPoints` is the named field since schema 25** — `UserLiveArenaData.Points`, the same
 number as [`liveArena.points`](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege).
@@ -2146,7 +2150,7 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
-| 48 | v1.57.0 | 2026-11-07 | **Additive: the account's champion XP boosts, `account.xpBoosts`** (see [`account.xpBoosts`](#accountxpboosts--champion-xp-boosts-schema-48)). One entry per account effect that raises champion battle XP: Market XP Boost items, the Gold Forge Pass Raid Boost, the Raid Card's Campaign boost, server-granted ones. Each has `kind`, `scope`, the game's `effectTypeId` / `sourceId`, `percent` (a percentage bonus: 100 = +100%), `active`, `startsAt`, `expiresAt`. `[]` = none; absent = unread. Verified live on an account with none running (`[]`); a running boost has not been seen yet. Answers RaidTools' `docs/xp-boosts-uploader-brief.md`. A consumer that ignores it needs no change. |
+| 48 | v1.57.0 | 2026-11-07 | **Additive: the account's champion XP boosts, `account.xpBoosts`** (see [`account.xpBoosts`](#accountxpboosts--champion-xp-boosts-schema-48)). One entry per account effect that raises champion battle XP: Market XP Boost items, the Gold Forge Pass Raid Boost, the Raid Card's Campaign boost, server-granted ones. Each has `kind`, `scope`, the game's `effectTypeId` / `sourceId`, `percent` (a percentage bonus: 100 = +100%), `active`, `startsAt`, `expiresAt`. `[]` = none; absent = unread. Verified live both ways: `[]` with none running, and a +100% booster read with its exact 1-day window (UTC). Answers RaidTools' `docs/xp-boosts-uploader-brief.md`. A consumer that ignores it needs no change. |
 | 47 | v1.56.0 | 2026-11-06 | **Additive: the account's energy cap, `account.energyCap`** (see [`account`](#account)). The number after the `/` on the in-game energy bar, read from the client's own per-level table (`StaticUserLevelData.EnergyLimitForLevel`) at the account's level. It is what one 40-gem energy refill adds. Verified live: a level-50 account read 120 against its `19,299/120` bar. Omitted when the table could not be read; never 0. Answers RaidTools' `docs/max-energy-uploader-brief.md`. A consumer that ignores it needs no change. |
 | 46 | v1.55.0 | 2026-11-05 | **Additive: the account's energy, as `resources[]` `id: 1`** (see [Energy](#energy--id-1-and-the-one-id-that-may-be-missing-schema-46)). The game's `ResourceTypeId.Energy` is 1, bound live from the client's own enum. The engine had labelled 5 as Energy, which is `Arena3X3ShopCurrency` and was never exported. `quantity` is the whole balance the game shows, floored, because energy regenerates continuously and reads fractionally. It is not on the allowlist: it is present only when the resources dictionary was read, and **a missing id 1 means unknown, not zero**. Answers RaidTools' `docs/energy-export-uploader-brief.md` (asks 1–5), which reads id 1 and keeps the stored energy when it is absent. A consumer that ignores id 1 needs no change. |
 | 45 | v1.54.0 | 2026-10-29 | **Additive: the Deck of Fate as a Hero's Path-shaped entry** (see [Deck of Fate](#deck-of-fate--cards-as-reward-cells-like-the-heros-path-schema-45)). **A Deck of Fate is `soloTypeId` 3**, internally a Bingo event. It has been in `soloEvents[]` since schema 33 with its points, flipped cards and (since 43) scoring, but its `rewards` read `[]`. It now uses the Hero's Path's fields: `rewards[]` is the deck, one cell per card with `cost` (one flip, 1000) and the new `rarity` (1 Common / 2 Rare / 3 Epic); `boardCurrency` is the Fate Points not yet spent. The deck has no order, locks or keys, so `row`, `column`, `parentIds`, `parentRule`, `keyCost`, `keysHeld` and `unlockedRewardIds` are left out. New, Deck only: `fateChestRewards` (three same-rarity flips in a row pay one at random), `streak`, `streakRarity`, `streakRarityPinned`, `claimedFateChestRewardIds`, `openedCards` (where each flipped card lies). **An announced Deck of Fate now ships from its teaser start**, before the account holds its quest, with its structure, `points: 0` and `claimedRewardIds: []`. **`eventId` is the game's own `GlobalEvent.Id`** from the server-sent catalog, the same on every account and sync; absent only when the catalog could not be read. **Answers to RaidTools' Deck of Fate brief:** (1) *Its own type, or a container of solo events?* Its own type: one solo event with no stages. Other events running beside it score separately. (2) *What scores, and how is it priced?* Whatever its own `scoring` lists, per event. On 4489 that is artifact enhancement (action 21) by rank × rarity at 4–33 points, and soulstone opening (action 72) at 90 / 900 / 4,500 for Mortal / Immortal / Eternal. RaidTools' six-component template does not describe it, so read `scoring`. There are **no point milestones**: every card costs the same, and three cards of one rarity in a row pay a Fate Chest. (3) *Does the account carry its own progress?* Yes: `points`, `boardCurrency`, `claimedRewardIds` and the streak fields. A consumer that ignores the new fields needs no change. One that draws `rewards` will now see 40 card cells on a type-3 entry, and may see a type-3 entry before it starts. |
