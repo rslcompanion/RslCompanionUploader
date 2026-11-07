@@ -183,8 +183,11 @@ Second export, 18:36:40 UTC, after a +100% XP Boost (1 d.) was activated on the 
 
 The raw `UserEffect` read `Id 22, TypeId 2, Source 1, Power 100.0, Start/Finish` exactly one day apart
 (item 3001's `Duration`), `LastEffectId` 23. Both `DateTime`s carry Kind = UTC, and `startsAt` was 54 s
-before the machine's UTC clock (20:36 local, +02:00), so **the dates are UTC**. **Not yet compared:** a
-battle's XP with and without the boost, a Forge Pass or Raid Card boost, and two boosts at once.
+before the machine's UTC clock (20:36 local, +02:00), so **the dates are UTC**. **XP per run, boost running (owner's run, 2026-11-07, same account):** Campaign
+Brutal, stage "3", 4 champions in the team, +100% XP Boost active (the entry above): **8,652 XP per
+champion**. If the boost adds 100% of the base, the same run without it should give **4,326** — the owner
+re-runs it without the boost on 2026-11-08 to check. **Not yet compared:** a Forge Pass or Raid Card boost,
+and two boosts at once.
 
 **`account.liveArenaPoints` is the named field since schema 25** — `UserLiveArenaData.Points`, the same
 number as [`liveArena.points`](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege).
