@@ -3,9 +3,9 @@
   "$id": "https://github.com/rslcompanion/RslCompanionUploader/blob/main/docs/export-schema.json",
   "title": "RSL Companion consolidated account export",
   "description": "Payload POSTed to {ApiBaseUrl}/api/sync/consolidated/raw. One complete snapshot of one game account; a full replace, not a delta. Self-identifying: the server routes by the in-game accountId it carries. Since schema 13 this is the ONLY payload the uploader sends — the separate clan export was withdrawn. Human-readable contract and changelog: export-schema.md (keep both in sync, same commit).",
-  "schemaVersion": 47,
+  "schemaVersion": 48,
   "x-uploaderVersion": "1.44.0",
-  "x-lastUpdated": "2026-11-05",
+  "x-lastUpdated": "2026-11-07",
   "x-relatedCatalogs": {
     "battlePasses": "RslCompanionMetadata exports/battle_pass_index.json (schema 38+) — per passId: family and in-game name, season (startsAt/endsAt), level thresholds and each level's rewards per track. Not shipped here: it is a 1.9 MB catalog of every pass the game defines, served by RaidTools like the other metadata catalogs.",
     "inbox": "inbox-types.json (schema 40+) — inbox.items[].typeId (the game's InboxTypeId) to sourceKey, the Inbox's source-line key in the game's localization dictionary (RslCompanionMetadata exports/localization_en.json), with its English text; read out of the client's own switch and checked against the open Inbox. Ids with no title are absent there.",
@@ -71,7 +71,26 @@
         "arenaLeague": { "type": "integer" },
         "liveArenaLeague": { "type": "integer" },
         "arena3x3League": { "type": "integer" },
-        "energyCap": { "type": "integer", "minimum": 1, "description": "Schema 47. The energy cap: the number after the '/' on the in-game energy bar. Read from the client's own per-level table (StaticUserLevelData.EnergyLimitForLevel) at this account's level - 130 from level 60 on 2026-11-06, 120 at level 50. Energy itself is resources[] id 1 and may exceed it. Absent = unknown (keep the stored value); never 0.", "examples": [120, 130] }
+        "energyCap": { "type": "integer", "minimum": 1, "description": "Schema 47. The energy cap: the number after the '/' on the in-game energy bar. Read from the client's own per-level table (StaticUserLevelData.EnergyLimitForLevel) at this account's level - 130 from level 60 on 2026-11-06, 120 at level 50. Energy itself is resources[] id 1 and may exceed it. Absent = unknown (keep the stored value); never 0.", "examples": [120, 130] },
+        "xpBoosts": {
+          "type": "array",
+          "description": "Schema 48. Account-wide boosts to the XP champions earn in battle, from the account's own effect list (UserGameData UserEffectData.Effects), filtered to the three champion-XP effect types. [] = read, none on the account; absent = could not be read (keep the stored value). Includes effects the list still holds after they ended, with active false. How several running boosts combine (added or multiplied) has not been observed; see export-schema.md.",
+          "items": {
+            "type": "object",
+            "required": ["kind", "scope", "effectTypeId", "sourceId", "percent", "active"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "type": "string", "enum": ["booster", "forgePass", "raidCard", "gemsPurchase", "serverPrize", "unknown"], "description": "Where it came from, from UserEffectSource: booster = a Market XP Boost item (1), raidCard = subscription (2), gemsPurchase (3), serverPrize (4), forgePass = the Gold Forge Pass Raid Boost (5); unknown = a source id not in that enum." },
+              "scope": { "type": "string", "enum": ["allBattles", "campaign"], "description": "campaign = Campaign battles only (effectTypeId 4, the Raid Card); allBattles otherwise." },
+              "effectTypeId": { "type": "integer", "enum": [2, 4, 6], "description": "UserEffectTypeId: 2 BoostHeroesExperience, 4 BoostHeroesExperienceInStory (Campaign), 6 BoostHeroesExperienceByBattlePass." },
+              "sourceId": { "type": "integer", "description": "UserEffectSource: 1 Market item, 2 subscription, 3 gems purchase, 4 server prize, 5 Gold battle pass." },
+              "percent": { "type": "number", "exclusiveMinimum": 0, "description": "Percentage bonus on battle XP: 100 means +100% (the item the game names '+100% XP Boost'). Not a multiplier: one boost alone gives base x (1 + percent/100)." , "examples": [100, 200, 10, 20] },
+              "active": { "type": "boolean", "description": "True when the export time (UTC) is inside [startsAt, expiresAt). False when either date did not read." },
+              "startsAt": { "type": "string", "format": "date-time", "description": "UserEffect.Start, ISO-8601 UTC. Absent when unreadable." },
+              "expiresAt": { "type": "string", "format": "date-time", "description": "UserEffect.Finish, ISO-8601 UTC. Absent when unreadable." }
+            }
+          }
+        }
       }
     },
     "resources": {
