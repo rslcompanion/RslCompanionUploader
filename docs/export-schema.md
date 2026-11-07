@@ -183,8 +183,10 @@ How different kinds combine with each other cannot be read from the client, and 
   the game's own figure: the pass tooltip computes the current bonus as
   `BattlePassBoosterTooltipContext.CurrentBonus` = `AllBoosts(pass).Where(collected).Sum(power)` over the
   levels whose reward is collected (`BattlePassLevelsWrapperReadonly.IsRewardCollected`), and the rewards
-  panel merges pass effects the same way (`UserPrizeExtensions.StackBattlePassEffects`). The owner
-  recalls the pass bonus rising in +10% steps. These rewards carry `UserEffectInfo.Stacked` (offset 0x40),
+  panel merges pass effects the same way (`UserPrizeExtensions.StackBattlePassEffects`). The same tooltip
+  in-game (owner's screenshot, 2026-11-07, without the Gold Pass) lists the boost as **Level 1 to Level 5,
+  each "+10% XP and Silver from all Battles"**. That matches the 5 Gold-track rewards per season, so a
+  full season is +50%. These rewards carry `UserEffectInfo.Stacked` (offset 0x40),
   which no client logic reads, so the adding happens on the server. **Not yet seen in an export:**
   whether the account then holds one type-6 effect whose `percent` is the total, or one entry per reward.
   Summing the `forgePass` entries gives the total either way. **Caveat:** when a reward is collected, the
