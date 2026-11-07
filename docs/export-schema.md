@@ -186,7 +186,11 @@ The raw `UserEffect` read `Id 22, TypeId 2, Source 1, Power 100.0, Start/Finish`
 before the machine's UTC clock (20:36 local, +02:00), so **the dates are UTC**. **XP per run, boost running (owner's run, 2026-11-07, same account):** Campaign
 Brutal, stage "3", 4 champions in the team, +100% XP Boost active (the entry above): **8,652 XP per
 champion**. If the boost adds 100% of the base, the same run without it should give **4,326** — the owner
-re-runs it without the boost on 2026-11-08 to check. **Not yet compared:** a Forge Pass or Raid Card boost,
+re-runs it without the boost on 2026-11-08 to check. **The game's stage table already explains the number:** stage `1123003`
+(Campaign chapter 12, Brutal, stage 3) has `Stage.RewardHeroXp` **17,304** in the client's static data;
+17,304 ÷ 4 champions = 4,326, × (1 + 100/100) = **8,652**, exactly. So, for one boost, XP per champion =
+`RewardHeroXp ÷ champions in the team × (1 + percent/100)`. Per-stage `RewardHeroXp` is static game data
+(it describes the stage, not the account), so it is not on this payload; see RslCompanionMetadata. **Not yet compared:** a Forge Pass or Raid Card boost,
 and two boosts at once.
 
 **`account.liveArenaPoints` is the named field since schema 25** — `UserLiveArenaData.Points`, the same
