@@ -206,19 +206,24 @@ How different kinds combine with each other cannot be read from the client, and 
 
 ```
 XP per champion = RewardHeroXp / champions in the team × (1 + P / 100)
-P = booster percent (one: the larger, if two entries ever appear)
-  + sum of forgePass percents
-  + raidCard percent (Campaign battles only)
-  counting only entries active at the time, combined by adding (an estimate, see below)
+P = sum of `percent` over the xpBoosts entries active at the time whose scope applies
+    (allBattles always; campaign only in Campaign battles)
 ```
 
+**The owner's rule (2026-11-07): every separate record the game keeps adds.** Where the game does not
+allow a second record, the boost prolongs instead. That is what the client's code does: a repeat of the
+same type and source updates the one record (a Market booster's expiry moves out), so it never appears
+twice. Everything that is its own record adds its percent. One sum over the active entries therefore
+covers every case, and it is what RaidTools already does.
+
 - **Verified:** one booster alone (the trial below, exact to the unit).
-- **Forge Pass adds within itself:** the game's tooltip sums collected Raid Boosts. Not yet checked
-  against an export.
-- **Different kinds: an estimate.** Adding them is what RaidTools does today. Multiplying would give
-  `Π (1 + percent_i / 100)`; with a +100% booster and a +10% pass boost, 4,326 base XP becomes 9,084.6
-  added or 9,517.2 multiplied. The owner cannot run this case, so say in the UI that combined kinds are
-  an estimate.
+- **Forge Pass adds within itself:** the game's tooltip sums collected Raid Boosts (Levels 1–5, +10%
+  each). Not yet checked against an export, which may hold one entry with the total or one per level.
+  The sum is right either way.
+- **Different kinds add: the owner's reading, not verified.** The maths is on the server, and the
+  owner cannot run two kinds at once. Multiplying would give `Π (1 + percent_i / 100)`. With a +100%
+  booster and a +10% pass boost, 4,326 base XP becomes 9,084.6 if they add and 9,517.2 if they
+  multiply. Say in the UI that combined kinds are an estimate.
 - **Rounding and max level: not in the client.** The one trial divided evenly (17,304 / 4). Only 547
   of the 1,063 stages with XP divide evenly by 4, so whether the server floors per champion is still
   unseen. The owner reports that a max-level champion's share is lost, not passed on to the others.
