@@ -158,7 +158,8 @@ Where each number comes from — the game's own data, never a table kept here:
 - **Forge Pass Raid Boost** (`kind: forgePass`): the Gold track's level rewards carry type 6, power **10**
   (a few passes 20), flagged stacking, with an expiry at the season's end. The game's text is "+{0}% XP and
   Silver from all Battles". Across the client's 59 pass definitions, 164 Gold-track rewards carry it, so a
-  season holds several; whether the account then holds one effect per claimed reward is not yet seen. The
+  season holds several. The client keeps one effect per type and source, not one per claimed reward (see
+  "How several boosts combine" below). The
   silver half (type 7) is not exported.
 - **Raid Card** (`kind: raidCard`, `scope: campaign`): type 4. The shop text is "20% more XP and Silver from
   Campaign battles"; the percent ships as the effect holds it.
@@ -168,9 +169,57 @@ Where each number comes from — the game's own data, never a table kept here:
   read from the client), and none was found elsewhere on the account. A server-granted XP effect would
   arrive as `kind: serverPrize` through this same list.
 
-**Not established — consumers decide, and should say so:** how two running boosts combine (added or
-multiplied), and whether a pass boost counts once per claimed level or the game merges them. Only one boost has been seen running (below). Summing the active `percent` values of one
-`scope` is the reading the stacking flag suggests, not an observed fact.
+**How several boosts combine — what the game client's code shows (read 2026-11-07, game 11.85.5).** The
+short answer: **the battle-XP maths is on Plarium's server, not in the client.** What the client does
+show settles the same-type question and leaves the cross-type one open.
+
+- **The client never computes battle XP.** No client method reads effect types 2, 4 or 6 to scale a
+  reward. `FinishBattleCmd.EditOnFullUserRefresh` (Unity.Model) takes the result from the server
+  (`FinishBattleResponseDto.InstantReward` / `InboxReward`) and replaces the account from it. The only
+  client code that filters type 2 is the "XP Boost ends soon" notification
+  (`XPBoosterEndSoonNotificationService.BoosterEffect`). `HeroExtensions.CalcXpToAdd` is the Training
+  Camp's timer, not battles. So **how a booster (2), a Raid Card (4) and a Forge Pass boost (6) combine
+  with each other cannot be read from the client.** Splitting by team size, rounding and a max-level
+  champion's share are server-side for the same reason.
+- **Forge Pass Raid Boosts add up (sum, not product, not max).** The game's own Forge Pass tooltip
+  computes the current bonus as `BattlePassBoosterTooltipContext.CurrentBonus` =
+  `AllBoosts(pass).Where(collected).Sum(power)`, over the pass levels whose reward is collected
+  (`BattlePassLevelsWrapperReadonly.IsRewardCollected`). Five collected +10% rewards show as +50%.
+  The rewards panel merges them the same way (`UserPrizeExtensions.StackBattlePassEffects`). This is
+  what the game tells the player. The server's own sum is not in the client.
+- **The account holds one effect per type and source.** A granted effect goes through
+  `UserPrizeExtensions.TryGiveEffects` → `UserEffectExtensions.AddOrUpdateEffect(…, useSource: true)`.
+  That looks up an existing effect by `TypeId` and `Source` (`GetUserEffect` → `GetEffect`). Only
+  type 10 (artifact-removal discount) also requires an equal `Power`. If one exists, it is updated, not
+  duplicated: `Power` is **overwritten** with the new grant's power (`Undo.Set<double>`, a plain
+  store), and the grant's duration is added to `Finish`. The `Stacked` flag on the reward
+  (`UserEffectInfo.Stacked`, offset 0x40) is read by no client code except its serializer, hash and
+  equality. So a second Market booster extends the running one instead of adding a second entry.
+- **Caveat for the export after a pass claim.** By that code, the client's copy of a type-6 effect
+  reads the power of the *last* claimed reward (10), not the sum the tooltip shows, until the server
+  next replaces the account (any finished battle does). If the server keeps the sum, the next refresh
+  shows it. One check settles it: claim a second Raid Boost, finish a battle, export. One `forgePass`
+  entry at 20 means the server sums into one effect. 10 means it does not, and a consumer should take
+  the pass bonus from the collected levels, as the tooltip does.
+
+**Formula for consumers (best available, partly unverified):**
+
+```
+XP per champion = RewardHeroXp / champions in the team × (1 + P / 100)
+P = sum of `percent` over active entries whose scope applies (allBattles, plus campaign in the Campaign)
+```
+
+- **Verified:** one booster alone (the trial below, exact to the unit).
+- **From the client's code:** within the Forge Pass, collected boosts add (`CurrentBonus` sums them).
+  Summing several entries of one `kind` matches it.
+- **Not verifiable from the client:** whether *different* kinds add or multiply. Adding is what
+  RaidTools does today. Multiplying would give `Π (1 + percent_i / 100)`. With a +100% booster and a
+  +10% pass boost, 4,326 base XP becomes 9,084.6 if they add and 9,517.2 if they multiply, so one run
+  with both active tells them apart. Until then, say in the UI that combined boosts are an estimate.
+- **Rounding and max level: not in the client.** The one trial divided evenly (17,304 / 4). Only 547
+  of the 1,063 stages with XP divide evenly by 4, so whether the server floors per champion is still
+  unseen. The owner reports that a max-level champion's share is lost, not passed on to the others.
+  No client code redistributes it.
 
 **Trial (2026-11-07, game 11.85.5, level-50 test account).** First export, 11:1x UTC: no pass, card or
 booster running, none of items 3001–3004 in stock → `"xpBoosts": []` (`LastEffectId` 22), read in 1 ms.
