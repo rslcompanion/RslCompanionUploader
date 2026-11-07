@@ -158,8 +158,7 @@ Where each number comes from — the game's own data, never a table kept here:
 - **Forge Pass Raid Boost** (`kind: forgePass`): the Gold track's level rewards carry type 6, power **10**
   (a few passes 20), flagged stacking, with an expiry at the season's end. The game's text is "+{0}% XP and
   Silver from all Battles". Across the client's 59 pass definitions, 164 Gold-track rewards carry it, so a
-  season holds several. The client keeps one effect per type and source, not one per claimed reward; a repeat grant
-  prolongs it (see "How several boosts combine" below). The
+  season holds several. Each collected one adds its percent (see "How several boosts combine" below). The
   silver half (type 7) is not exported.
 - **Raid Card** (`kind: raidCard`, `scope: campaign`): type 4. The shop text is "20% more XP and Silver from
   Campaign battles"; the percent ships as the effect holds it.
@@ -169,26 +168,29 @@ Where each number comes from — the game's own data, never a table kept here:
   read from the client), and none was found elsewhere on the account. A server-granted XP effect would
   arrive as `kind: serverPrize` through this same list.
 
-**How several boosts combine (client code read 2026-11-07, game 11.85.5; owner's observation the same day).**
-**The battle-XP maths runs on Plarium's server, not in the client.** The rule for boosts of one kind is
-settled. How different kinds combine is not, and cannot be tested: the owner never has two kinds running at once.
+**How several boosts combine (client code read 2026-11-07, game 11.85.5; owner's observations the same day).**
+**The battle-XP maths runs on Plarium's server, not in the client.** The rule depends on the kind of boost.
+How different kinds combine with each other cannot be read from the client, and the owner cannot test it.
 
-- **Same kind: a second boost prolongs the first, it does not add.** The owner reports that activating
-  another boost of the same kind only extends its expiry date. The client's code does the same. A granted
-  effect goes through `UserPrizeExtensions.TryGiveEffects` → `UserEffectExtensions.AddOrUpdateEffect(…,
-  useSource: true)`, which looks up an existing effect by `TypeId` and `Source` (`GetUserEffect` →
-  `GetEffect`; only type 10, the artifact-removal discount, also requires an equal `Power`). If one exists,
-  it is updated, not duplicated: `Power` is **overwritten** with the new grant's power (`Undo.Set<double>`,
-  a plain store, not an add), and the grant's duration is added to `Finish`. The reward's `Stacked` flag
-  (`UserEffectInfo.Stacked`, offset 0x40) is read by no client logic, only its serializer, hash and equality.
-  So the account holds **one effect per type and source**, and its `percent` is the bonus, however many
-  times it was granted.
-- **One contrary hint, for the Forge Pass only.** The pass tooltip shows a "current bonus" as
+- **Market boosters (`booster`): a second one prolongs the first, it does not add.** The owner reports that
+  activating another boost only extends its expiry date, and the game allows one at a time. The client's
+  code does the same. A granted effect goes through `UserPrizeExtensions.TryGiveEffects` →
+  `UserEffectExtensions.AddOrUpdateEffect(…, useSource: true)`, which looks up an existing effect by
+  `TypeId` and `Source` (`GetUserEffect` → `GetEffect`; only type 10, the artifact-removal discount, also
+  requires an equal `Power`). If one exists, it is updated, not duplicated: `Power` is **overwritten** with
+  the new grant's power (`Undo.Set<double>`, a plain store), and the grant's duration is added to `Finish`.
+- **Forge Pass Raid Boosts (`forgePass`): each collected one adds its percent (+10% per reward).** This is
+  the game's own figure: the pass tooltip computes the current bonus as
   `BattlePassBoosterTooltipContext.CurrentBonus` = `AllBoosts(pass).Where(collected).Sum(power)` over the
-  collected levels, and the rewards panel merges pass effects the same way
-  (`UserPrizeExtensions.StackBattlePassEffects`). That is display arithmetic over the pass's reward table,
-  not the account's effect. It conflicts with the rule above and with the owner's observation, so it is
-  not used in the formula.
+  levels whose reward is collected (`BattlePassLevelsWrapperReadonly.IsRewardCollected`), and the rewards
+  panel merges pass effects the same way (`UserPrizeExtensions.StackBattlePassEffects`). The owner
+  recalls the pass bonus rising in +10% steps. These rewards carry `UserEffectInfo.Stacked` (offset 0x40),
+  which no client logic reads, so the adding happens on the server. **Not yet seen in an export:**
+  whether the account then holds one type-6 effect whose `percent` is the total, or one entry per reward.
+  Summing the `forgePass` entries gives the total either way. **Caveat:** when a reward is collected, the
+  client's local copy goes through `AddOrUpdateEffect` above and reads the *last* reward's percent (10)
+  until the server next replaces the account (any finished battle does). An export taken right after a
+  claim, before a battle, can therefore read low.
 - **Different kinds: not in the client.** No client method reads effect types 2, 4 or 6 to scale a reward.
   `FinishBattleCmd.EditOnFullUserRefresh` (Unity.Model) takes the result from the server
   (`FinishBattleResponseDto.InstantReward` / `InboxReward`) and replaces the account from it. The only
@@ -202,14 +204,15 @@ settled. How different kinds combine is not, and cannot be tested: the owner nev
 
 ```
 XP per champion = RewardHeroXp / champions in the team × (1 + P / 100)
-P = for each kind active in the battle's scope (allBattles, plus campaign in the Campaign),
-    that kind's percent, added together
+P = booster percent (one: the larger, if two entries ever appear)
+  + sum of forgePass percents
+  + raidCard percent (Campaign battles only)
+  counting only entries active at the time, combined by adding (an estimate, see below)
 ```
 
 - **Verified:** one booster alone (the trial below, exact to the unit).
-- **Same kind counts once.** The export normally carries one entry per kind, since the game keeps one
-  effect per type and source. If two entries of one `kind` ever appear, use one of them (the larger),
-  never their sum: a repeat grant prolongs the boost, it does not raise it.
+- **Forge Pass adds within itself:** the game's tooltip sums collected Raid Boosts. Not yet checked
+  against an export.
 - **Different kinds: an estimate.** Adding them is what RaidTools does today. Multiplying would give
   `Π (1 + percent_i / 100)`; with a +100% booster and a +10% pass boost, 4,326 base XP becomes 9,084.6
   added or 9,517.2 multiplied. The owner cannot run this case, so say in the UI that combined kinds are
