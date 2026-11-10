@@ -1120,9 +1120,14 @@ public sealed class MainForm : Form
         // Disables the tile buttons for the duration: applying the result re-probes the account, and
         // a "Update user data" click landing mid-check would race that re-probe.
         SetBusy(true);
+        var label = BuildLabel(build);
+        bool applied = false;
         try
         {
-            var label = BuildLabel(build);
+            // The pill, not just a log line: the console starts collapsed, so without this the
+            // seconds after "Verify compatibility" show nothing but greyed-out buttons. The poll
+            // skips while busy, so this text holds until the finally restores the real state.
+            _shell.SetStatus("calibrating", $"New Raid version — checking RSL Companion for Raid {label}…");
             Log($"Checking whether RSL Companion already supports Raid {label}…");
 
             CertificationResult response;
@@ -1156,29 +1161,40 @@ public sealed class MainForm : Form
                 return false;
             }
 
-            var applied = BuildCertification.Apply(response.Body!, build.GameAssemblyHash, AboutForm.DisplayVersion);
-            switch (applied.Outcome)
+            var result = BuildCertification.Apply(response.Body!, build.GameAssemblyHash, AboutForm.DisplayVersion);
+            switch (result.Outcome)
             {
                 case BuildCertification.Outcome.Applied:
-                    Log($"Good news — {applied.Message} Reading your account now.");
+                    Log($"Good news — {result.Message} Reading your account now.");
+                    // Same banner as a local setup gets, for the same reason: the console starts
+                    // collapsed, and this quietly fixed the one thing that would have blocked export.
+                    _shell.SetNotice($"Raid {label} is a new version — RSL Companion set it up "
+                                    + "automatically so everything keeps working.");
                     // Let the next poll re-probe against the result that now exists rather than
                     // asserting a state from here.
                     _gameState = GameState.NotRunning;
                     RefreshBuildInfo();
+                    applied = true;
                     return true;
 
                 case BuildCertification.Outcome.NeedsNewerUploader:
-                    Log($"Raid {label} is supported, but {applied.Message} " +
+                    Log($"Raid {label} is supported, but {result.Message} " +
                         "Use Actions → Check for updates, then try again.");
                     return false;
 
                 default:
-                    Log($"Couldn't set this up from RSL Companion — {applied.Message}");
+                    Log($"Couldn't set this up from RSL Companion — {result.Message}");
                     return false;
             }
         }
         finally
         {
+            // Take the "checking online" text back down. Applied: the next poll re-probes and
+            // repaints; until then the account is being read. Otherwise the pill goes back to the
+            // state the poll last saw (no log line: same state), and a local setup that starts
+            // straight after replaces it with its own text.
+            if (applied) _shell.SetStatus("loading", "Raid is running — reading your account…");
+            else ApplyGameState(_gameState);
             SetBusy(false);
         }
     }
