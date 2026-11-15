@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 48** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 49** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -160,10 +160,26 @@ Where each number comes from — the game's own data, never a table kept here:
   Silver from all Battles". Across the client's 59 pass definitions, 164 Gold-track rewards carry it, so a
   season holds several. Each collected one adds its percent (see "How several boosts combine" below). The
   silver half (type 7) is not exported.
+  **Schema 49 check of every static pass reward** (`tools/EventProbe --appmodel --passperks`, 11.85.5): the
+  XP effect sits **only on the Gold track (2)**: 195 rewards on the Forge Passes, 5 per season at +10%, plus
+  the legacy and test pass families. **No Platinum reward and no Champion Pass or Pioneer Pass reward carries
+  any effect.** So a premium Forge Pass is not a running bonus. It is a Gold purchase whose level rewards each
+  grant a +10% effect when **collected**, and only then does an entry appear here, with `sourceId` 5
+  (`GoldBattlePass`). An account that bought Gold and collected nothing yet has no `forgePass` entry, and
+  that is correct. Read `battlePasses[].purchasedTrackIds` for "is the pass bought". The owner's sync of
+  2026-11-15 had no `forgePass` entry because the account never bought a pass (`purchaseTypeId` 1 on all
+  43), not because the boost is unread. There is nothing to add to this list from elsewhere: an uncollected
+  reward does not apply.
 - **Raid Card** (`kind: raidCard`, `scope: campaign`): type 4. The shop text is "20% more XP and Silver from
   Campaign battles"; the percent ships as the effect holds it.
 - **Not XP per battle, not exported:** type 1 (the *account's* XP), type 1000 (the Raid Card's Sparring Pit
   "x2 XP", which is Training Camp, not a battle), silver and gear-removal boosts.
+- **No energy perk exists as an effect.** `UserEffectTypeId`'s 32 members (read from `global-metadata.dat`)
+  include no energy type: the nearest is 5 `ExtraDailyAutoBattleTickets` (multi-battle tickets). Energy that
+  a pass pays is a one-off level reward on the **free** track (15 Champion Pass rewards, 9 Pioneer Pass ones,
+  across the client's pass definitions) and lands in [`resources[]` `id: 1`](#energy--id-1-and-the-one-id-that-may-be-missing-schema-46)
+  when collected. The subscription (Raid Card) effect types are 1000–1002 (Sparring Pit, Legendary Tome,
+  chest); with type 4 (Campaign XP, exported) that is every Raid Card effect the enum names, and none is energy.
 - **No clan or event XP multiplier exists** in the game's effect types (`UserEffectTypeId` has 32 members,
   read from the client), and none was found elsewhere on the account. A server-granted XP effect would
   arrive as `kind: serverPrize` through this same list.
@@ -1588,10 +1604,12 @@ no memory scan. Full mapping: the engine's `docs/events-findings.md`.
 "battlePasses": [
   { "passId": 1037, "kindId": 2, "status": 1, "points": 365,
     "startsAt": "2026-09-16T09:00:00Z", "endsAt": "2026-10-14T09:00:00Z",
+    "purchaseTypeId": 1, "purchasedTrackIds": [],
     "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 36] },
                 { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] },
   { "passId": 2004, "kindId": 3, "status": 2, "points": 2820,
     "startsAt": "2026-05-19T11:30:00Z", "endsAt": "2026-07-20T11:30:00Z",
+    "purchaseTypeId": 1, "purchasedTrackIds": [],
     "tracks": [ { "trackId": 1, "claimedLevels": [1, 2, /* … */ 25] },
                 { "trackId": 2, "claimedLevels": [] }, { "trackId": 3, "claimedLevels": [] } ] }
 ]
@@ -1708,12 +1726,34 @@ field, so the Pioneer and Apprentice kinds will only be known from an account th
 should key on `kindId` and treat an unknown one as a pass it has no label for.
 
 **Fields.** `points` is `EarnedPoints`. `tracks` is the game's `CollectedLevelsByTypeId`: per reward
-track, the levels whose reward was collected. **Track ids (the game's `BattlePassTypeId`):** 1 = Free is
-certain. 2 = the paid track (the Forge Pass's Gold, the Champion Pass's Elite) and 3 = Platinum are
-inferred. Track 3 first appears on pass 1028, the first pass with Platinum intro art, but the enum's
-numeric values are not read. A track key can be present with nothing behind it: Champion Passes carry an
-empty track 3 and have no Platinum rewards. An empty premium track means nothing was collected there, not
-that it was not bought.
+track, the levels whose reward was collected. **Track ids are the game's `BattlePassTypeId`, values read
+from `global-metadata.dat` in schema 49: 1 Free, 2 Gold, 3 Platinum** (before 49, 2 and 3 were inferred;
+the inference was right). The Champion Pass's paid track is 2. A track key can be present with nothing
+behind it: Champion Passes carry an empty track 3 and have no Platinum rewards. An empty premium track
+means nothing was collected there; whether it was bought is `purchasedTrackIds`.
+
+**What was bought (schema 49): `purchaseTypeId` and `purchasedTrackIds`.** The account's pass record
+holds the purchase itself: `UserBattlePass.TypeId`, the same `BattlePassTypeId` enum, whose fourth value
+is a purchase rather than a track:
+
+| `purchaseTypeId` | game name | `purchasedTrackIds` |
+|---:|---|---|
+| 1 | `Free` | `[]` (nothing bought) |
+| 2 | `Gold` | `[2]` |
+| 3 | `Platinum` | `[3]` |
+| 4 | `PlatinumAndGold` | `[2, 3]` |
+
+- `purchasedTrackIds` drops a purchase the game lists in `UserBattlePass.RefundedTypes` (null on every pass
+  seen so far).
+- **`[]` = read, nothing bought. Absent = not read** (the field did not resolve, or held a value outside
+  1–4). Never inferred from `claimedLevels`.
+- The enum has its own `PlatinumAndGold` member, and the client has separate `HasGoldStatus`,
+  `HasPlatinumStatus` and `HasPlatinumAndGoldStatus` checks, so `Platinum` (3) is mapped to the Platinum
+  track alone. Whether the server also pays a Platinum-only buyer the Gold rewards has not been seen.
+  `purchaseTypeId` ships beside the derived list so a consumer can decide otherwise without a new schema.
+- Verified live (11.85.5, 2026-11-15) on the owner's account, which has never bought a pass: `TypeId` 1 on
+  all 43 passes, every Gold and Platinum track empty, so `purchasedTrackIds: []` on both entries. **A bought
+  pass has not been seen yet**; the mapping of 2–4 rests on the enum's names.
 
 **`startsAt` / `endsAt`** (UTC, ISO 8601 with `Z`, the same format as `soloEvents[]`):
 
@@ -2214,6 +2254,9 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 49 | unreleased | 2026-11-15 | **Additive: what the account bought on each pass, `battlePasses[].purchaseTypeId` and `purchasedTrackIds`** (see [`battlePasses[]`](#battlepasses--every-pass-kind-with-its-season-schema-38)); also on the deprecated `battlePass`. The game keeps it on the account's pass record (`UserBattlePass.TypeId`, enum `BattlePassTypeId`: 1 Free, 2 Gold, 3 Platinum, 4 PlatinumAndGold, read from `global-metadata.dat`), so `purchasedTrackIds` is `[]` / `[2]` / `[3]` / `[2, 3]` minus refunds. `[]` = read, nothing bought; absent = unread. **Track ids 2 = Gold and 3 = Platinum are now read, not inferred.** Verified live on an account that never bought a pass (1 on all 43); a bought pass is not yet seen. Answers RaidTools' `docs/battle-pass-premium-uploader-brief.md` asks 1–2. A consumer that ignores the fields needs no change. |
+| 49 | unreleased | 2026-11-15 | **Finding, no wire change: the Forge Pass XP boost is a collected Gold reward, already in `account.xpBoosts`** (see [`account.xpBoosts`](#accountxpboosts--champion-xp-boosts-schema-48)). Across every static pass reward, the XP effect (type 6, +10%, a few +20%) is only on the Gold track of the Forge Passes, 5 per season. Platinum rewards and the Champion and Pioneer Passes carry none. It reaches `xpBoosts[]` as `kind: "forgePass"` when a reward is collected, so a pass bought and not yet claimed gives no entry. The owner's 2026-11-15 sync had none because no pass was ever bought. Asks 3–4. |
+| 49 | unreleased | 2026-11-15 | **Finding, no wire change: no Champion Pass or Raid Card perk is missing from `xpBoosts`.** The game has no energy effect type. Pass energy is a one-off free-track reward (Champion and Pioneer Passes), counted in `resources[]` `id: 1` once collected. The Raid Card's only battle-XP perk is type 4 (Campaign), already exported as `raidCard`. Ask 5. |
 | 48 | v1.57.0 | 2026-11-07 | **Additive: the account's champion XP boosts, `account.xpBoosts`** (see [`account.xpBoosts`](#accountxpboosts--champion-xp-boosts-schema-48)). One entry per account effect that raises champion battle XP: Market XP Boost items, the Gold Forge Pass Raid Boost, the Raid Card's Campaign boost, server-granted ones. Each has `kind`, `scope`, the game's `effectTypeId` / `sourceId`, `percent` (a percentage bonus: 100 = +100%), `active`, `startsAt`, `expiresAt`. `[]` = none; absent = unread. Verified live both ways: `[]` with none running, and a +100% booster read with its exact 1-day window (UTC). Answers RaidTools' `docs/xp-boosts-uploader-brief.md`. A consumer that ignores it needs no change. |
 | 47 | v1.56.0 | 2026-11-06 | **Additive: the account's energy cap, `account.energyCap`** (see [`account`](#account)). The number after the `/` on the in-game energy bar, read from the client's own per-level table (`StaticUserLevelData.EnergyLimitForLevel`) at the account's level. It is what one 40-gem energy refill adds. Verified live: a level-50 account read 120 against its `19,299/120` bar. Omitted when the table could not be read; never 0. Answers RaidTools' `docs/max-energy-uploader-brief.md`. A consumer that ignores it needs no change. |
 | 46 | v1.55.0 | 2026-11-05 | **Additive: the account's energy, as `resources[]` `id: 1`** (see [Energy](#energy--id-1-and-the-one-id-that-may-be-missing-schema-46)). The game's `ResourceTypeId.Energy` is 1, bound live from the client's own enum. The engine had labelled 5 as Energy, which is `Arena3X3ShopCurrency` and was never exported. `quantity` is the whole balance the game shows, floored, because energy regenerates continuously and reads fractionally. It is not on the allowlist: it is present only when the resources dictionary was read, and **a missing id 1 means unknown, not zero**. Answers RaidTools' `docs/energy-export-uploader-brief.md` (asks 1–5), which reads id 1 and keeps the stored energy when it is absent. A consumer that ignores id 1 needs no change. |
