@@ -25,17 +25,24 @@
     <ProjectReference Include="..\..\RslCompanionUploader.csproj" />
   </ItemGroup>
 
-  <!-- LearnedRvaTests pins MemoryCore's catalog writes. The app reaches the engine only as a native
-       DLL, so these tests reference the managed MemoryCore themselves, and only when the private
-       submodule is present. -->
+  <!-- LearnedRvaTests pins MemoryCore's catalog writes, and GrimForestGoblinsTests the engine's Golden
+       Goblin join and its wire names. The app reaches the engine only as a native DLL, so these tests
+       reference the managed projects themselves, and only when the private submodule is present. -->
   <PropertyGroup>
     <MemoryCoreProject>$(MSBuildThisFileDirectory)..\..\extraction\Core\RslCompanion.MemoryCore.csproj</MemoryCoreProject>
+    <ExtractionProject>$(MSBuildThisFileDirectory)..\..\extraction\RslCompanion.Extraction.csproj</ExtractionProject>
   </PropertyGroup>
   <ItemGroup Condition="Exists('$(MemoryCoreProject)')">
     <ProjectReference Include="$(MemoryCoreProject)" />
   </ItemGroup>
+  <ItemGroup Condition="Exists('$(ExtractionProject)')">
+    <ProjectReference Include="$(ExtractionProject)" />
+  </ItemGroup>
   <ItemGroup Condition="!Exists('$(MemoryCoreProject)')">
     <Compile Remove="LearnedRvaTests.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('$(ExtractionProject)')">
+    <Compile Remove="GrimForestGoblinsTests.cs" />
   </ItemGroup>
 
 </Project>

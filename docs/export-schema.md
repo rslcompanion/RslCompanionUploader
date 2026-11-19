@@ -6,7 +6,7 @@ It describes exactly what `POST {ApiBaseUrl}/api/sync/consolidated/raw` receives
 - Machine-readable form: [`export-schema.json`](export-schema.json) (JSON Schema 2020-12).
 - This repo is public, so consumers can reference both files without access to the private
   extraction engine.
-- **Schema version: 49** — bump `schemaVersion` below and add a Changelog row on every wire change.
+- **Schema version: 50** — bump `schemaVersion` below and add a Changelog row on every wire change.
 - **This is now the only payload the uploader sends.** The separate clan export that used to carry a
   clan record and member roster is gone — see `clanId` below and Changelog 13.
 - Champion **role** ids are named in [`role-names.json`](role-names.json), artifact slot / stat /
@@ -1329,6 +1329,8 @@ game's own classes (`UserArenaData`, `UserLiveArenaData`, `UserStageData.DoomTow
   { "difficultyId": 2, "level": 30, "experience": 11650, "curioSlots": 6, "treasureHuntReceived": true,
     "passedStageIds": [14012002, 14012003 /* … */, 14042103],       // schema 30
     "completedSlotIds": [1, 2, 3 /* … */, 403],                       // schema 31
+    "goldenGoblins": [ { "zone": 1401, "slotId": 4, "prizesTaken": [2000000, 4000000, 7000000, 10000000] },
+                       { "zone": 1403, "slotId": 342, "prizesTaken": [8000000, 12000000] } /* … */ ],  // schema 50
     "shopPurchases": [ { "itemId": 2, "purchaseCount": 1, "boughtCurioRank": 2 },
                        { "itemId": 8, "purchaseCount": 1 } /* … */ ],   // schema 34
     "completedQuestIds": [10711001, 10711002 /* … */, 10711013],     // schema 34
@@ -1443,6 +1445,33 @@ Grim Forest matches to the day. **Doom Tower rotations are global** — both dif
   denominator and the node kinds from the metadata catalog. `[]` = nothing completed; **absent**, never
   `[]`, when it could not be read. Verified live (11.75.0, rotation 10): Hard 403 of 403 (map fully
   cleared, as the player confirmed), Normal 232.
+- **`grimForest.difficulties[].goldenGoblins` (schema 50) is how far each Golden Goblin has paid out**
+  — one entry per goblin (map element type 3) fought this rotation: `zone`, `slotId`, `prizesTaken`.
+  A goblin pays by damage dealt, per tier of its zone's `prizeByDamage` in the metadata catalog
+  (`ModeRewards.grimForest.difficulties[d].goldenGoblin[zone]`; Hard 1401 at 2M / 4M / 7M / 10M), and
+  **the game puts its slot on `completedSlotIds` after the first fight, whatever the damage**. So a
+  goblin is finished only once `prizesTaken` holds its zone's top threshold.
+  - **`prizesTaken`, not a damage figure.** The client keeps no damage: the goblin stages'
+    `StageStats.BestPoints` read 0. What it keeps is the tiers already paid, per map slot
+    (`UserFoggyForestStageSlot.GoldenGoblinCompletedMilestones`, a `List<int>` of thresholds). Those
+    are the same numbers as the `prizeByDamage` keys, ascending. The highest one is a lower bound on
+    the best fight's damage, never the damage itself.
+  - **`zone`** is the goblin's map zone (1401, 1402, …), the key of the catalog's `goldenGoblin[].zone`.
+    It comes from the client's static map (`StaticFoggyForestMapData.StageSlotsData[].Zone`, one table
+    for both difficulties). **`slotId`** is the slot, in the numbering of `completedSlotIds`.
+  - A goblin stage won this rotation (`passedStageIds`, stage ids `ZZZZ D 2SS`) whose zone has no slot
+    with a list is still listed, with no `slotId` and `prizesTaken: []`: a fight that paid no tier may
+    leave no list behind. Not seen live; every goblin fought so far carried one.
+  - Several goblins share a zone (Hard 1402 has four on rotation 12), so zone is not a key: compare
+    each entry with its zone's top tier.
+  - Sorted by `zone`, then `slotId`. `[]` = read, none fought; **absent**, never `[]`, when the slots or
+    the static map could not be read. A goblin not fought is not listed, and is not on
+    `completedSlotIds` either.
+  - Verified live (11.95.0, rotation 12, 2026-11-19): Hard listed 1401/4 at all four tiers, 1402/77,
+    1402/133 and 1402/202 at all four, and 1403/342 at 8M and 12M of 8/12/23/35M. All five were on
+    `completedSlotIds`. The sixth Hard goblin (slot 252, stage 14022203) had never been fought: no
+    stage record, no tiers, and it was the one slot missing from 402/403. Normal: `[]`, no goblin
+    fought and none completed.
 - **`grimForest.difficulties[].shopPurchases` (schema 34) is the Grim Forest shop** — one entry per
   shop item bought at least once this rotation: `itemId`, `purchaseCount`, and for a curio item the
   `boughtCurioRank`. Source: the difficulty's `ShopData.ShopItems` (`UserFoggyForestShopItem {Id,
@@ -2254,6 +2283,8 @@ and `ResourceName` in `GameMaps.cs`).
 
 | Schema | Uploader | Date | Change |
 |---:|---|---|---|
+| 50 | unreleased | 2026-11-19 | **Additive: `grimForest.difficulties[].goldenGoblins`** (see [Mode progress](#mode-progress--classicarena-livearena-doomtower-cursedcity-grimforest-siege)). One entry per Golden Goblin fought this rotation: `zone` (1401, 1402, …, the metadata's `goldenGoblin[].zone`), `slotId` (the `completedSlotIds` numbering) and `prizesTaken` (the damage tiers paid, as `prizeByDamage` thresholds, ascending). `[]` = read, none fought; absent = unread. Answers RaidTools' `docs/grim-forest-goblin-damage-uploader-brief.md` asks 1–2. **Ask 3 applies: the client stores the tiers collected, not the damage**, so the entries carry `prizesTaken` and no `bestDamage`. A goblin is finished when `prizesTaken` holds its zone's top tier. A consumer reading `bestDamage` (RaidTools adapter 4.19.0) finds it absent and keeps counting goblins as the game does; it needs the switch to `prizesTaken` to correct the count. |
+| 50 | unreleased | 2026-11-19 | **Finding (ask 4): the game never leaves a fought goblin off `completedSlotIds`.** On rotation 12 all five Hard goblins fought were completed, including one paid 2 of 4 tiers. The only goblin slot missing (Hard 402/403, slot 252) had never been fought: no stage record and no tier list. So the count to correct is "completed but below the top tier", and a goblin missing from `completedSlotIds` is unfought. The owner's 402/403 was that unfought goblin, not a miscount. |
 | 49 | v1.58.0 | 2026-11-15 | **Additive: what the account bought on each pass, `battlePasses[].purchaseTypeId` and `purchasedTrackIds`** (see [`battlePasses[]`](#battlepasses--every-pass-kind-with-its-season-schema-38)); also on the deprecated `battlePass`. The game keeps it on the account's pass record (`UserBattlePass.TypeId`, enum `BattlePassTypeId`: 1 Free, 2 Gold, 3 Platinum, 4 PlatinumAndGold, read from `global-metadata.dat`), so `purchasedTrackIds` is `[]` / `[2]` / `[3]` / `[2, 3]` minus refunds. `[]` = read, nothing bought; absent = unread. **Track ids 2 = Gold and 3 = Platinum are now read, not inferred.** Verified live on an account that never bought a pass (1 on all 43); a bought pass is not yet seen. Answers RaidTools' `docs/battle-pass-premium-uploader-brief.md` asks 1–2. A consumer that ignores the fields needs no change. |
 | 49 | v1.58.0 | 2026-11-15 | **Finding, no wire change: the Forge Pass XP boost is a collected Gold reward, already in `account.xpBoosts`** (see [`account.xpBoosts`](#accountxpboosts--champion-xp-boosts-schema-48)). Across every static pass reward, the XP effect (type 6, +10%, a few +20%) is only on the Gold track of the Forge Passes, 5 per season. Platinum rewards and the Champion and Pioneer Passes carry none. It reaches `xpBoosts[]` as `kind: "forgePass"` when a reward is collected, so a pass bought and not yet claimed gives no entry. The owner's 2026-11-15 sync had none because no pass was ever bought. Asks 3–4. |
 | 49 | v1.58.0 | 2026-11-15 | **Finding, no wire change: no Champion Pass or Raid Card perk is missing from `xpBoosts`.** The game has no energy effect type. Pass energy is a one-off free-track reward (Champion and Pioneer Passes), counted in `resources[]` `id: 1` once collected. The Raid Card's only battle-XP perk is type 4 (Campaign), already exported as `raidCard`. Ask 5. |
