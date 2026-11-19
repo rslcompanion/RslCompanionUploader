@@ -100,6 +100,35 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
+    /// Deletes one of the signed-in user's own game accounts from RSL Companion
+    /// (<c>DELETE /api/accounts/{id}?syncMethod=</c>, the call the website's dashboard makes).
+    /// <paramref name="syncMethod"/> scopes it to this uploader's import, so the same game account
+    /// imported from another source keeps its snapshot. The server filters by the caller's uid, so
+    /// this can only ever reach the signed-in user's own accounts. A 404 means it is already gone,
+    /// which is the outcome asked for.
+    /// </summary>
+    public async Task<UploadResult> DeleteAccountAsync(int userId, string syncMethod, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Delete,
+                $"/api/accounts/{userId}?syncMethod={Uri.EscapeDataString(syncMethod)}", ct);
+            using var resp = await _http.SendAsync(req, ct);
+            if (resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.NotFound)
+                return UploadResult.Ok("Account removed.", $"{(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return UploadResult.Fail(ServerMessage(body) ?? "RSL Companion couldn't remove that account. Please try again in a moment.",
+                $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return UploadResult.Fail("Couldn't reach RSL Companion to remove that account. Check your connection and try again.",
+                ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Sharing settings for every account the signed-in user owns, keyed by in-game id. Null when the
     /// server can't say — an anonymous session (sharing is registered-users-only, 403), a server that
     /// predates sharing, or no network — so the caller shows no sharing state rather than "not shared".

@@ -61,8 +61,8 @@ and `AppShell` docked fill, nothing else. `MainForm` stays the backend — it ru
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL,
 Actions menu).
-The page posts back ten actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
-`installUpdate`, `logDetail`, `copyLog`, `feedback`, `menu`. There is no uncovered-build bridge action
+The page posts back eleven actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
+`installUpdate`, `logDetail`, `copyLog`, `feedback`, `menu`, `removeAccount`. There is no uncovered-build bridge action
 or banner: covering an uncovered build is triggered automatically from `MainForm`, not from anything
 the page posts back.
 
@@ -248,6 +248,14 @@ how an owner *starts* sharing. Clicking it in either state opens
 account is the site's decision, made on the site. The switch is hidden only when the settings could
 not be read, so it never shows a "Not shared" that might be wrong. The accounts header's Refresh
 button re-reads the accounts on demand, because sharing, counts and clan change on the site.
+
+**Every tile carries a quiet "Remove" link, and it deletes from the site, so it asks first.** It
+posts `removeAccount` with the tile's in-game id; `MainForm.RemoveAccountAsync` accepts only an id
+among the loaded tiles, confirms with a native TaskDialog (Cancel is the default), then calls
+`DELETE /api/accounts/{id}?syncMethod=ConsolidatedJson` — the website dashboard's own delete, scoped
+to this uploader's import so another source's snapshot of the same game account survives. The server
+filters by the caller's uid, so only the signed-in user's own accounts are reachable; a 404 counts as
+done. Removing the account being played turns its tile back into "new account detected".
 
 `SetBusy` takes a *kind* (`"export"`, or null for background work like an account reload) so the page
 can show progress on the button that is running rather than only greying everything out, with the

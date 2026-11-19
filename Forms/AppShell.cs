@@ -10,6 +10,7 @@ namespace RslCompanionUploader.Forms;
 /// rather than looking like native WinForms chrome. The C# side stays the backend: it owns all data
 /// and pushes a single view-state into the page, and receives back only the actions the page can
 /// trigger — <c>export</c>, <c>signIn</c>, <c>signOut</c>, <c>refresh</c>, <c>openUrl</c>,
+/// <c>removeAccount</c> (a tile's Remove link; MainForm confirms before deleting),
 /// <c>installUpdate</c> (the update banner, which installs rather than opening a page),
 /// <c>logDetail</c> (the activity console's diagnostics toggle — admins only), and the "Send
 /// feedback" dialog's <c>copyLog</c> and <c>feedback</c> (its submit), and <c>menu</c> (a Help
@@ -96,6 +97,12 @@ public sealed class AppShell : Panel
 
     /// <summary>Raised by the accounts header's Refresh button or "Refresh accounts" in the top-bar account menu.</summary>
     public event Action? RefreshRequested;
+
+    /// <summary>
+    /// A tile's "Remove" link, carrying that tile's in-game id. Only a request: MainForm confirms it
+    /// natively and checks the id is one of the loaded accounts before anything is deleted.
+    /// </summary>
+    public event Action<int>? RemoveAccountRequested;
 
     /// <summary>Raised with the new value when the activity console's "Details" toggle is clicked.</summary>
     public event Action<bool>? LogDetailChanged;
@@ -391,6 +398,9 @@ public sealed class AppShell : Panel
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
                     break;
+                case "removeAccount" when root.TryGetProperty("userId", out var ru) && ru.TryGetInt32(out var removeId):
+                    RemoveAccountRequested?.Invoke(removeId);
+                    break;
             }
         }
         catch
@@ -607,8 +617,15 @@ public sealed class AppShell : Panel
   .tile .meta { font-size:12px; color:var(--sub); margin-top:10px; display:flex; flex-wrap:wrap; gap:4px 16px; }
   .tile .meta span { white-space:nowrap; }
   .tile.identified .meta { color:var(--ok); }
-  .tile .synced { font-size:11px; color:var(--mut); margin-top:8px; }
+  .tile .synced { font-size:11px; color:var(--mut); }
   .tile.identified .synced { color:var(--ok); }
+  /* Last-synced on the left, the Remove link on the right. Remove is deliberately quiet: it deletes
+     data from the site, so it is a small link that asks first, never a button beside Update. */
+  .tile .foot { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-top:8px; }
+  .tile .remove { margin-left:auto; padding:0; border:none; background:none; color:var(--mut); font-family:inherit;
+                  font-size:11px; font-weight:600; cursor:pointer; white-space:nowrap; }
+  .tile .remove:hover:not(:disabled) { color:var(--bad); text-decoration:underline; }
+  .tile .remove:disabled { opacity:.55; cursor:default; }
 
   /* Sharing: a small Shared / Not shared switch. It shows the state and is not a toggle — clicking
      it in either state opens the account's sharing settings on the site, where the change is made.
@@ -1013,7 +1030,10 @@ public sealed class AppShell : Panel
       html += a.clanName ? (""<div class='clan'>"" + esc(a.clanName) + ""</div>"") : '';
       html += tileSharing(a) + ""</div>"";
       html += ""</div>"" + tileMeta(a);
+      html += ""<div class='foot'>"";
       if (a.lastSync) html += ""<div class='synced' data-sync='"" + esc(a.lastSync) + ""'>Last synced "" + esc(syncLabel(a.lastSync)) + ""</div>"";
+      html += ""<button type='button' class='remove' data-remove='"" + a.userId + ""'""
+        + (state.busy ? ' disabled' : '') + "" title='Delete this account&#39;s data from RSL Companion'>Remove</button></div>"";
       if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;
       grid.appendChild(el);
@@ -1138,6 +1158,7 @@ public sealed class AppShell : Panel
     var btn = e.target && e.target.closest ? e.target.closest('button') : null;
     if (!btn || btn.disabled) return;
     if (btn.id === 'btnData') window.chrome.webview.postMessage({ type:'export' });
+    else if (btn.dataset.remove) window.chrome.webview.postMessage({ type:'removeAccount', userId: +btn.dataset.remove });
   });
 
   function closeHelpMenu(){

@@ -178,6 +178,9 @@ public sealed class MainForm : Form
 
         _shell.RefreshRequested += async () => { if (!_busy) await LoadAccountsAsync(); };
         _shell.OpenUrlRequested += OpenUrl;
+        // Deferred like sign-in: the confirmation is a modal TaskDialog, and opening one inside the
+        // WebView2 message callback crashes the host.
+        _shell.RemoveAccountRequested += id => BeginInvoke(async () => await RemoveAccountAsync(id));
         // Backs the page's "Open RSL Companion" button, which posts back openUrl with this value. Not a
         // constant: it names the account being played, so it is re-pushed whenever that changes.
         RefreshSiteUrl();
@@ -1663,6 +1666,56 @@ public sealed class MainForm : Form
             ReconcileLiveAccount();
 #endif
         }
+    }
+
+    /// <summary>
+    /// A tile's Remove link: deletes that game account's uploader import from the signed-in user's
+    /// RSL Companion profile, after a native confirmation. Only an id among the loaded tiles is
+    /// accepted, so a stray message from the page can't name some other account, and the server
+    /// scopes the delete to the caller's uid regardless. Scoped to this uploader's sync method, the
+    /// same way the site's dashboard scopes its own delete, so another import of the same game
+    /// account is left alone. Removing the account being played turns its tile back into "new
+    /// account detected", and the next update adds it again.
+    /// </summary>
+    private async Task RemoveAccountAsync(int userId)
+    {
+        if (_busy || !_api.IsAuthenticated) return;
+        var account = _loadedAccounts.FirstOrDefault(a => a.UserId == userId);
+        if (account is null) return;
+        var name = string.IsNullOrWhiteSpace(account.Name) ? $"Account {userId}" : account.Name;
+
+        var remove = new TaskDialogButton("Remove");
+        var page = new TaskDialogPage
+        {
+            Caption = "Remove account",
+            Heading = $"Remove {name} from RSL Companion?",
+            Text = "Its champions, gear and everything else this uploader imported are deleted from your "
+                 + "RSL Companion profile. If this is the account's only import, its saved snapshots and "
+                 + "sharing settings are deleted too. This can't be undone.\n\n"
+                 + "Your game account itself is not affected, and updating from Raid adds it back.",
+            Icon = TaskDialogIcon.Warning,
+            Buttons = { remove, TaskDialogButton.Cancel },
+            DefaultButton = TaskDialogButton.Cancel,
+        };
+        if (TaskDialog.ShowDialog(this, page) != remove) return;
+        // The dialog is modal but the poll and a site launch keep running: re-check before deleting.
+        if (_busy || !_api.IsAuthenticated) return;
+
+        SetBusy(true, "remove");
+        UploadResult result;
+        try
+        {
+            Log($"Removing {name} from RSL Companion…");
+            result = await _api.DeleteAccountAsync(userId, UploaderSyncMethod);
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+
+        Log(result.Success ? $"Removed {name} from RSL Companion." : result.Message);
+        if (result.Detail is not null) Log(result.Detail, detail: true);
+        if (result.Success) await LoadAccountsAsync();
     }
 
     /// <summary>
