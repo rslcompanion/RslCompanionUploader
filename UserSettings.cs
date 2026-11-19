@@ -84,6 +84,22 @@ public sealed class UserSettings
     [JsonPropertyName("serverApiBaseUrl")]
     public string? ServerApiBaseUrl { get; set; }
 
+    /// <summary>
+    /// The page's colour theme, from Actions ▸ Theme: <c>system</c> (follows Windows light/dark, the
+    /// default), <c>light</c>, <c>black</c> or <c>blue</c>. Anything else reads as system
+    /// (<see cref="Themes"/>), so a hand-edited value cannot leave the page unstyled.
+    /// </summary>
+    [JsonPropertyName("theme")]
+    public string? Theme { get; set; }
+
+    /// <summary>The themes the page has, in menu order, with their menu labels.</summary>
+    public static readonly (string Id, string Label)[] Themes =
+        [("system", "System"), ("light", "Light"), ("black", "Black"), ("blue", "Blue")];
+
+    /// <summary><see cref="Theme"/> checked against <see cref="Themes"/>.</summary>
+    [JsonIgnore]
+    public string EffectiveTheme => Array.Exists(Themes, t => t.Id == Theme) ? Theme! : "system";
+
     private static string Path_ => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "RslCompanion", "settings.json");

@@ -133,10 +133,19 @@ public sealed class AppShell : Panel
     /// One row of the top bar's Help menu: an action, or a separator (<see cref="Separator"/>).
     /// <see cref="Checked"/> is null for a plain action and true/false for a toggle.
     /// </summary>
-    public sealed record MenuEntry(string Id, string Label, bool Enabled = true, bool? Checked = null, bool Separator = false);
+    /// <summary>
+    /// One row of the Actions menu. Consecutive entries sharing a <paramref name="Group"/> are drawn as
+    /// one row of choices labelled with the group (the Theme picker), the checked one highlighted.
+    /// </summary>
+    public sealed record MenuEntry(string Id, string Label, bool Enabled = true, bool? Checked = null, bool Separator = false, string? Group = null);
 
     /// <summary>Replaces the Help menu's rows. <see cref="MainForm"/> builds them from its menu items' live state.</summary>
     public void SetHelpMenu(IReadOnlyList<MenuEntry> entries) { _helpMenu = entries; PushState(); }
+
+    private string _theme = "system";
+
+    /// <summary>The page's colour theme: <c>system</c>, <c>light</c>, <c>black</c> or <c>blue</c>.</summary>
+    public void SetTheme(string theme) { _theme = theme; PushState(); }
 
     public AppShell()
     {
@@ -164,7 +173,9 @@ public sealed class AppShell : Panel
                 PushState();
             };
 
-            _web.CoreWebView2.NavigateToString(Html);
+            // The saved theme goes into the markup itself, so the first paint is already in it rather
+            // than flashing the system colours until the first state push lands.
+            _web.CoreWebView2.NavigateToString(_theme == "system" ? Html : Html.Replace("<html>", $"<html data-theme='{_theme}'>"));
             _fallback.Visible = false;
             _web.Visible = true;
         }
@@ -360,7 +371,8 @@ public sealed class AppShell : Panel
             environment = _environment,
             logDetail = _isAdmin && _logDetail,
             isAdmin = _isAdmin,
-            helpMenu = _helpMenu.Select(m => new { id = m.Id, label = m.Label, enabled = m.Enabled, @checked = m.Checked, sep = m.Separator }),
+            helpMenu = _helpMenu.Select(m => new { id = m.Id, label = m.Label, enabled = m.Enabled, @checked = m.Checked, sep = m.Separator, group = m.Group }),
+            theme = _theme,
         });
     }
 
@@ -476,8 +488,24 @@ public sealed class AppShell : Panel
           --ok:#16a34a; --okbg:rgba(22,163,74,.10);
           --warn:#d97706; --warnbg:rgba(217,119,6,.12);
           --bad:#dc2626; --badbg:rgba(220,38,38,.08); }
+  /* Themes (Actions ▸ Theme). No data-theme attribute means System: light, or the dark set below
+     when Windows is in dark mode. The named ones ignore Windows. Every colour on the page reads
+     these tokens, so a theme is only this block. */
+  :root[data-theme='light'] { color-scheme: light; }
+  :root[data-theme='black'] { color-scheme: dark;
+          --bg:#000; --fg:#ececec; --sub:#a3a3a3; --mut:#7a7a7a; --card:#0d0d0d; --panel:#171717; --line:#2a2a2a;
+          --accent:#60a5fa; --accentbg:rgba(96,165,250,.14);
+          --ok:#4ade80; --okbg:rgba(74,222,128,.10);
+          --warn:#fbbf24; --warnbg:rgba(251,191,36,.12);
+          --bad:#f87171; --badbg:rgba(248,113,113,.12); }
+  :root[data-theme='blue'] { color-scheme: dark;
+          --bg:#0b1426; --fg:#e6edf7; --sub:#9fb0cc; --mut:#7487a8; --card:#111d35; --panel:#16243f; --line:#24365a;
+          --accent:#60a5fa; --accentbg:rgba(96,165,250,.16);
+          --ok:#4ade80; --okbg:rgba(74,222,128,.12);
+          --warn:#fbbf24; --warnbg:rgba(251,191,36,.14);
+          --bad:#f87171; --badbg:rgba(248,113,113,.14); }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#1b1b1b; --fg:#e8e8e8; --sub:#a0a0a0; --mut:#808080; --card:#262626; --panel:#202020; --line:#0a0a0a;
+    :root:not([data-theme]) { --bg:#1b1b1b; --fg:#e8e8e8; --sub:#a0a0a0; --mut:#808080; --card:#262626; --panel:#202020; --line:#0a0a0a;
             --accent:#60a5fa; --accentbg:rgba(96,165,250,.14);
             --ok:#4ade80; --okbg:rgba(74,222,128,.12);
             --warn:#fbbf24; --warnbg:rgba(251,191,36,.14);
@@ -559,6 +587,14 @@ public sealed class AppShell : Panel
   #helpMenu .hm-item:disabled { color:var(--mut); cursor:default; }
   #helpMenu .hm-check { width:14px; flex:none; text-align:center; color:var(--accent); font-weight:700; }
   #helpMenu .hm-sep { height:1px; background:var(--line); margin:4px 0; }
+  /* A group of choices (Theme) drawn as one row of chips; the checked one is filled. */
+  #helpMenu .hm-group { display:flex; align-items:center; gap:8px; padding:7px 16px 9px; }
+  #helpMenu .hm-glabel { flex:none; font-size:13px; color:var(--fg); margin-right:auto; }
+  #helpMenu .hm-chips { display:flex; gap:4px; }
+  #helpMenu .hm-chip { padding:3px 9px; border:1px solid var(--line); border-radius:999px; background:none;
+                       color:var(--sub); font-family:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+  #helpMenu .hm-chip:hover:not(.on) { color:var(--fg); border-color:var(--sub); }
+  #helpMenu .hm-chip.on { background:var(--accent); border-color:var(--accent); color:#fff; cursor:default; }
   #helpMenu .hm-head { padding:8px 16px 4px; font-size:11px; font-weight:700; letter-spacing:.06em;
                        text-transform:uppercase; color:var(--mut); }
 
@@ -844,11 +880,30 @@ public sealed class AppShell : Panel
   // Rebuilt on every state push from state.helpMenu; a toggle carries a tick column so labels line up.
   function renderHelpMenu() {
     var m = $('helpMenu'), items = state.helpMenu || [];
-    var anyCheck = items.some(function(i){ return i.checked !== null && i.checked !== undefined; });
+    var anyCheck = items.some(function(i){ return !i.group && i.checked !== null && i.checked !== undefined; });
     m.textContent = '';
     var head = document.createElement('div'); head.className = 'hm-head'; head.textContent = 'Uploader actions';
     m.appendChild(head);
+    var groupRow = null;
     items.forEach(function(i, idx){
+      if (i.group) {
+        if (!groupRow || groupRow.dataset.group !== i.group) {
+          groupRow = document.createElement('div'); groupRow.className = 'hm-group'; groupRow.dataset.group = i.group;
+          groupRow.setAttribute('role', 'group'); groupRow.setAttribute('aria-label', i.group);
+          var gl = document.createElement('span'); gl.className = 'hm-glabel'; gl.textContent = i.group;
+          var gc = document.createElement('span'); gc.className = 'hm-chips';
+          groupRow.appendChild(gl); groupRow.appendChild(gc); m.appendChild(groupRow);
+        }
+        var chip = document.createElement('button');
+        chip.type = 'button'; chip.className = 'hm-chip' + (i.checked ? ' on' : ''); chip.disabled = !i.enabled;
+        chip.setAttribute('role', 'menuitemradio'); chip.setAttribute('aria-checked', i.checked ? 'true' : 'false');
+        chip.textContent = i.label;
+        // The menu stays open, so the effect of a choice is visible while the others are one click away.
+        chip.onclick = function(e){ e.stopPropagation(); if (!i.checked) window.chrome.webview.postMessage({ type:'menu', id:i.id }); };
+        groupRow.lastChild.appendChild(chip);
+        return;
+      }
+      groupRow = null;
       if (i.sep) {
         if (idx > 0 && idx < items.length - 1 && !items[idx - 1].sep) {
           var s = document.createElement('div'); s.className = 'hm-sep'; m.appendChild(s);
@@ -1040,7 +1095,14 @@ public sealed class AppShell : Panel
     });
   }
 
+  function applyTheme() {
+    var t = state.theme;
+    if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
+    else if (t === 'system') document.documentElement.removeAttribute('data-theme');
+  }
+
   function render() {
+    applyTheme();
     var sel = liveSelection();
     // Feedback goes to the signed-in user's own inbox entry, so it needs a session.
     var fb = $('feedbackBtn');

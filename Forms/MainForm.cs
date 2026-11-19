@@ -194,6 +194,7 @@ public sealed class MainForm : Form
         // Persisted: someone who wants the engine trace usually wants it for more than one export
         // (they are reporting a problem), and someone who doesn't should never see it again.
         _shell.SetLogDetail(UserSettings.Current.ActivityLogDetail);
+        _shell.SetTheme(UserSettings.Current.EffectiveTheme);
         _shell.LogDetailChanged += detail =>
         {
             if (!IsAdmin) return; // the toggle is admin-only; a stray message from the page changes nothing
@@ -1466,7 +1467,13 @@ public sealed class MainForm : Form
         Controls.Add(menu);
         MainMenuStrip = menu;
 
-        _shell.WebViewUnavailable += () => menu.Visible = true;
+        _shell.WebViewUnavailable += () =>
+        {
+            menu.Visible = true;
+            // The theme colours the page, and there is no page: the native strip has no use for them.
+            foreach (ToolStripItem item in _helpMenu!.DropDownItems)
+                if (item.Name?.StartsWith("theme-", StringComparison.Ordinal) == true) item.Available = false;
+        };
         // Deferred like SignInRequested: several of these open a modal dialog, and opening one
         // inside the WebView2 message callback crashes the WebView2 host.
         _shell.MenuItemInvoked += id => BeginInvoke(() =>
@@ -1496,8 +1503,10 @@ public sealed class MainForm : Form
             if (item is ToolStripSeparator) { entries.Add(new AppShell.MenuEntry("", "", Separator: true)); continue; }
             // BuildMenu names every item; one without a name could not be clicked back from the page.
             if (item is not ToolStripMenuItem { Name: { Length: > 0 } name } mi) continue;
+            // A Tag of string is the item's choice group (Theme): the page draws the group as one row.
+            var group = mi.Tag as string;
             entries.Add(new AppShell.MenuEntry(name, mi.Text?.Replace("&", "") ?? "", mi.Enabled,
-                mi.CheckOnClick ? mi.Checked : null));
+                mi.CheckOnClick || group is not null ? mi.Checked : null, Group: group));
         }
         _shell.SetHelpMenu(entries);
     }
@@ -1563,6 +1572,24 @@ public sealed class MainForm : Form
             Visible = !PreferredTarget.IsProduction,
         };
         help.DropDownItems.Add(_serverItem);
+
+        // Theme: one choice of four, drawn by the page as a row of chips (the Tag names the group).
+        // Applied and saved at once; nothing else in the app depends on it.
+        help.DropDownItems.Add(new ToolStripSeparator());
+        var themeItems = new List<ToolStripMenuItem>();
+        foreach (var (id, label) in UserSettings.Themes)
+        {
+            var item = new ToolStripMenuItem(label) { Name = "theme-" + id, Tag = "Theme", Checked = UserSettings.Current.EffectiveTheme == id };
+            item.Click += (_, _) =>
+            {
+                foreach (var other in themeItems) other.Checked = other == item;
+                UserSettings.Current.Theme = id;
+                UserSettings.Current.Save();
+                _shell.SetTheme(id);
+            };
+            themeItems.Add(item);
+            help.DropDownItems.Add(item);
+        }
 
         help.DropDownItems.Add(new ToolStripSeparator());
         help.DropDownItems.Add(new ToolStripMenuItem("&About", null, (_, _) =>

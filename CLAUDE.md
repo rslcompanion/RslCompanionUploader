@@ -84,6 +84,13 @@ path says `Actions → …` / `Actions ▸ …`, including the native strip's fa
 that names a menu path must name this one. Internal names (`#help`, `PushHelpMenu`, `_helpMenu`) were
 left as they were.
 
+**Themes: System, Light, Black, Blue (Actions ▸ Theme).** Every colour on the page is a CSS token
+on `:root`; a named theme overrides the tokens under `:root[data-theme=…]`, and System (no attribute)
+keeps the Windows light/dark split. The four choices are ordinary native items tagged `"Theme"`, which
+`PushHelpMenu` sends as `MenuEntry.Group` and the page draws as one row of chips. The choice persists as
+`theme` in `settings.json` and is baked into the markup before the first navigation, so the page never
+flashes the system colours first. New colours go in as tokens, never as literals, or a theme misses them.
+
 **The installer brings the WebView2 runtime when a machine lacks it (1.41).** CI downloads
 Microsoft's Evergreen bootstrapper into `installer/redist/` and refuses it unless Microsoft signed it.
 `setup.iss` extracts and runs it (`/silent /install`, per-user, no elevation) only when `NeedsWebView2`
