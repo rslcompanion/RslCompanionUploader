@@ -61,8 +61,8 @@ and `AppShell` docked fill, nothing else. `MainForm` stays the backend — it ru
 status poll, extraction and API calls, and **pushes a single view-state** into the shell (signed-in
 flag, user, connection status, update banner, accounts, busy + which action is busy, frontend URL,
 Actions menu).
-The page posts back eleven actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
-`installUpdate`, `logDetail`, `copyLog`, `feedback`, `menu`, `removeAccount`. There is no uncovered-build bridge action
+The page posts back thirteen actions: `export`, `signIn`, `signOut`, `refresh`, `openUrl`,
+`installUpdate`, `logDetail`, `copyLog`, `feedback`, `menu`, `removeAccount`, `window`, `chrome`. There is no uncovered-build bridge action
 or banner: covering an uncovered build is triggered automatically from `MainForm`, not from anything
 the page posts back.
 
@@ -90,6 +90,22 @@ keeps the Windows light/dark split. The four choices are ordinary native items t
 `PushHelpMenu` sends as `MenuEntry.Group` and the page draws as one row of chips. The choice persists as
 `theme` in `settings.json` and is baked into the markup before the first navigation, so the page never
 flashes the system colours first. New colours go in as tokens, never as literals, or a theme misses them.
+
+**There is no native title bar (1.62); the page's top bar is the caption.** `MainForm.WndProc` cuts
+only the caption out of the non-client area in `WM_NCCALCSIZE`, so the frame stays: side/bottom resize,
+Aero Snap, Windows 11's rounded corners and shadow all still work. The top bar is `app-region: drag`
+(WebView2's `IsNonClientRegionSupportEnabled`), which gives drag-to-move, double-click maximize and the
+right-click system menu for free; every button and the dropdown menus opt out with `no-drag`. The page
+draws minimize / maximize / close and posts `window` with the op; `SetMaximized` swaps the middle icon.
+The top edge has no frame left, so a 4 px client strip above the page answers `HTTOP` (corners
+`HTTOPLEFT`/`HTTOPRIGHT`), painted in the top bar's colour, which the page reports through `chrome`
+whenever a theme applies. **Read maximized state with `IsZoomed` inside `WndProc`, never
+`WindowState`**: WinForms updates it on `WM_SIZE`, after `WM_NCCALCSIZE`, so mid-restore it still says
+Maximized and the maximized inset (the frame width) stuck to the restored window as a 13 px band. The
+native caption returns while `SignInPanel` covers the page and for good when WebView2 fails to start,
+because in both cases nothing else would offer close or move. `Form.Text` is still set: the taskbar
+and Alt+Tab show it, so the version and the DEV label stay there, and the page shows the version beside
+the brand. Lost: the snap-layouts flyout on hovering maximize (Win+Z still opens it).
 
 **The installer brings the WebView2 runtime when a machine lacks it (1.41).** CI downloads
 Microsoft's Evergreen bootstrapper into `installer/redist/` and refuses it unless Microsoft signed it.

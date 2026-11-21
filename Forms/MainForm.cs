@@ -286,6 +286,85 @@ public sealed class MainForm : Form
         Bounds = new Rectangle(work.X + (work.Width - w) / 2, work.Y + (work.Height - h) / 2, w, h);
     }
 
+    // ── Custom window chrome ─────────────────────────────────────────────────────────────────────────
+    //
+    // The window has no native title bar: the page's top bar is the caption (app-region: drag) and
+    // draws its own minimize / maximize / close. The native *frame* stays — only the caption is cut
+    // out of the non-client area in WM_NCCALCSIZE — so the side and bottom resize edges, Aero Snap,
+    // Windows 11's rounded corners and shadow all keep working. The top edge has no frame left to
+    // resize from, so a thin client strip (TopResizeStrip) above the page answers HTTOP instead,
+    // painted in the top bar's own colour. The native caption comes back whenever there is no page to
+    // carry the controls: WebView2 failed to start, or the native sign-in panel is covering it.
+
+    private const int WM_NCCALCSIZE = 0x0083, WM_NCHITTEST = 0x0084;
+    private const int HTTOP = 12, HTTOPLEFT = 13, HTTOPRIGHT = 14, HTCLIENT = 1;
+    private const int SM_CXFRAME = 32, SM_CYFRAME = 33, SM_CXPADDEDBORDER = 92;
+    private const int DesignTopResizeStrip = 4;
+
+    private bool _customChrome = true;
+    private bool _shellUnavailable;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern int GetSystemMetricsForDpi(int nIndex, uint dpi);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool IsZoomed(IntPtr hWnd);
+
+    private int FrameY => GetSystemMetricsForDpi(SM_CYFRAME, (uint)DeviceDpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, (uint)DeviceDpi);
+    private int FrameX => GetSystemMetricsForDpi(SM_CXFRAME, (uint)DeviceDpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, (uint)DeviceDpi);
+
+    /// <summary>Switches between the page's caption and the native one, and re-lays the frame out.</summary>
+    private void SetCustomChrome(bool on)
+    {
+        if (_customChrome == on) return;
+        _customChrome = on;
+        ApplyTopResizeStrip();
+        if (IsHandleCreated)
+            SetWindowPos(Handle, IntPtr.Zero, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020); // NOSIZE|NOMOVE|NOZORDER|NOACTIVATE|FRAMECHANGED
+    }
+
+    private void ApplyTopResizeStrip()
+    {
+        int strip = _customChrome && WindowState != FormWindowState.Maximized
+            ? (int)Math.Round(DesignTopResizeStrip * DeviceDpi / 96f) : 0;
+        if (Padding.Top != strip) Padding = new Padding(0, strip, 0, 0);
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        ApplyTopResizeStrip();
+        _shell.SetMaximized(WindowState == FormWindowState.Maximized);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (_customChrome && m.Msg == WM_NCCALCSIZE && m.WParam != IntPtr.Zero)
+        {
+            // Let Windows compute the client rect with the full frame, then hand the caption back to
+            // the client. Maximized, the window hangs past the monitor by the frame width on every
+            // side, so the top keeps that much inset or the page's top row would sit off-screen.
+            int top = System.Runtime.InteropServices.Marshal.ReadInt32(m.LParam, 4);
+            base.WndProc(ref m);
+            // IsZoomed, not WindowState: WinForms updates WindowState on WM_SIZE, which comes after
+            // this, so mid-restore it still says Maximized and the inset outlived the maximize.
+            if (IsZoomed(Handle)) top += FrameY;
+            System.Runtime.InteropServices.Marshal.WriteInt32(m.LParam, 4, top);
+            m.Result = IntPtr.Zero;
+            return;
+        }
+        base.WndProc(ref m);
+        if (_customChrome && m.Msg == WM_NCHITTEST && (int)m.Result == HTCLIENT && !IsZoomed(Handle))
+        {
+            var p = PointToClient(new Point(unchecked((short)(long)m.LParam), unchecked((short)((long)m.LParam >> 16))));
+            if (p.Y < Padding.Top)
+                m.Result = p.X < FrameX ? HTTOPLEFT : p.X >= ClientSize.Width - FrameX ? HTTOPRIGHT : HTTOP;
+        }
+    }
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
@@ -539,6 +618,8 @@ public sealed class MainForm : Form
         _signIn = panel;
         _content.Controls.Add(panel);
         panel.BringToFront();
+        // The panel covers the page, and with it the page's caption and window buttons.
+        SetCustomChrome(false);
     }
 
     private async Task OnSignInCompletedAsync(AuthSession session, SessionProtection protection)
@@ -560,6 +641,7 @@ public sealed class MainForm : Form
         _signIn = null;
         _content.Controls.Remove(panel);
         panel.Dispose();
+        if (!_shellUnavailable) SetCustomChrome(true);
     }
 
     /// <summary>Hands a freshly obtained session to the API client and lights up the signed-in UI.</summary>
@@ -1467,8 +1549,20 @@ public sealed class MainForm : Form
         Controls.Add(menu);
         MainMenuStrip = menu;
 
+        _shell.WindowCommand += op => BeginInvoke(() =>
+        {
+            switch (op)
+            {
+                case "min": WindowState = FormWindowState.Minimized; break;
+                case "max": WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized; break;
+                case "close": Close(); break;
+            }
+        });
+        _shell.ChromeColorChanged += c => BackColor = c;
         _shell.WebViewUnavailable += () =>
         {
+            _shellUnavailable = true;
+            SetCustomChrome(false); // no page, so no caption or window buttons: give the native ones back
             menu.Visible = true;
             // The theme colours the page, and there is no page: the native strip has no use for them.
             foreach (ToolStripItem item in _helpMenu!.DropDownItems)

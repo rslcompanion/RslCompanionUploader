@@ -129,6 +129,20 @@ public sealed class AppShell : Panel
     /// </summary>
     public event Action? WebViewUnavailable;
 
+    /// <summary>The page's own window buttons: <c>min</c>, <c>max</c> (toggles restore) or <c>close</c>.</summary>
+    public event Action<string>? WindowCommand;
+
+    /// <summary>
+    /// The top bar's background colour, sent whenever the theme applies (including Windows switching
+    /// light/dark under System), so the form's thin top resize strip matches the bar it sits on.
+    /// </summary>
+    public event Action<Color>? ChromeColorChanged;
+
+    private bool _maximized;
+
+    /// <summary>Tells the page whether the window is maximized, so its middle button reads Restore.</summary>
+    public void SetMaximized(bool maximized) { if (_maximized == maximized) return; _maximized = maximized; PushState(); }
+
     /// <summary>
     /// One row of the top bar's Help menu: an action, or a separator (<see cref="Separator"/>).
     /// <see cref="Checked"/> is null for a plain action and true/false for a toggle.
@@ -163,6 +177,11 @@ public sealed class AppShell : Panel
 
             _web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             _web.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            // The window has no native title bar: the top bar is the caption, through `app-region: drag`.
+            // WebView2 then moves the window on a drag, maximizes on a double-click and opens the system
+            // menu on a right-click, exactly as a real caption would. Runtimes before 1.0.2420 lack it,
+            // and on one of those the window can still be moved with Win+arrows.
+            try { _web.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true; } catch { }
             _web.CoreWebView2.WebMessageReceived += OnWebMessage;
             _web.NavigationCompleted += (_, e) =>
             {
@@ -373,6 +392,8 @@ public sealed class AppShell : Panel
             isAdmin = _isAdmin,
             helpMenu = _helpMenu.Select(m => new { id = m.Id, label = m.Label, enabled = m.Enabled, @checked = m.Checked, sep = m.Separator, group = m.Group }),
             theme = _theme,
+            maximized = _maximized,
+            version = AboutForm.DisplayVersion,
         });
     }
 
@@ -409,6 +430,12 @@ public sealed class AppShell : Panel
                     break;
                 case "openUrl" when root.TryGetProperty("url", out var u) && u.GetString() is string url:
                     OpenUrlRequested?.Invoke(url);
+                    break;
+                case "window" when root.TryGetProperty("op", out var op) && op.GetString() is string wop:
+                    WindowCommand?.Invoke(wop);
+                    break;
+                case "chrome" when root.TryGetProperty("bg", out var bg) && bg.GetString() is string bgs:
+                    if (ParseCssColor(bgs) is Color c) ChromeColorChanged?.Invoke(c);
                     break;
                 case "removeAccount" when root.TryGetProperty("userId", out var ru) && ru.TryGetInt32(out var removeId):
                     RemoveAccountRequested?.Invoke(removeId);
@@ -454,6 +481,15 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("editing")] bool Editing,
         [property: JsonPropertyName("viewers")] int Viewers,
         [property: JsonPropertyName("url")] string Url);
+
+    /// <summary>Reads the <c>rgb(r, g, b)</c> form getComputedStyle reports. Null for anything else.</summary>
+    private static Color? ParseCssColor(string css)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(css, @"^rgba?\((\d+),\s*(\d+),\s*(\d+)");
+        return m.Success
+            ? Color.FromArgb(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value))
+            : null;
+    }
 
     private static readonly string Html = HtmlTemplate.Replace("__LOGO_SRC__", BuildLogoDataUri());
 
@@ -520,6 +556,18 @@ public sealed class AppShell : Panel
 
   #topbar { position:relative; flex:none; display:flex; align-items:center; gap:12px; padding:10px 16px;
             border-bottom:1px solid var(--line); background:var(--card); }
+  /* The top bar is the window's caption (the native title bar is gone): dragging it moves the window.
+     Everything clickable opts back out, and so do the menus that hang below it. */
+  #topbar { app-region:drag; -webkit-app-region:drag; }
+  #topbar button, #helpMenu, #accountMenu { app-region:no-drag; -webkit-app-region:no-drag; }
+  #ver { font-size:11px; font-weight:500; color:var(--mut); }
+  /* Minimize / maximize / close, flush with the window's top-right corner like the native ones. */
+  #winctl { flex:none; display:flex; align-self:stretch; margin:-10px -16px -10px 4px; }
+  #winctl button { width:46px; border:none; background:none; color:var(--fg); padding:0; cursor:default;
+                   display:flex; align-items:center; justify-content:center; }
+  #winctl button:hover { background:var(--panel); }
+  #winctl #wclose:hover { background:#c42b1c; color:#fff; }
+  #winctl svg { width:10px; height:10px; }
   #brand { flex:none; display:flex; align-items:center; gap:8px; font-weight:600; font-size:14px; }
   #logo { width:24px; height:24px; border-radius:6px; object-fit:contain; flex:none; }
   /* Shrinkable so the Sign In button always stays on the top row: when width is tight the status
@@ -770,13 +818,18 @@ public sealed class AppShell : Panel
 </style></head>
 <body>
   <div id='topbar'>
-    <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span></div>
+    <div id='brand'><img id='logo' src='__LOGO_SRC__' alt=''><span>RSL Companion</span><span id='ver'></span></div>
     <div id='env'><span class='label'></span><span class='host'></span></div>
     <div id='pill'><span class='dot'></span><span class='txt'></span></div>
     <button id='help' type='button' aria-haspopup='menu' aria-expanded='false' aria-controls='helpMenu'><span>Actions</span><svg class='chev' viewBox='0 0 10 10' aria-hidden='true'><path d='M1.5 3.5 5 7l3.5-3.5' fill='none' stroke='currentColor' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg></button>
     <div id='helpMenu' role='menu'></div>
     <button id='signin' type='button'>Sign In</button>
     <button id='account' type='button' aria-label='Account'><span id='accountAvatar'></span></button>
+    <div id='winctl'>
+      <button id='wmin' type='button' aria-label='Minimize' title='Minimize'><svg viewBox='0 0 10 10'><path d='M0 5.5h10' stroke='currentColor' stroke-width='1'/></svg></button>
+      <button id='wmax' type='button' aria-label='Maximize' title='Maximize'><svg viewBox='0 0 10 10'><rect x='.5' y='.5' width='9' height='9' fill='none' stroke='currentColor' stroke-width='1'/></svg></button>
+      <button id='wclose' type='button' aria-label='Close' title='Close'><svg viewBox='0 0 10 10'><path d='M.5.5l9 9M9.5.5l-9 9' stroke='currentColor' stroke-width='1'/></svg></button>
+    </div>
     <div id='accountMenu'>
       <div class='am-head'>
         <span class='am-avatar'></span>
@@ -1098,14 +1151,37 @@ public sealed class AppShell : Panel
     });
   }
 
+  var chromeBg = null;
   function applyTheme() {
     var t = state.theme;
     if (t && t !== 'system') document.documentElement.setAttribute('data-theme', t);
     else if (t === 'system') document.documentElement.removeAttribute('data-theme');
+    reportChrome();
   }
+  // The window's top resize strip is native and sits right above the top bar: keep it the bar's colour.
+  function reportChrome() {
+    var bg = getComputedStyle($('topbar')).backgroundColor;
+    if (bg !== chromeBg) { chromeBg = bg; window.chrome.webview.postMessage({ type:'chrome', bg:bg }); }
+  }
+  if (window.matchMedia) window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reportChrome);
+  var maxIcon = ""<rect x='.5' y='.5' width='9' height='9' fill='none' stroke='currentColor' stroke-width='1'/>"";
+  var restoreIcon = ""<path d='M2.5 2.5V.5h7v7h-2' fill='none' stroke='currentColor' stroke-width='1'/><rect x='.5' y='2.5' width='7' height='7' fill='none' stroke='currentColor' stroke-width='1'/>"";
+  var shownMax = null;
+  function renderWindowButtons() {
+    $('ver').textContent = state.version ? 'v' + state.version : '';
+    if (shownMax === !!state.maximized) return;
+    shownMax = !!state.maximized;
+    var b = $('wmax'), label = shownMax ? 'Restore' : 'Maximize';
+    b.querySelector('svg').innerHTML = shownMax ? restoreIcon : maxIcon;
+    b.title = label; b.setAttribute('aria-label', label);
+  }
+  ['min', 'max', 'close'].forEach(function(op){
+    $('w' + op).onclick = function(){ window.chrome.webview.postMessage({ type:'window', op:op }); };
+  });
 
   function render() {
     applyTheme();
+    renderWindowButtons();
     var sel = liveSelection();
     // Feedback goes to the signed-in user's own inbox entry, so it needs a session.
     var fb = $('feedbackBtn');
