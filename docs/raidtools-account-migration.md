@@ -6,6 +6,18 @@ into their own profile, and so a moved account can be **deleted** only after a 7
 Same standing as the other `raidtools-*.md` notes: a summary of the contract, written to be handed
 over. The server's code and docs are the record once it ships.
 
+**Built in RaidTools on 2026-11-21 (`dev`, `09640c9`); its `docs/account-migration.md` is now the
+record.** Where it differs from this prompt, it wins:
+
+- **Nothing moves at the start.** The previous owner's copy is only hidden for the 7 days, and their
+  plans and saved snapshots change hands at finalization. Re-owning their snapshots at once (step 2
+  below) would not survive the new owner's next update, which purges outgoing snapshots.
+- **No `migratedAway` on the account list.** Moves out are served by `GET /api/accounts/migrations`
+  (`incoming` / `outgoing`), and the site shows the Reclaim notice from that.
+- **No names of the other side.** The notice says "another RSL Companion profile"; `previousOwner` /
+  `newOwner` are not sent.
+- **The champion check is on**, as at least half the previous owner's champions, from 20 up.
+
 Read `docs/account-sharing.md` in RaidTools first. This builds on its pins, grants and the rule
 that ownership is a uid filter.
 

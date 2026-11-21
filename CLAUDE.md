@@ -287,8 +287,9 @@ TaskDialog (Cancel is the default).
   immediately and what goes with it (shares, clan list). A 404 counts as done. Deleting the account
   being played turns its tile back into "new account detected".
 
-**Moving a shared account into the profile that plays it is designed, not built.** The server half
-is [docs/raidtools-account-migration.md](docs/raidtools-account-migration.md): the live read as
+**Moving a shared account into the profile that plays it: the server half is built, the uploader's
+is not.** RaidTools has it on `dev` since 2026-11-21 (its `docs/account-migration.md`); the prompt it
+was built from is [docs/raidtools-account-migration.md](docs/raidtools-account-migration.md): the live read as
 evidence of possession, a 7-day grace period before a moved account can be deleted, undo and reclaim.
 The uploader offers it only when a shared list item carries `migratable: true`. Same standing as the
 other `raidtools-*.md` notes.
