@@ -26,4 +26,19 @@ public class UploadMigrationResponseTests
     {
         Assert.Null(RslCompanionApiClient.MigrationDeadline(body));
     }
+
+    [Fact]
+    public void A_response_that_updated_another_profiles_copy_says_so()
+    {
+        Assert.True(RslCompanionApiClient.UpdatedAnotherProfile("{\"userId\":1,\"updatedAnotherProfile\":true}"));
+        Assert.False(RslCompanionApiClient.UpdatedAnotherProfile("{\"userId\":1}"));
+        Assert.False(RslCompanionApiClient.UpdatedAnotherProfile("not json"));
+    }
+
+    [Fact]
+    public void The_holder_answer_reads_both_flags()
+    {
+        var holder = System.Text.Json.JsonSerializer.Deserialize<AccountHolder>("{\"heldElsewhere\":true,\"canMove\":false}");
+        Assert.Equal(new AccountHolder(true, false), holder);
+    }
 }

@@ -177,13 +177,39 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
+    /// Whether another RSL Companion profile holds game account <paramref name="userId"/>, and whether
+    /// it can be moved to this one now (<c>GET /api/accounts/{id}/holder</c>). The uploader asks before
+    /// uploading so the user decides whether to move it. Null when the server can't say (an older
+    /// server, a rate limit, no network): the caller then uploads without moving, which is always safe,
+    /// because the server never moves an account unless the upload says <c>move=true</c>.
+    /// </summary>
+    public async Task<AccountHolder?> GetHolderAsync(int userId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Get, $"/api/accounts/{userId}/holder", ct);
+            using var resp = await _http.SendAsync(req, ct);
+            if (!resp.IsSuccessStatusCode) return null;
+            return await resp.Content.ReadFromJsonAsync<AccountHolder>(cancellationToken: ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// POSTs a fully-formed <c>ConsolidatedProfile</c> JSON (produced by the extraction engine) to
     /// the parser sync endpoint. The profile carries its own in-game <c>accountId</c>, so the server
     /// routes it without a selected account. The Firebase ID token is still attached as a Bearer.
+    ///
+    /// <para><paramref name="move"/> is the user's consent to move a game account another profile
+    /// holds into theirs (RaidTools: one record per game account). Without it, such an upload updates
+    /// the other profile's copy and the account stays theirs.</para>
     /// </summary>
-    public async Task<UploadResult> UploadConsolidatedAsync(string consolidatedJson, CancellationToken ct = default)
+    public async Task<UploadResult> UploadConsolidatedAsync(string consolidatedJson, bool move = false, CancellationToken ct = default)
     {
-        var endpoint = _config.SyncConsolidatedEndpoint;
+        var endpoint = _config.SyncConsolidatedEndpoint + (move ? "?move=true" : "");
         var server = Session?.Target.ApiBaseUrl ?? "";
         bool gzip = !PlainUploadServers.ContainsKey(server);
 
@@ -244,14 +270,32 @@ public sealed class RslCompanionApiClient
               + "on its own is usually this app sending something the server has moved on from.",
                 $"{(int)resp.StatusCode} {resp.ReasonPhrase}, {sent}: {Trim(body)}");
 
-        // An upload of an account another profile held moved it here (one record per game account).
-        // The previous owner can take it back until the deadline, so the user is told when that is.
+        // An upload of an account another profile held either moved it here (the user agreed, and
+        // the previous owner can take it back until the deadline) or updated that profile's copy.
         var movedUntil = MigrationDeadline(body);
         return UploadResult.Ok(
             movedUntil is DateTimeOffset until
                 ? $"Done — this account moved into your profile from another RSL Companion profile, which can take it back until {until.ToLocalTime():d MMM yyyy, HH:mm}."
-                : "Done — your account is up to date on RSL Companion.",
+                : UpdatedAnotherProfile(body)
+                    ? "Done — this game account's copy in another RSL Companion profile was updated, and it stays in that profile."
+                    : "Done — your account is up to date on RSL Companion.",
             $"{(int)resp.StatusCode} {resp.ReasonPhrase}, {sent}: {Trim(body)}");
+    }
+
+    /// <summary>True when an upload response says it updated another profile's copy (<c>updatedAnotherProfile</c>).</summary>
+    internal static bool UpdatedAnotherProfile(string body)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("updatedAnotherProfile", out var u)
+                && u.ValueKind == System.Text.Json.JsonValueKind.True;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>The <c>migration.deletableFrom</c> of an upload response, when the upload opened a move.</summary>
@@ -526,6 +570,14 @@ public readonly record struct UploadResult(bool Success, string Message, string?
     /// </summary>
     public bool LimitReached { get; init; }
 }
+
+/// <summary>
+/// Who holds a game account on RSL Companion, from <c>GET /api/accounts/{id}/holder</c>. It names
+/// nobody: only whether another profile holds it and whether it can be moved to this one now.
+/// </summary>
+public sealed record AccountHolder(
+    [property: System.Text.Json.Serialization.JsonPropertyName("heldElsewhere")] bool HeldElsewhere,
+    [property: System.Text.Json.Serialization.JsonPropertyName("canMove")] bool CanMove);
 
 public enum CertificationStatus
 {

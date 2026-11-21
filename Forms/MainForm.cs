@@ -1862,6 +1862,32 @@ public sealed class MainForm : Form
         if (result.Success) await LoadAccountsAsync();
     }
 
+    /// <summary>
+    /// Asks whether to move a game account another RSL Companion profile holds into this one. True to
+    /// move, false to just update the copy where it is, null to upload nothing. "Just update" is the
+    /// default, so an Enter pressed without reading never takes an account away from anyone.
+    /// </summary>
+    private bool? AskMoveAccount(string gameName)
+    {
+        var moveIt = new TaskDialogCommandLinkButton(
+            "Move it to my profile",
+            "The other profile can take it back within 7 days. After that it's yours alone, with its plans and saved snapshots.");
+        var update = new TaskDialogCommandLinkButton(
+            "Just update it",
+            "It stays in the other profile, which gets this update. Nothing else changes.");
+        var page = new TaskDialogPage
+        {
+            Caption = "Account in another profile",
+            Heading = $"{gameName} is in another RSL Companion profile",
+            Text = "Someone else added this game account to RSL Companion. You can move it into your profile, or just update the copy that's there.",
+            Icon = TaskDialogIcon.Information,
+            Buttons = { moveIt, update, TaskDialogButton.Cancel },
+            DefaultButton = update,
+        };
+        var chosen = TaskDialog.ShowDialog(this, page);
+        return chosen == moveIt ? true : chosen == update ? false : null;
+    }
+
     /// <summary>" through your clan" etc., for the unlink dialog; empty when the origin is unknown.</summary>
     private static string ShareOriginPhrase(string? origin) => origin?.ToLowerInvariant() switch
     {
@@ -2437,8 +2463,30 @@ public sealed class MainForm : Form
                 _liveName = gameName;
             }
             var match = gameUserId is int uid ? _loadedAccounts.FirstOrDefault(a => a.UserId == uid) : null;
-            Log(match is not null
-                ? $"Sending it to RSL Companion to update “{match.Name ?? gameName}”…"
+
+            // One record per game account: if another profile holds this one, moving it here is the
+            // user's decision, asked now. Nothing moves without a yes; "just update" updates that
+            // profile's copy, which harms nobody. Not asked for an account this profile owns.
+            var move = false;
+            var heldElsewhere = false;
+            if (gameUserId is int heldId && (match is null || match.Shared))
+            {
+                var holder = await _api.GetHolderAsync(heldId);
+                heldElsewhere = holder?.HeldElsewhere == true;
+                if (holder is { HeldElsewhere: true, CanMove: true })
+                {
+                    if (AskMoveAccount(gameName) is not bool choice)
+                    {
+                        Log("Nothing was uploaded.");
+                        return;
+                    }
+                    move = choice;
+                }
+            }
+
+            Log(move ? $"Sending it to RSL Companion and moving “{gameName}” into your profile…"
+                : heldElsewhere ? $"Sending it to RSL Companion to update “{gameName}” in the profile that holds it…"
+                : match is not null ? $"Sending it to RSL Companion to update “{match.Name ?? gameName}”…"
                 : $"Sending it to RSL Companion — this will add “{gameName}” to your profile…");
             // Stamp uploader-side provenance onto every export/update. These are the uploader's own
             // concern (not the shared extraction model), so they are added to the engine's JSON here
@@ -2447,7 +2495,7 @@ public sealed class MainForm : Form
             var gameVersion = (_buildInfo ?? Engine.TryGetGameBuild())?.GameVersion;
             var json = SerializeWithProvenance(profile.Payload, gameVersion);
             Stage("serialize");
-            var result = await _api.UploadConsolidatedAsync(json);
+            var result = await _api.UploadConsolidatedAsync(json, move);
             Stage("upload (gzip + POST + server import)");
             Log(result.Message);
             if (result.Detail is string detail) Log($"Sync response: {detail}", detail: true);

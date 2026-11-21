@@ -287,12 +287,19 @@ TaskDialog (Cancel is the default).
   immediately and what goes with it (shares, clan list). A 404 counts as done. Deleting the account
   being played turns its tile back into "new account detected".
 
-**One record per game account (RaidTools, 2026-11-21): uploading an account another profile holds
-moves it here.** There is no Move button and no share is needed: the ordinary update is the move, and
-the read is the evidence (fresh, names the account, and holds at least half the other profile's
-champions by instance id *and* type). The previous owner has 7 days to reclaim it from the dashboard;
-until then the new owner cannot delete it. The upload response then carries `migration.deletableFrom`,
-and `UploadConsolidatedAsync` says the account moved and until when it can be taken back. **A 409 on
+**One record per game account (RaidTools, 2026-11-21), and moving one is the user's decision.**
+Before uploading an account this profile does not own (`match` null or shared),
+`ExportAccountAsync` asks the server who holds it (`GetHolderAsync`, `GET /api/accounts/{id}/holder`).
+If another profile holds it and it can move, `AskMoveAccount` asks: **Move it to my profile**,
+**Just update it** (the default button), or Cancel (nothing is uploaded). Move sends
+`?move=true`; the previous owner then has 7 days to reclaim it, and the new owner cannot delete it
+until then. Just update sends no flag, and the server updates the other profile's copy, which stays
+theirs. **Never send `move=true` without that yes**: a mistaken upload must not take anyone's account.
+A failed or refused holder lookup skips the question and uploads without moving, which is always safe.
+No share is needed for either; the read is the evidence (fresh, names the account, and holds at least
+half the other profile's champions by instance id *and* type). The response carries
+`migration.deletableFrom` after a move and `updatedAnotherProfile` after an update elsewhere, and
+`UploadConsolidatedAsync` says which happened. **A 409 on
 upload is that rule refusing** (the export doesn't match the other profile's copy, it was reclaimed
 from this profile, or it is mid-move): it shows the server's sentence and is marked `Forbidden`, so it
 never counts towards `_uploadRejections`. Server side: RaidTools `docs/account-migration.md`; the
