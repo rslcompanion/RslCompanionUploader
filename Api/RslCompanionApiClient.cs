@@ -227,6 +227,16 @@ public sealed class RslCompanionApiClient
                 ?? "This account has reached its daily upload limit on RSL Companion and can be updated again after 00:00 UTC.",
                 $"429 from {endpoint}, {sent}: {Trim(body)}") with { LimitReached = true };
 
+        // 409 is RSL Companion keeping one record per game account: this account is in another
+        // profile and the export doesn't match it, it was reclaimed from this profile, or it is
+        // mid-move. The server's sentence says which. A decision, like 403, so it is kept out of the
+        // out-of-date check. RaidTools docs/account-migration.md.
+        if (resp.StatusCode == HttpStatusCode.Conflict)
+            return UploadResult.Fail(
+                ServerMessage(body)
+                ?? "RSL Companion didn't take this update because this game account is in another profile.",
+                $"409 from {endpoint}, {sent}: {Trim(body)}") with { Forbidden = true };
+
         if (!resp.IsSuccessStatusCode)
             return UploadResult.Fail(
                 "RSL Companion couldn't accept your data. Please try again in a few minutes. If it "
@@ -234,9 +244,34 @@ public sealed class RslCompanionApiClient
               + "on its own is usually this app sending something the server has moved on from.",
                 $"{(int)resp.StatusCode} {resp.ReasonPhrase}, {sent}: {Trim(body)}");
 
+        // An upload of an account another profile held moved it here (one record per game account).
+        // The previous owner can take it back until the deadline, so the user is told when that is.
+        var movedUntil = MigrationDeadline(body);
         return UploadResult.Ok(
-            "Done — your account is up to date on RSL Companion.",
+            movedUntil is DateTimeOffset until
+                ? $"Done — this account moved into your profile from another RSL Companion profile, which can take it back until {until.ToLocalTime():d MMM yyyy, HH:mm}."
+                : "Done — your account is up to date on RSL Companion.",
             $"{(int)resp.StatusCode} {resp.ReasonPhrase}, {sent}: {Trim(body)}");
+    }
+
+    /// <summary>The <c>migration.deletableFrom</c> of an upload response, when the upload opened a move.</summary>
+    internal static DateTimeOffset? MigrationDeadline(string body)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                && doc.RootElement.TryGetProperty("migration", out var m)
+                && m.ValueKind == System.Text.Json.JsonValueKind.Object
+                && m.TryGetProperty("deletableFrom", out var d)
+                && d.TryGetDateTimeOffset(out var until)
+                    ? until
+                    : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -479,7 +514,8 @@ public readonly record struct UploadResult(bool Success, string Message, string?
     public static UploadResult Fail(string message, string? detail = null) => new(false, message, detail);
 
     /// <summary>
-    /// The server refused this account (403), which retrying or updating will not change. It is kept
+    /// The server refused this account (403, or a 409 about who holds the game account), which
+    /// retrying or updating will not change. It is kept
     /// apart from other failures so a refusal never triggers the "you may be out of date" check.
     /// </summary>
     public bool Forbidden { get; init; }

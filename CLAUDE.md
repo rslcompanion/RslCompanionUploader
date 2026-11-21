@@ -287,12 +287,16 @@ TaskDialog (Cancel is the default).
   immediately and what goes with it (shares, clan list). A 404 counts as done. Deleting the account
   being played turns its tile back into "new account detected".
 
-**Moving a shared account into the profile that plays it: the server half is built, the uploader's
-is not.** RaidTools has it on `dev` since 2026-11-21 (its `docs/account-migration.md`); the prompt it
-was built from is [docs/raidtools-account-migration.md](docs/raidtools-account-migration.md): the live read as
-evidence of possession, a 7-day grace period before a moved account can be deleted, undo and reclaim.
-The uploader offers it only when a shared list item carries `migratable: true`. Same standing as the
-other `raidtools-*.md` notes.
+**One record per game account (RaidTools, 2026-11-21): uploading an account another profile holds
+moves it here.** There is no Move button and no share is needed: the ordinary update is the move, and
+the read is the evidence (fresh, names the account, and holds at least half the other profile's
+champions by instance id *and* type). The previous owner has 7 days to reclaim it from the dashboard;
+until then the new owner cannot delete it. The upload response then carries `migration.deletableFrom`,
+and `UploadConsolidatedAsync` says the account moved and until when it can be taken back. **A 409 on
+upload is that rule refusing** (the export doesn't match the other profile's copy, it was reclaimed
+from this profile, or it is mid-move): it shows the server's sentence and is marked `Forbidden`, so it
+never counts towards `_uploadRejections`. Server side: RaidTools `docs/account-migration.md`; the
+brief it grew from: [docs/raidtools-account-migration.md](docs/raidtools-account-migration.md).
 
 `SetBusy` takes a *kind* (`"export"`, or null for background work like an account reload) so the page
 can show progress on the button that is running rather than only greying everything out, with the
