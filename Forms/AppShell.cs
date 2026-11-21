@@ -438,7 +438,8 @@ public sealed class AppShell : Panel
         [property: JsonPropertyName("artifactCount")] int ArtifactCount,
         [property: JsonPropertyName("lastSync")] string? LastSyncIso = null,
         [property: JsonPropertyName("accessoryCount")] int? AccessoryCount = null,
-        [property: JsonPropertyName("sharing")] Sharing? Sharing = null);
+        [property: JsonPropertyName("sharing")] Sharing? Sharing = null,
+        [property: JsonPropertyName("sharedWithMe")] bool SharedWithMe = false);
 
     /// <summary>
     /// The account's sharing state, drawn as a Shared / Not shared switch that opens the site's
@@ -1088,7 +1089,9 @@ public sealed class AppShell : Panel
       html += ""<div class='foot'>"";
       if (a.lastSync) html += ""<div class='synced' data-sync='"" + esc(a.lastSync) + ""'>Last synced "" + esc(syncLabel(a.lastSync)) + ""</div>"";
       html += ""<button type='button' class='remove' data-remove='"" + a.userId + ""'""
-        + (state.busy ? ' disabled' : '') + "" title='Delete this account&#39;s data from RSL Companion'>Remove</button></div>"";
+        + (state.busy ? ' disabled' : '') + "" title='""
+        + (a.sharedWithMe ? 'Remove this shared account from your list. Its owner&#39;s data is not touched.' : 'Delete this account&#39;s data from RSL Companion')
+        + ""'>"" + (a.sharedWithMe ? 'Unlink' : 'Remove') + ""</button></div>"";
       if (sel && sel.kind === 'update' && a.userId === sel.userId) html += tileActions('update');
       el.innerHTML = html;
       grid.appendChild(el);

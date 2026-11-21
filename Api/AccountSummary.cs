@@ -44,6 +44,17 @@ public sealed class AccountSummary
     [JsonPropertyName("accessoryCount")] public int? AccessoryCount { get; set; }
     [JsonPropertyName("lastSyncMethod")] public string? LastSyncMethod { get; set; }
 
+    /// <summary>
+    /// True for an account somebody else owns and shared with this user: the list carries their
+    /// pins beside the user's own imports (RaidTools <c>docs/account-sharing.md</c>). The user can
+    /// only unlink it (drop the pin), never delete it. An account the user also imported themselves
+    /// comes back once, as their own copy.
+    /// </summary>
+    [JsonPropertyName("shared")] public bool Shared { get; set; }
+
+    /// <summary>How a shared account reached this user: <c>clan</c>, <c>public</c> or <c>link</c>. Null when owned.</summary>
+    [JsonPropertyName("shareOrigin")] public string? ShareOrigin { get; set; }
+
     /// <summary>When this account was last synced. Returned by <c>GET /api/accounts</c>.</summary>
     [JsonPropertyName("lastSyncDate")] public DateTimeOffset? LastSyncDate { get; set; }
 

@@ -256,13 +256,26 @@ account is the site's decision, made on the site. The switch is hidden only when
 not be read, so it never shows a "Not shared" that might be wrong. The accounts header's Refresh
 button re-reads the accounts on demand, because sharing, counts and clan change on the site.
 
-**Every tile carries a quiet "Remove" link, and it deletes from the site, so it asks first.** It
-posts `removeAccount` with the tile's in-game id; `MainForm.RemoveAccountAsync` accepts only an id
-among the loaded tiles, confirms with a native TaskDialog (Cancel is the default), then calls
-`DELETE /api/accounts/{id}?syncMethod=ConsolidatedJson` — the website dashboard's own delete, scoped
-to this uploader's import so another source's snapshot of the same game account survives. The server
-filters by the caller's uid, so only the signed-in user's own accounts are reachable; a 404 counts as
-done. Removing the account being played turns its tile back into "new account detected".
+**Every tile carries a quiet Remove / Unlink link, and which one depends on who owns the account
+(1.62).** `GET /api/accounts` lists accounts other people shared with the user beside their own
+(`shared: true`), so a tile can be either. Both post `removeAccount` with the in-game id;
+`MainForm.RemoveAccountAsync` accepts only an id among the loaded tiles and confirms with a native
+TaskDialog (Cancel is the default).
+
+- **Shared with me → Unlink.** `DELETE /api/shared-accounts/{id}` drops the user's pin and nothing
+  else. The dialog says so: the owner's data, plans and sharing stay. Before 1.62 a shared tile went
+  to the owner-only delete, got 404 under the caller's uid, and was reported as removed while the pin
+  stayed.
+- **Owned → Delete permanently.** `DELETE /api/accounts/{id}?syncMethod=ConsolidatedJson`, the site
+  dashboard's own delete, scoped to this uploader's import. The dialog says it takes effect
+  immediately and what goes with it (shares, clan list). A 404 counts as done. Deleting the account
+  being played turns its tile back into "new account detected".
+
+**Moving a shared account into the profile that plays it is designed, not built.** The server half
+is [docs/raidtools-account-migration.md](docs/raidtools-account-migration.md): the live read as
+evidence of possession, a 7-day grace period before a moved account can be deleted, undo and reclaim.
+The uploader offers it only when a shared list item carries `migratable: true`. Same standing as the
+other `raidtools-*.md` notes.
 
 `SetBusy` takes a *kind* (`"export"`, or null for background work like an account reload) so the page
 can show progress on the button that is running rather than only greying everything out, with the

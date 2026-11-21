@@ -129,6 +129,31 @@ public sealed class RslCompanionApiClient
     }
 
     /// <summary>
+    /// Unlinks an account somebody else shared with the signed-in user (<c>DELETE
+    /// /api/shared-accounts/{id}</c>): drops only this user's pin. The owner's data, plans and
+    /// sharing are untouched. A 404 means there was no pin left to drop, which is the outcome asked for.
+    /// </summary>
+    public async Task<UploadResult> UnlinkSharedAccountAsync(int userId, CancellationToken ct = default)
+    {
+        try
+        {
+            using var req = await BuildRequestAsync(HttpMethod.Delete, $"/api/shared-accounts/{userId}", ct);
+            using var resp = await _http.SendAsync(req, ct);
+            if (resp.IsSuccessStatusCode || resp.StatusCode == HttpStatusCode.NotFound)
+                return UploadResult.Ok("Account unlinked.", $"{(int)resp.StatusCode} {resp.ReasonPhrase}");
+
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            return UploadResult.Fail(ServerMessage(body) ?? "RSL Companion couldn't unlink that account. Please try again in a moment.",
+                $"{(int)resp.StatusCode} {resp.ReasonPhrase}: {Trim(body)}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            return UploadResult.Fail("Couldn't reach RSL Companion to unlink that account. Check your connection and try again.",
+                ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Sharing settings for every account the signed-in user owns, keyed by in-game id. Null when the
     /// server can't say — an anonymous session (sharing is registered-users-only, 403), a server that
     /// predates sharing, or no network — so the caller shows no sharing state rather than "not shared".

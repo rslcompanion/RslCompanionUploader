@@ -1659,7 +1659,7 @@ public sealed class MainForm : Form
             _shell.SetAccounts(_loadedAccounts
                 .Select(a => new AppShell.Tile(a.UserId, a.Name ?? $"Account {a.UserId}", a.ClanName,
                     a.HeroCount, a.ArtifactCount, LastSyncInstant(a.LastSyncDate), a.AccessoryCount,
-                    SharingFor(a.UserId)))
+                    a.Shared ? null : SharingFor(a.UserId), a.Shared))
                 .ToList());
 
             if (silent)
@@ -1696,13 +1696,15 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// A tile's Remove link: deletes that game account's uploader import from the signed-in user's
-    /// RSL Companion profile, after a native confirmation. Only an id among the loaded tiles is
-    /// accepted, so a stray message from the page can't name some other account, and the server
-    /// scopes the delete to the caller's uid regardless. Scoped to this uploader's sync method, the
-    /// same way the site's dashboard scopes its own delete, so another import of the same game
-    /// account is left alone. Removing the account being played turns its tile back into "new
-    /// account detected", and the next update adds it again.
+    /// A tile's Remove / Unlink link, after a native confirmation. Only an id among the loaded tiles
+    /// is accepted, so a stray message from the page can't name some other account.
+    ///
+    /// <para><b>Two different actions, chosen by who owns the account.</b> A tile shared with this
+    /// user (<see cref="AccountSummary.Shared"/>) was never imported by them, so "remove" means
+    /// unlink: drop their pin, and nothing of the owner's is touched. An owned tile is deleted, scoped
+    /// to this uploader's sync method the way the site's dashboard scopes its own delete, effective
+    /// at once. Before the split a shared tile went to the owner-only delete, which found nothing
+    /// under the caller's uid, answered 404, and was reported as removed while the pin stayed.</para>
     /// </summary>
     private async Task RemoveAccountAsync(int userId)
     {
@@ -1710,40 +1712,70 @@ public sealed class MainForm : Form
         var account = _loadedAccounts.FirstOrDefault(a => a.UserId == userId);
         if (account is null) return;
         var name = string.IsNullOrWhiteSpace(account.Name) ? $"Account {userId}" : account.Name;
+        var shared = account.Shared;
 
-        var remove = new TaskDialogButton("Remove");
-        var page = new TaskDialogPage
-        {
-            Caption = "Remove account",
-            Heading = $"Remove {name} from RSL Companion?",
-            Text = "Its champions, gear and everything else this uploader imported are deleted from your "
-                 + "RSL Companion profile. If this is the account's only import, its saved snapshots and "
-                 + "sharing settings are deleted too. This can't be undone.\n\n"
-                 + "Your game account itself is not affected, and updating from Raid adds it back.",
-            Icon = TaskDialogIcon.Warning,
-            Buttons = { remove, TaskDialogButton.Cancel },
-            DefaultButton = TaskDialogButton.Cancel,
-        };
-        if (TaskDialog.ShowDialog(this, page) != remove) return;
-        // The dialog is modal but the poll and a site launch keep running: re-check before deleting.
+        var confirm = new TaskDialogButton(shared ? "Unlink" : "Delete permanently");
+        var page = shared
+            ? new TaskDialogPage
+            {
+                Caption = "Unlink shared account",
+                Heading = $"Unlink {name}?",
+                Text = $"{name} belongs to someone else, who shared it with you{ShareOriginPhrase(account.ShareOrigin)}. "
+                     + "Unlinking only removes it from your account list, here and on RSL Companion.\n\n"
+                     + "No data is deleted: the owner keeps the account, its history, plans and sharing "
+                     + "settings, and you can link it again while they keep sharing it.",
+                Icon = TaskDialogIcon.Information,
+                Buttons = { confirm, TaskDialogButton.Cancel },
+                DefaultButton = TaskDialogButton.Cancel,
+            }
+            : new TaskDialogPage
+            {
+                Caption = "Delete account",
+                Heading = $"Delete {name} from RSL Companion?",
+                Text = "The account's data is deleted from your RSL Companion profile immediately, with no "
+                     + "grace period: champions, gear, resources, progress and every snapshot imported by "
+                     + "the uploader. If it has no other import, its saved snapshots, plans and sharing "
+                     + "settings go too: everyone you shared it with loses access, and it leaves your "
+                     + "clan's member list on RSL Companion.\n\n"
+                     + "This can't be undone. Your game account in Raid is not affected; updating from "
+                     + "Raid imports it again as a new account, without its history.",
+                Icon = TaskDialogIcon.Warning,
+                Buttons = { confirm, TaskDialogButton.Cancel },
+                DefaultButton = TaskDialogButton.Cancel,
+            };
+        if (TaskDialog.ShowDialog(this, page) != confirm) return;
+        // The dialog is modal but the poll and a site launch keep running: re-check before acting.
         if (_busy || !_api.IsAuthenticated) return;
 
         SetBusy(true, "remove");
         UploadResult result;
         try
         {
-            Log($"Removing {name} from RSL Companion…");
-            result = await _api.DeleteAccountAsync(userId, UploaderSyncMethod);
+            Log(shared ? $"Unlinking {name}…" : $"Deleting {name} from RSL Companion…");
+            result = shared
+                ? await _api.UnlinkSharedAccountAsync(userId)
+                : await _api.DeleteAccountAsync(userId, UploaderSyncMethod);
         }
         finally
         {
             SetBusy(false);
         }
 
-        Log(result.Success ? $"Removed {name} from RSL Companion." : result.Message);
+        Log(result.Success
+            ? (shared ? $"Unlinked {name}. Its owner's data is unchanged." : $"Deleted {name} from RSL Companion.")
+            : result.Message);
         if (result.Detail is not null) Log(result.Detail, detail: true);
         if (result.Success) await LoadAccountsAsync();
     }
+
+    /// <summary>" through your clan" etc., for the unlink dialog; empty when the origin is unknown.</summary>
+    private static string ShareOriginPhrase(string? origin) => origin?.ToLowerInvariant() switch
+    {
+        "clan" => " through your clan",
+        "public" => " publicly",
+        "link" => " with a share link",
+        _ => "",
+    };
 
     /// <summary>
     /// The instant an account was last synced, as ISO-8601 for the page — <b>not</b> a "14 min ago"
