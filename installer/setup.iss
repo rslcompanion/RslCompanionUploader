@@ -69,6 +69,9 @@ OutputBaseFilename=RslCompanionAccountDataExtractor-Setup
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; The app's own icon (the ApplicationIcon in the csproj) on Setup.exe, its window and taskbar button, and
+; the uninstaller, instead of Inno's default. Relative to this script's folder.
+SetupIconFile=..\icon.ico
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
