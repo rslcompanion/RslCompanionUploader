@@ -74,6 +74,13 @@ WizardStyle=modern
 SetupIconFile=..\icon.ico
 UninstallDisplayName={#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
+; Tells Explorer at the end of install and uninstall that associations changed
+; (SHChangeNotify SHCNE_ASSOCCHANGED). That notification is also what refreshes the shell's icon cache.
+; Without it, an upgrade that changes the exe's icon leaves the taskbar button, Start menu and desktop
+; shortcut showing the old icon, because the cache keeps it under the unchanged path. Seen on the
+; 1.65.1 upgrade to the compass shield: the window's own icon was new, but the taskbar still drew the
+; old gate. The protocol class registered in [Registry] is an association in its own right anyway.
+ChangesAssociations=yes
 CloseApplications=yes
 
 [Languages]
