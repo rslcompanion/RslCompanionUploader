@@ -576,7 +576,17 @@ count towards `_uploadRejections`, because a refusal is not a sign of an out-of-
 The cap is RaidTools' (`UploadLimitSettings`, 5 by default, overridable per group and per user in
 its admin pages); this app only reports it. A 429 is `UploadResult.LimitReached`, shows the server's
 own message (which says when it opens again), and does not count towards `_uploadRejections`. Failed
-uploads give their slot back server-side, so a retry after an error costs nothing.
+uploads give their slot back server-side, so a retry after an error costs nothing. **Only a 429 whose
+body says `code: "upload-limit"` is that cap.** A bare 429 (empty body) is the API's request-rate
+limiter — 120 a minute per signed-in user, shared with the website in every open tab — which clears
+within a minute and never takes a daily slot (it refuses before the controller runs). That is
+`UploadResult.Throttled`, said as such, and also kept out of `_uploadRejections`. **A throttled
+upload is sent again once, by itself, after 65 s** (`ThrottleRetryDelay`): the same payload, no
+re-read, holding the busy flag through the wait, and dropped if the window closes or the session
+changes meanwhile. A second throttle is reported and left to the user. Before this split a
+website reloading a dozen times made the app tell a player they were locked out until midnight
+(2026-11-24). Every failed upload also goes to the notice banner, since the console is collapsed by
+default; the next good upload takes that notice down.
 
 ## Staying signed in
 

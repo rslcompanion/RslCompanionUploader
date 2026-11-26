@@ -244,14 +244,25 @@ public sealed class RslCompanionApiClient
                 ?? $"Your account isn't allowed to upload to {Session!.Target.ApiHost}. Ask an RSL Companion admin for access.",
                 $"403 from {endpoint}, {sent}: {Trim(body)}") with { Forbidden = true };
 
-        // 429 is RSL Companion's daily upload limit for this game account (set by its admins, per
-        // group or per user). Like a 403 it is a decision, not a fault: the server's message says when
-        // it opens again, and it is kept out of the out-of-date check.
+        // A 429 is one of two different things, and only the body tells them apart.
+        // - The daily upload limit for this game account (RaidTools UploadLimitSettings) answers with
+        //   {message, code: "upload-limit", resetsAt}. A decision, not a fault: the server's message
+        //   says when it opens again.
+        // - Anything else is the API's request-rate limiter (120 a minute per signed-in user, shared
+        //   with the website in any browser tab), which answers with an empty body. It clears within
+        //   a minute. Calling it the daily limit told a player they were locked out until midnight
+        //   when the website had just reloaded a dozen times (2026-11-24).
+        // Both are kept out of the out-of-date check.
         if (resp.StatusCode == HttpStatusCode.TooManyRequests)
-            return UploadResult.Fail(
-                ServerMessage(body)
-                ?? "This account has reached its daily upload limit on RSL Companion and can be updated again after 00:00 UTC.",
-                $"429 from {endpoint}, {sent}: {Trim(body)}") with { LimitReached = true };
+            return ErrorCode(body) == "upload-limit"
+                ? UploadResult.Fail(
+                    ServerMessage(body)
+                    ?? "This account has reached its daily upload limit on RSL Companion and can be updated again after 00:00 UTC.",
+                    $"429 from {endpoint}, {sent}: {Trim(body)}") with { LimitReached = true }
+                : UploadResult.Fail(
+                    "RSL Companion is getting too many requests from your account right now, so it didn't take "
+                  + "this update; it will accept it again in about a minute.",
+                    $"429 (rate limit) from {endpoint}, {sent}: {Trim(body)}") with { Throttled = true };
 
         // 409 is RSL Companion keeping one record per game account: this account is in another
         // profile and the export doesn't match it, it was reclaimed from this profile, or it is
@@ -529,14 +540,21 @@ public sealed class RslCompanionApiClient
 
     /// <summary>The <c>message</c> of a RaidTools error body, when there is one worth showing.</summary>
     internal static string? ServerMessage(string body)
+        => StringProperty(body, "message") is { Length: <= 500 } text ? text : null;
+
+    /// <summary>The <c>code</c> of a RaidTools error body (e.g. <c>upload-limit</c>), or null.</summary>
+    internal static string? ErrorCode(string body) => StringProperty(body, "code");
+
+    private static string? StringProperty(string body, string name)
     {
+        if (string.IsNullOrWhiteSpace(body)) return null;
         try
         {
             using var doc = System.Text.Json.JsonDocument.Parse(body);
             return doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
-                && doc.RootElement.TryGetProperty("message", out var m)
+                && doc.RootElement.TryGetProperty(name, out var m)
                 && m.ValueKind == System.Text.Json.JsonValueKind.String
-                && m.GetString() is { Length: > 0 and <= 500 } text
+                && m.GetString() is { Length: > 0 } text
                     ? text
                     : null;
         }
@@ -569,6 +587,12 @@ public readonly record struct UploadResult(bool Success, string Message, string?
     /// an update would not change it, only the next UTC day does.
     /// </summary>
     public bool LimitReached { get; init; }
+
+    /// <summary>
+    /// The API's request-rate limiter refused the call (a 429 that is not the daily limit). It clears
+    /// within a minute, and is not a sign of an out-of-date uploader either.
+    /// </summary>
+    public bool Throttled { get; init; }
 }
 
 /// <summary>

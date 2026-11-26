@@ -111,12 +111,28 @@ public class GzipUploadTests
     }
 
     [Fact]
-    public async Task A_limit_answer_without_a_message_still_says_what_happened()
+    public async Task A_bare_429_is_the_rate_limiter_not_the_daily_limit()
     {
+        // The API's request-rate limiter answers 429 with an empty body; it clears within a minute.
+        // Reported as the daily limit, it told a player they were locked out until midnight.
         var handler = new Canned(() => Reply(HttpStatusCode.TooManyRequests, ""));
         var result = await Client(handler, ApiTarget.Production).UploadConsolidatedAsync(Payload);
 
+        Assert.False(result.Success);
+        Assert.False(result.LimitReached);
+        Assert.True(result.Throttled);
+        Assert.DoesNotContain("daily", result.Message);
+        Assert.Single(handler.Requests);
+    }
+
+    [Fact]
+    public async Task A_daily_limit_answer_without_a_message_still_says_what_happened()
+    {
+        var handler = new Canned(() => Reply(HttpStatusCode.TooManyRequests, """{"code":"upload-limit"}"""));
+        var result = await Client(handler, ApiTarget.Production).UploadConsolidatedAsync(Payload);
+
         Assert.True(result.LimitReached);
+        Assert.False(result.Throttled);
         Assert.Contains("daily upload limit", result.Message);
     }
 }

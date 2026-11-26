@@ -2332,6 +2332,10 @@ public sealed class MainForm : Form
     /// is a moment; a run of them is a symptom, and this is what tells the two apart.
     /// </summary>
     private int _uploadRejections;
+    // The notice a failed upload put up, so the next good upload can take it down (and nothing else).
+    private string? _uploadNotice;
+    // The API's request-rate limiter counts in one-minute windows; a little over one is always past it.
+    private static readonly TimeSpan ThrottleRetryDelay = TimeSpan.FromSeconds(65);
 
     /// <summary>
     /// A website button's request to update that has not run yet.
@@ -2495,10 +2499,51 @@ public sealed class MainForm : Form
             var gameVersion = (_buildInfo ?? Engine.TryGetGameBuild())?.GameVersion;
             var json = SerializeWithProvenance(profile.Payload, gameVersion);
             Stage("serialize");
+            var uploadSession = _api.Session;
             var result = await _api.UploadConsolidatedAsync(json, move);
             Stage("upload (gzip + POST + server import)");
             Log(result.Message);
             if (result.Detail is string detail) Log($"Sync response: {detail}", detail: true);
+
+            // The API's rate limiter clears within a minute, and nothing about the update has to be
+            // redone: the data already read is still the data to send. So the app waits once and
+            // sends the same payload again, rather than leaving the player to watch the clock. Once
+            // only — a second throttle means something keeps the account busy, and the notice says so.
+            // The wait holds the busy flag, so no second export can start under it, and it ends with
+            // the window or if the session changes (a different account's upload is not ours to send).
+            if (result.Throttled)
+            {
+                _shell.SetNotice(_uploadNotice = "RSL Companion is getting too many requests from your "
+                    + "account right now, so this update will be sent again in a minute.");
+                Log("RSL Companion is busy with your account's other requests; sending this update again in a minute…");
+                await Task.Delay(ThrottleRetryDelay, _statusCts.Token);
+                if (_api.Session is not { } now || uploadSession is null
+                    || now.Uid != uploadSession.Uid || now.Target != uploadSession.Target)
+                {
+                    Log("You signed out or switched accounts while waiting, so the update wasn't sent again.");
+                    if (_shell.Notice == _uploadNotice) _shell.SetNotice(null);
+                    _uploadNotice = null;
+                    return;
+                }
+                Stage("wait for rate limit");
+                result = await _api.UploadConsolidatedAsync(json, move);
+                Stage("upload again");
+                Log(result.Message);
+                if (result.Detail is string retryDetail) Log($"Sync response: {retryDetail}", detail: true);
+            }
+            // A refused update is the one outcome of the button that the player has to know about, and
+            // the activity console is collapsed by default — so it goes in the notice banner too. Only
+            // the notice this path put up is cleared by a later success; others are not ours to take.
+            if (!result.Success)
+            {
+                _uploadNotice = result.Message;
+                _shell.SetNotice(result.Message);
+            }
+            else if (_uploadNotice is not null)
+            {
+                if (_shell.Notice == _uploadNotice) _shell.SetNotice(null);
+                _uploadNotice = null;
+            }
 
             // "Try again in a few minutes" is the right answer to one rejection and the wrong answer
             // to a run of them: a server that keeps refusing this app's uploads is usually one this
@@ -2508,7 +2553,7 @@ public sealed class MainForm : Form
             // A 403 or a daily-limit 429 is the server deciding about this account, not a sign of an
             // old uploader.
             _uploadRejections = result.Success ? 0
-                : result.Forbidden || result.LimitReached ? _uploadRejections
+                : result.Forbidden || result.LimitReached || result.Throttled ? _uploadRejections
                 : _uploadRejections + 1;
             if (_uploadRejections >= 2)
             {
@@ -2524,6 +2569,10 @@ public sealed class MainForm : Form
                 await LoadAccountsAsync();
                 Stage("reload accounts");
             }
+        }
+        catch (OperationCanceledException) when (_statusCts.IsCancellationRequested)
+        {
+            // The window closed during the rate-limit wait; there is nobody left to tell.
         }
         catch (Exception ex)
         {

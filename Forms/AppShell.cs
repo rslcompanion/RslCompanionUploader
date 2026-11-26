@@ -281,6 +281,9 @@ public sealed class AppShell : Panel
     /// </summary>
     public void SetNotice(string? text) { _notice = text; PushState(); }
 
+    /// <summary>The notice currently shown, or null.</summary>
+    public string? Notice => _notice;
+
     /// <summary>Replaces the tile list. Drops the in-game highlight if its account is no longer present.</summary>
     public void SetAccounts(IReadOnlyList<Tile> accounts)
     {
